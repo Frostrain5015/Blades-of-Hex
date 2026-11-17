@@ -18,6 +18,7 @@ const UNIT_METRICS = Object.freeze({
     damageDealt: '造成伤害',
     damageTaken: '承受伤害',
     healingReceived: '恢复量',
+    recruits: '招募',
     actions: '参与行动'
 });
 
@@ -91,7 +92,7 @@ function resolveCampFlagVisual(camp, index = 0) {
         color,
         palette,
         emoji: camp?.flagEmoji || '',
-        name: camp?.name || camp?.campKey || '未知阵营',
+        name: camp?.name || (camp?.campKey === 'neutral' ? '中立' : camp?.campKey) || '未知阵营',
         hasDistinctFlag: Boolean(url || camp?.flagEmoji)
     };
 }
@@ -610,6 +611,7 @@ function unitMvpEmblemLabel(unit) {
         case 'mgNest': return '碉堡';
         case 'shoreBattery': return '岸防';
         case 'drone': return '天眼';
+        case 'airfield': return '空军';
         default: return '精锐';
     }
 }
@@ -638,11 +640,24 @@ function renderUnitMvp(stats, container) {
         const portrait = resolveCommanderPennantPortrait(unit.commanderId);
         const rankMedal = MEDAL_RANKS[index] || String(index + 1);
         const captures = Number(unit.captures || 0);
+        const recruits = Number(unit.recruits || 0);
+        const isAirfield = unit.type === 'airfield';
         const statusText = unit.survived === true ? '存活' : unit.survived === false ? '阵亡' : '参战';
         const statusClass = unit.survived === true ? 'is-alive' : 'is-dead';
         const foregroundHtml = portrait
             ? `<img class="match-mvp-commander-portrait${portrait.isIronGuard ? ' is-iron-guard' : ''}" src="${escapeHtml(portrait.src)}" alt="${escapeHtml(portrait.name)}立绘">`
             : `<span class="match-mvp-unit-watermark">${escapeHtml(unitMvpEmblemLabel(unit))}</span>`;
+        const metricsHtml = isAirfield
+            ? `
+                        <span><b>${formatNumber(unit.kills)}</b>击杀</span>
+                        <span><b>${formatNumber(unit.damageDealt)}</b>输出</span>
+                        <span><b>${formatNumber(recruits)}</b>空降</span>
+                        <span><b>${formatNumber(unit.airCommands || unit.actions)}</b>出动</span>`
+            : `
+                        <span><b>${formatNumber(unit.kills)}</b>击杀</span>
+                        <span><b>${formatNumber(unit.damageDealt)}</b>输出</span>
+                        <span><b>${formatNumber(unit.damageTaken)}</b>承伤</span>
+                        <span><b>${formatNumber(unit.healingReceived)}</b>恢复</span>`;
         return `
             <article class="match-mvp-card is-rank-${index + 1}" style="--camp-color:${color}">
                 <div class="match-mvp-stage${portrait ? ' has-commander' : ''}">
@@ -652,6 +667,7 @@ function renderUnitMvp(stats, container) {
                         <span class="match-mvp-rank" aria-label="第${index + 1}名">${rankMedal}</span>
                         <span class="match-mvp-tags">
                             ${captures > 0 ? `<em class="match-mvp-capture-tag">占城 ${formatNumber(captures)}</em>` : ''}
+                            ${!isAirfield && recruits > 0 ? `<em class="match-mvp-capture-tag">空降 ${formatNumber(recruits)}</em>` : ''}
                             <em class="match-mvp-life ${statusClass}">${statusText}</em>
                         </span>
                     </header>
@@ -662,10 +678,7 @@ function renderUnitMvp(stats, container) {
                         <small>#${escapePlainHtml(unit.id)}</small>
                     </div>
                     <div class="match-mvp-metrics">
-                        <span><b>${formatNumber(unit.kills)}</b>击杀</span>
-                        <span><b>${formatNumber(unit.damageDealt)}</b>输出</span>
-                        <span><b>${formatNumber(unit.damageTaken)}</b>承伤</span>
-                        <span><b>${formatNumber(unit.healingReceived)}</b>恢复</span>
+                        ${metricsHtml}
                     </div>
                 </div>
             </article>
@@ -707,7 +720,7 @@ function renderUnitTable(stats, container, metric, campFilter) {
         .filter(unit => campFilter === 'all' || unit.campKey === campFilter)
         .filter(unit => Number(unit[metric] || 0) > 0)
         .sort((left, right) => Number(right[metric] || 0) - Number(left[metric] || 0) || String(left.id).localeCompare(String(right.id)))
-        .slice(0, 12);
+        .slice(0, 5);
     const max = Math.max(1, ...filtered.map(unit => Number(unit[metric] || 0)));
     container.innerHTML = filtered.length ? filtered.map((unit, index) => {
         const campIndex = stats.camps.findIndex(entry => entry.campKey === unit.campKey);
@@ -780,7 +793,7 @@ function renderCaptureGroupsHtml(stats, capturesList) {
 
     const byPair = new Map();
     for (const cap of capturesList) {
-        const prev = cap.previousCampKey && cap.previousCampKey !== 'neutral' && cap.previousCampKey !== cap.campKey
+        const prev = cap.previousCampKey && cap.previousCampKey !== cap.campKey
             ? cap.previousCampKey
             : '';
         const groupKey = `${cap.campKey || ''}->${prev}`;
@@ -867,9 +880,9 @@ function renderEventSideBadge(stats, event) {
         const capturers = [...new Set((event.capturesList || []).map(cap => cap.campKey).filter(Boolean))];
         const prevEnemies = [...new Set((event.capturesList || [])
             .map(cap => cap.previousCampKey)
-            .filter(key => key && key !== 'neutral' && !capturers.includes(key)))];
-        if (capturers.length === 1 && prevEnemies.length === 1) {
-            return `<div class="match-battle-matchup">${flagOnly(capturers[0])}<b class="match-battle-op">➔</b>${flagOnly(prevEnemies[0])}</div><small>攻占 ${formatNumber(event.captures)} 城</small>`;
+            .filter(key => key && !capturers.includes(key)))];
+        if (capturers.length === 1 && prevEnemies.length >= 1) {
+            return `<div class="match-battle-matchup">${flagOnly(capturers[0])}<b class="match-battle-op">➔</b>${prevEnemies.slice(0, 2).map(flagOnly).join('')}</div><small>攻占 ${formatNumber(event.captures)} 城</small>`;
         }
         if (capturers.length) {
             return `<div class="match-battle-matchup">${capturers.slice(0, 2).map(flagOnly).join('')}</div><small>攻占 ${formatNumber(event.captures)} 城</small>`;

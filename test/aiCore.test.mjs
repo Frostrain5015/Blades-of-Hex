@@ -722,18 +722,18 @@ test('困难档按敌方实有金币及被占村庄收入判断空城补兵风�
     const state = makeState(tiles, { player1: me, player2: foe, neutral }, {
         skirmishFog: true,
         villageTiles: new Map([['4,0', { districtId: 2 }]]),
-        playerGold: { player1: 10, player2: 3 }
+        playerGold: { player1: 10, player2: 2 }
     });
     const helpers = { ...makeHelpers(tiles), isTileVisible: tile => tile === home };
     const poor = buildWorld(state, helpers, me, TIER_CAPABILITIES.hard);
-    assert.equal(poor.rivalEconomyByKey.get('player2').projectedIncome, 4);
-    assert.equal(poor.rivalEconomyByKey.get('player2').gold, 3);
-    state.playerGold.player2 = 4;
+    assert.equal(poor.rivalEconomyByKey.get('player2').projectedIncome, 5);
+    assert.equal(poor.rivalEconomyByKey.get('player2').gold, 2);
+    state.playerGold.player2 = 3;
     const funded = buildWorld(state, helpers, me, TIER_CAPABILITIES.hard);
     assert.equal(rankCityObjectives(poor, () => 2)[0].score
         - rankCityObjectives(funded, () => 2)[0].score, W.rivalRecruitmentPressure);
     const medium = buildWorld(state, helpers, me, TIER_CAPABILITIES.medium);
-    assert.equal(medium.rivalEconomyByKey.get('player2').gold, 4);
+    assert.equal(medium.rivalEconomyByKey.get('player2').gold, 3);
     const easy = buildWorld(state, helpers, me, TIER_CAPABILITIES.easy);
     assert.equal(easy.rivalEconomyByKey.get('player2').gold, undefined);
 });
@@ -1207,7 +1207,7 @@ test('狂战士识别先开【泣血】再机动斩首将领，【禁锢】优�
 
     const berserker = makeUnit(1, 'warship', me, startTile, { commander: 'berserker', remainingMP: 6 });
     const poisonedCommander = makeUnit(10, 'warship', foe, enemyTile, {
-        hp: 100, commander: 'tianyan', _poison: { remainingTicks: 2 }
+        hp: 85, commander: 'tianyan', _poison: { remainingTicks: 2 }
     });
     makeUnit(11, 'warship', foe, unpoisonedTile, { hp: 100 });
     makeUnit(12, 'infantry', foe, foeCity);

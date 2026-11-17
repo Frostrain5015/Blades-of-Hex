@@ -20,7 +20,7 @@ export const GAME_RULES = deepFreeze({
     villageGold: 1,
     villageMinDistance: 3,
     commanderRerollCost: 3,
-    income: { firstCityGold: 4, secondCityGold: 3, additionalCityGold: 2 },
+    income: { firstCityGold: 5, secondCityGold: 4, additionalCityGold: 2 },
     cardSystem: { drawCost: 4, maxHandSize: 3, maxDrawsPerTurn: 2, maxUsesPerTurn: 2 },
     weatherCycle: { warmupRounds: 2, weatherDuration: 2, clearDuration: 1 },
     deckComposition: [
@@ -79,7 +79,7 @@ export function calcIncome(cityCount) {
 /** 伤害管线的共用平衡参数；`Unit.js` 不再保存这些魔法数字。 */
 export const COMBAT_BALANCE = deepFreeze({
     float: {
-        attack: { min: 0.85, max: 1.35, critThreshold: 1.30 },
+        attack: { min: 0.85, max: 1.30, critThreshold: 1.25 },
         counter: { min: 0.90, cityMin: 1.00, max: 1.70, critThreshold: 1.50, baseMultiplier: 0.75 }
     },
     // 克制不再提供固定增减伤：改为浮动区间平移——顺克上移（暴击率提升），逆克下移（相应惩罚）

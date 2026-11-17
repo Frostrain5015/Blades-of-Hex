@@ -17,7 +17,7 @@ export const EMOJI = deepFreeze({
     },
     cards: {
         heal: '💚', lightning: '⚡', mgNest: '🏰', airdrop: '🪂', imprison: '🔗',
-        forceMarch: '🏃', scout: '🔭', airstrike: '✈️', shield: '🛡️',
+        forceMarch: '🏃', scout: '🔭', shield: '🛡️',
         landmine: '💣', commanderDeploy: '🎖️', diveStrafe: '💥', carpetBomb: '💣', airlift: '🪂'
     }
 });

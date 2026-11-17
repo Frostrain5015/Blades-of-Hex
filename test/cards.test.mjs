@@ -30,7 +30,7 @@ function shieldSetup() {
 }
 
 // 旧硬编码列表（迁移前 gameLogic 中的字符串判定），作为回归基准：
-const OLD_DELAYED = ['lightning', 'airstrike', 'mgNest', 'shield', 'orbitalStrike'];
+const OLD_DELAYED = ['lightning', 'mgNest', 'shield', 'orbitalStrike'];
 const OLD_NO_DISCARD = ['commanderDeploy', 'orbitalStrike'];
 const OLD_NO_COPY = ['commanderDeploy', 'diveStrafe', 'carpetBomb', 'airlift', 'orbitalStrike'];
 
@@ -103,4 +103,11 @@ test('护盾卡：护盾先于生命吸收伤害，打光后才见血', () => {
     unit.applyDamage(20, { source: 'melee', attacker: null });
     assert.equal(unit._shield, 0, '护盾打光');
     assert.equal(unit.hp, hpBefore - 11, '溢出部分见血');
+});
+
+
+test('过时的【空袭】对策卡已彻底移除', () => {
+    assert.equal(TACTICAL_CARD_DATA.airstrike, undefined);
+    assert.equal(TACTICAL_CARD_CONFIG.airstrike, undefined);
+    assert.equal('airstrike' in CARD_FLAGS, false);
 });

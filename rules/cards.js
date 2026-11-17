@@ -7,7 +7,6 @@ import { percent, rangeText } from './format.js';
 import { EMOJI } from './symbols.js';
 import { UNIT_CONFIG } from './units.js';
 import { COMBAT_BALANCE } from './constants.js';
-import { getCrossDomainDamageBonus } from './naval.js';
 import { campToKey } from './camps.js';
 import { isWaterTile } from './surfaces.js';
 import { canAttack } from './diplomacy.js';
@@ -22,7 +21,6 @@ export const TACTICAL_CARD_DATA = (() => {
         imprison: { id: 'imprison', name: '禁锢', icon: EMOJI.cards.imprison, targeting: 'enemyGlobal', desc: '【禁锢】\n对指定敌方单位释放，使其下回合无法移动' },
         forceMarch: { id: 'forceMarch', name: '强行军', icon: EMOJI.cards.forceMarch, targeting: 'friendlyAny', balance: { movementPoints: 2 } },
         scout: { id: 'scout', name: '侦察', icon: EMOJI.cards.scout, targeting: 'anyTileGlobal', balance: { duration: 3 } },
-        airstrike: { id: 'airstrike', name: '空袭', icon: EMOJI.cards.airstrike, targeting: 'enemyGlobal', balance: { minDamage: 35, maxDamage: 50, forestMultiplier: 0.8, cityDisableRounds: 2 } },
         shield: { id: 'shield', name: '护盾', icon: EMOJI.cards.shield, targeting: 'shieldTarget', balance: { shield: 60 } },
         landmine: { id: 'landmine', name: '地雷', icon: EMOJI.cards.landmine, targeting: 'emptyFriendlyLandmine', desc: '【地雷】\n在己方空地部署地雷，敌方单位经过时触发造成伤害' },
         poison: { id: 'poison', name: '投毒', icon: '☣️', targeting: 'anyUnit', balance: { ticks: 3, damageMaxHpPct: 0.15 } },
@@ -36,7 +34,6 @@ export const TACTICAL_CARD_DATA = (() => {
     cards.airdrop.desc = `【空降】\n在指定空地投放一支${cards.airdrop.balance.infantryHp}生命值的空降步兵`;
     cards.forceMarch.desc = `【强行军】\n对指定己方单位释放，立即回复${cards.forceMarch.balance.movementPoints}点行动力`;
     cards.scout.desc = `【侦察】\n对指定位置释放，揭示目标及其相邻地块的战争迷雾，持续${cards.scout.balance.duration}回合`;
-    cards.airstrike.desc = `【空袭】\n对指定敌方目标及其相邻地块造成${rangeText(cards.airstrike.balance.minDamage, cards.airstrike.balance.maxDamage)}范围伤害，命中城市时使其${cards.airstrike.balance.cityDisableRounds}回合内无法产出资源或招募部队`;
     cards.shield.desc = `【护盾】\n对指定目标释放，使其获得${cards.shield.balance.shield}点护盾值，永久有效直到被消耗殆尽`;
     cards.poison.desc = `【投毒】\n使目标单位中毒：其所属阵营回合开始时流失${percent(cards.poison.balance.damageMaxHpPct)}最大生命值，持续${cards.poison.balance.ticks}回合，并会传染给相邻单位`;
     cards.orbitalStrike.desc = `【天基打击】\n呼叫天基平台打击目标及其相邻地块：光束先进行${cards.orbitalStrike.balance.tickRatios.length - 1}段压制，随后引爆，以中心${cards.orbitalStrike.balance.centerAttack}/溅射${cards.orbitalStrike.balance.splashAttack}的基础火力造成必暴击的普通伤害（受防御减免，无视防空与将领加成）`;
@@ -82,7 +79,6 @@ export const ORBITAL_STRIKE_TICK_DELAYS_MS = deepFreeze([400, 650, 900, 1500]);
 const _EMPTY_CARD_FLAGS = deepFreeze({});
 export const CARD_FLAGS = deepFreeze({
     lightning:       { delayed: true },
-    airstrike:       { delayed: true },
     mgNest:          { delayed: true },
     shield:          { delayed: true },
     orbitalStrike:   { delayed: true, noDiscard: true, noCopy: true },
@@ -167,51 +163,11 @@ export const TACTICAL_CARD_CONFIG = deepFreeze({
             return { scoutQ: targetTile.q, scoutR: targetTile.r };
         }
     },
-    airstrike: {
-        ...TACTICAL_CARD_DATA.airstrike,
-        execute(targetTile, gameState, helpers) {
-            const balance = TACTICAL_CARD_DATA.airstrike.balance;
-            const dmgBase = gameState.rng.between(balance.minDamage, balance.maxDamage);
-            const results = [];
-            const myCamp = helpers.getMyCamp();
-            const { applyAADefense, getAALayers } = helpers;
-            const dirs = [[0,0],[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
-            let maxAntiAir = 0;
-            for (const [dq, dr] of dirs) {
-                const ht = gameState.tileMap.get(`${targetTile.q + dq},${targetTile.r + dr}`);
-                if (!ht) continue;
-                const tileAA = typeof getAALayers === 'function'
-                    ? getAALayers(ht, myCamp, gameState.tileMap)
-                    : 0;
-                if (dq === 0 && dr === 0) maxAntiAir = Math.max(maxAntiAir, tileAA);
-                let dmg = dmgBase;
-                // 森林掩蔽：对空军+20%防御
-                if (ht.terrain === 'forest') dmg = Math.round(dmg * balance.forestMultiplier);
-                // 通用防空接口：按累计百分比减伤（85% 上限）
-                dmg = applyAADefense(dmg, ht, myCamp, gameState.tileMap);
-                if (ht.unit) {
-                    maxAntiAir = Math.max(maxAntiAir, tileAA);
-                    // 预演扣血（含护盾）：调用方随即回滚，真正结算延迟走 Unit.applyDamage
-                    // （勿改用 applyDamage，否则击杀无法回滚）
-                    let remaining = dmg;
-                    if (ht.unit._shield > 0) {
-                        const absorbed = Math.min(ht.unit._shield, remaining);
-                        ht.unit._shield -= absorbed;
-                        remaining -= absorbed;
-                    }
-                    ht.unit.hp = Math.max(0, ht.unit.hp - remaining);
-                    results.push({ q: ht.q, r: ht.r, dmg, killed: ht.unit.hp <= 0 });
-                }
-            }
-            const antiAir = Math.min(COMBAT_BALANCE.defense.maximumReduction, maxAntiAir);
-            return { airstrike: true, targetTile, results, dmgBase, antiAir };
-        }
-    },
     // 天鹰阵营协同奖励卡：虚拟"天基平台"作为攻击方，伤害走标准四乘区管线——
-    // ① 基础火力由 balance.centerAttack/splashAttack 直接操控；② 无克制/将领增伤
-    // （跨域加成显式中和，保持该乘区恒为 1）；③ 浮动顶格（恒取上限，视为暴击）；
-    // ④ 防御正常生效，但 isAirDamage=false 不吃防空火力。伤害分四段：光束压制
-    // 3 段小额（12%×3），光环坠落引爆主伤害（64%）。预演扣血含护盾吸收，由调用方回滚。
+    // ① 基础火力由 balance.centerAttack/splashAttack 直接操控；② 无克制/将领/跨域增伤；
+    // ③ 浮动顶格（恒取上限，视为暴击）；④ 防御正常生效，但 isAirDamage=false 不吃防空火力。
+    // 伤害分四段：光束压制 3 段小额（12%×3），光环坠落引爆主伤害（64%）。
+    // 预演扣血含护盾吸收，由调用方回滚。
     orbitalStrike: {
         ...TACTICAL_CARD_DATA.orbitalStrike,
         execute(targetTile, gameState, helpers) {
@@ -227,14 +183,29 @@ export const TACTICAL_CARD_CONFIG = deepFreeze({
                     const platform = {
                         type: 'orbitalPlatform',
                         commander: null,
-                        camp: myCamp,
-                        _rankCritBonus: 0,
-                        getEffectiveAttack: () => attackPower,
-                        _calcFloat: () => COMBAT_BALANCE.float.attack.max
+                        camp: myCamp
                     };
-                    // 中和跨域加成（对舰船），让伤害完全由 ①③④ 决定
-                    const crossDomain = getCrossDomainDamageBonus(platform, ht.unit);
-                    const resolved = ht.unit._resolveDamage(platform, ht.unit, 1, -crossDomain, false, false, false);
+                    const resolved = ht.unit._resolveDamage(
+                        platform,
+                        ht.unit,
+                        1,
+                        0,
+                        false,
+                        false,
+                        false,
+                        0,
+                        0,
+                        false,
+                        0,
+                        0,
+                        {
+                            attackPower,
+                            ignoreCounterRelation: true,
+                            ignoreCommanderOffense: true,
+                            ignoreCrossDomain: true,
+                            floatOverride: COMBAT_BALANCE.float.attack.max
+                        }
+                    );
                     const dmg = Math.max(1, Math.round(resolved.dmg));
                     // 分段伤害：末段取剩余量，保证各段取整后总和等于定值
                     let allocated = 0;

@@ -88,9 +88,9 @@ assert.equal(isResolvedTargetingCandidate(preview, nearEnemy), true);
 assert.equal(isResolvedTargetingCandidate(preview, farEnemy), false);
 assert.equal(preview.air.colonelOriginUnitId, 'colonel');
 
-preview = resolveTargetingPreview(gs, { cardId: 'airstrike', targeting: 'enemyGlobal' });
-assert.equal(isResolvedTargetingCandidate(preview, farEnemy), true, '普通空袭不受上校航程限制');
-assert.equal(preview.air.colonelOriginUnitId, undefined, '普通空袭不得伪造上校起点');
+preview = resolveTargetingPreview(gs, { cardId: 'airdrop', targeting: 'emptyTile' });
+assert.equal(isResolvedTargetingCandidate(preview, farEmpty), true, '空降不受上校航程限制');
+assert.equal(preview.air.colonelOriginUnitId, undefined, '空降不得伪造上校起点');
 assert.equal(preview.air.rangeTileKeys.size, 0);
 
 const airfield = tile(0, 0, {

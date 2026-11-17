@@ -37,7 +37,6 @@ const COMMANDS = [
     { cmd: '/card',     desc: '给当前阵营一张对策卡', subs: [
         { cmd: 'heal',      desc: '疗愈' },
         { cmd: 'lightning', desc: '雷击' },
-        { cmd: 'airstrike', desc: '空袭' },
         { cmd: 'airdrop',   desc: '空降' },
         { cmd: 'mgNest',    desc: '碉堡' },
         { cmd: 'shield',    desc: '护盾' },
@@ -194,7 +193,7 @@ function exec(cmd) {
 
         case '/card':
             if (!args[1] || !TACTICAL_CARD_CONFIG[args[1]]) {
-                notify('用法: /card <heal|lightning|airstrike|airdrop|mgNest|shield|landmine|imprison|forceMarch|commanderDeploy>', 'error');
+                notify('用法: /card <heal|lightning|airdrop|mgNest|shield|landmine|imprison|forceMarch|commanderDeploy>', 'error');
                 break;
             }
             {

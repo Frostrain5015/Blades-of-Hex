@@ -46,7 +46,7 @@ export const TARGET_SHAPES = Object.freeze({
 });
 
 export const AIR_TARGETING_CARD_IDS = Object.freeze(new Set([
-    'airstrike', 'airdrop', 'diveStrafe', 'carpetBomb', 'airlift', 'airlift_dest',
+    'airdrop', 'diveStrafe', 'carpetBomb', 'airlift', 'airlift_dest',
     'air_command_strafe', 'air_command_bombing', 'air_command_airdrop', 'air_command_recon', 'air_command_stukaDiveBomb'
 ]));
 
@@ -54,7 +54,7 @@ export const COLONEL_TARGETING_CARD_IDS = Object.freeze(new Set([
     'diveStrafe', 'carpetBomb', 'airlift', 'airlift_dest'
 ]));
 
-const AREA_TARGETING_CARD_IDS = new Set(['scout', 'airstrike', 'carpetBomb', 'air_command_bombing']);
+const AREA_TARGETING_CARD_IDS = new Set(['scout', 'carpetBomb', 'air_command_bombing']);
 const DRONE_DEPLOY_RANGE = COMMANDER_CONFIG.tianyan.balance.deployRange;
 const DRONE_SUICIDE_RANGE = COMMANDER_CONFIG.tianyan.balance.suicideRange;
 
@@ -93,7 +93,7 @@ function resolveIntent(cardTargeting) {
         return { intent: TARGET_INTENTS.AREA, shape: TARGET_SHAPES.AREA_CENTER };
     }
     if (cardId === 'air_command_airdrop') return { intent: TARGET_INTENTS.TRANSPORT, shape: TARGET_SHAPES.TILE };
-    if (cardId === 'airstrike' || cardId === 'carpetBomb' || cardId === 'scout') {
+    if (cardId === 'carpetBomb' || cardId === 'scout') {
         return { intent: TARGET_INTENTS.AREA, shape: TARGET_SHAPES.AREA_CENTER };
     }
     if (cardId === 'heal') return { intent: TARGET_INTENTS.HEAL, shape: TARGET_SHAPES.UNIT };

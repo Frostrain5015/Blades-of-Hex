@@ -84,7 +84,7 @@ test('航母可指定无驻军但HP>0的敌城并削减城市HP', async () => {
     assert.equal(ok, true);
     assert.equal(carrier.canAct, false);
     // 无防空覆盖、无将领/叠层/军衔加成：45 × 1.0 浮动 = 45
-    assert.equal(city.hp, 300 - 45, '城市血池应按航母空军管线削减');
+    assert.equal(city.hp, 300 - 50, '城市血池应按航母空军管线削减');
     assert.equal(breached.hp, 0, '无关城市不受影响');
     await sleep(900); // 等延迟伤害数字的 setTimeout 落定
 });
@@ -180,7 +180,7 @@ test('机场击杀保留阵营归因和动作 ID，随后进城保留轴坐标�
     const capture = log.timeline.find(entry => entry.eventType === 'cityCaptured');
     assert.equal(damage.causedByActionId, sortie.actionId);
     assert.equal(damage.payload.sourceCampKey, 'player1');
-    assert.equal(damage.payload.sourceUnitId, null);
+    assert.equal(damage.payload.sourceUnitId, 'airfield:0,0:player1'); assert.equal(death.payload.killerId, 'airfield:0,0:player1');
     assert.equal(death.causedByActionId, sortie.actionId);
     assert.equal(death.payload.killerCampKey, 'player1');
     assert.equal(capture.causedByActionId, movement.actionId);
@@ -204,7 +204,7 @@ test('斯图卡立即结算原目标，动画期间换位不会重复扣血或�
         const enemy = new Unit('infantry', P2, target);
         const ally = new Unit('infantry', P1, reserve);
         assert.equal(gl.executeAirCommand('stukaDiveBomb', airfield, target), true);
-        assert.equal(enemy.hp, enemy.maxHp - 23);
+        assert.equal(enemy.hp, enemy.maxHp - 21);
         assert.equal(enemy.fireSea.roundsRemaining, 2);
         assert.equal(gameState.playerGold.player1, 98);
         enemy.tile = exit;
@@ -213,7 +213,7 @@ test('斯图卡立即结算原目标，动画期间换位不会重复扣血或�
         ally.tile = target;
         target.unit = ally;
         await sleep(1250);
-        assert.equal(enemy.hp, enemy.maxHp - 23);
+        assert.equal(enemy.hp, enemy.maxHp - 21);
         assert.equal(enemy.fireSea.roundsRemaining, 2);
         assert.equal(ally.fireSea, undefined);
         assert.equal(ally.hp, ally.maxHp);
@@ -344,4 +344,72 @@ test('空降落点受防空火力拦截时立即按比例扣血且封顶85%，�
     assert.ok(heavyAAFx.antiAir > 0.5);
     assert.equal(shouldRenderAirstrikeEngineFire(heavyAAFx, 0.45), false, '飞到一半前不起火');
     assert.equal(shouldRenderAirstrikeEngineFire(heavyAAFx, 0.5), true, '飞到一半起开始起火拖黑烟');
+});
+
+
+test('空军上校驻守机场发动的空军指令归入上校名下，非上校驻军仍归虚拟机场', () => {
+    const airfield = enemyCityTile(0, 0);
+    airfield.camp = P1;
+    airfield.installation = { type: 'airfield', status: 'ready', campKey: P1.id };
+    const targetCity1 = enemyCityTile(2, 0, 200);
+    const targetCity2 = enemyCityTile(0, 2, 200);
+    setupMatch([airfield, targetCity1, targetCity2]);
+
+    const colonel = new Unit('infantry', P1, airfield, false, null, 'colonel');
+    const victim1 = new Unit('infantry', P2, targetCity1, false);
+    victim1.hp = 1;
+    startMatchRecording(gameState);
+
+    assert.equal(gl.executeAirCommand('strafe', airfield, targetCity1), true);
+    const log1 = getCurrentMatchLog();
+    const colonelAction = log1.timeline.find(entry => entry.kind === 'action' && entry.actionType === 'airCommand');
+    const colonelDmg = log1.timeline.find(entry => entry.eventType === 'unitHpChanged' && entry.payload.delta < 0);
+    const colonelKill = log1.timeline.find(entry => entry.eventType === 'unitKilled');
+    assert.equal(colonelAction.payload.sourceUnitId, colonel.id);
+    assert.equal(colonelDmg.payload.sourceUnitId, colonel.id);
+    assert.equal(colonelKill.payload.killerId, colonel.id);
+
+    // 换防普通步兵后再次发动空军指令，归因应回落到单城虚拟空军实体
+    airfield.unit = null;
+    new Unit('infantry', P1, airfield, false);
+    airfield.installation.airCommandReadyRound.strafe = 0;
+    const victim2 = new Unit('infantry', P2, targetCity2, false);
+    victim2.hp = 1;
+
+    assert.equal(gl.executeAirCommand('strafe', airfield, targetCity2), true);
+    const log2 = getCurrentMatchLog();
+    const afAction = log2.timeline.filter(entry => entry.kind === 'action' && entry.actionType === 'airCommand').at(-1);
+    const afDmg = log2.timeline.filter(entry => entry.eventType === 'unitHpChanged' && entry.payload.delta < 0).at(-1);
+    const afKill = log2.timeline.filter(entry => entry.eventType === 'unitKilled').at(-1);
+    assert.equal(afAction.payload.sourceUnitId, 'airfield:0,0:player1');
+    assert.equal(afDmg.payload.sourceUnitId, 'airfield:0,0:player1');
+    assert.equal(afKill.payload.killerId, 'airfield:0,0:player1');
+});
+
+test('航母与制海巡洋舰额外齐射接入 _resolveDamage 标准管线', () => {
+    const sea1 = waterTile(0, 0);
+    const sea2 = waterTile(1, 0);
+    const land = new HexTile(2, 0);
+    land.terrain = 'plains';
+    setupMatch([sea1, sea2, land]);
+
+    const carrier = new Unit('carrier', P1, sea1, false);
+    const heldInfantry = new Unit('infantry', P2, land, false);
+    heldInfantry._rank = 1; heldInfantry.specializationKey = 'garrisonInfantry'; // holdFirstHitReduction 0.15
+    heldInfantry.movedThisTurn = false;
+    heldInfantry._timesAttackedThisTurn = 0;
+
+    const prevRng = gameState.rng; gameState.rng = { next: () => 0.5, range: (lo, hi) => (lo + hi) / 2, chance: () => true, between: (a) => a }; const firstHit = carrier.calculateDamage(heldInfantry, 0);
+    assert.ok(Number.isFinite(firstHit.dmg) && firstHit.dmg > 0);
+    assert.ok(Number.isFinite(firstHit.floatMult));
+    heldInfantry._timesAttackedThisTurn = 1;
+    const secondHit = carrier.calculateDamage(heldInfantry, 0);
+    assert.ok(secondHit.dmg > firstHit.dmg, '航母经标准管线应受到守城步兵首击减伤并在后续攻击恢复满伤');
+
+    const cruiser = new Unit('warship', P1, sea1, false);
+    cruiser._rank = 1; cruiser.specializationKey = 'fleetCruiser';
+    const enemyShip = new Unit('destroyer', P2, sea2, false);
+    const salvo = cruiser.calculateDamage(enemyShip, 0, { baseMulti: 0.5, showDamageText: false });
+    const full = cruiser.calculateDamage(enemyShip, 0, { baseMulti: 1, showDamageText: false });
+    assert.ok(salvo.dmg > 0 && salvo.dmg < full.dmg, '制海巡洋舰半倍齐射应完整通过四乘区 _resolveDamage 管线'); gameState.rng = prevRng;
 });

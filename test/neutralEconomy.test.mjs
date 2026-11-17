@@ -30,7 +30,7 @@ test('折算按 NEUTRAL_ECONOMY_RATE 下取整，且不会产生负收入', () =
 // 每一笔收入上，floor(1 * 0.2) 会把村庄那一份整个抹成 0，中立会悄悄
 // 少掉一大块收入而没有任何报错。必须先合计再折算。
 test('城市与村庄必须合计后只折算一次，逐项折算会抹平村庄收入', () => {
-    const cityGross = calcIncome(3);          // 王冠环岛中立 3 城 = 9
+    const cityGross = calcIncome(3);          // 王冠环岛中立 3 城 = 11
     const villageGross = 6;                   // 3/4/5 区共 6 村，每村 $1
     const gross = cityGross + villageGross;   // 15
 
@@ -40,6 +40,6 @@ test('城市与村庄必须合计后只折算一次，逐项折算会抹平村�
             .reduce((sum, value) => sum + value, 0);
 
     assert.equal(pooled, 3);
-    assert.equal(perItem, 1);
+    assert.equal(perItem, 2);
     assert.ok(pooled > perItem, '合计折算必须严格优于逐项折算，否则村庄收入被静默清零');
 });

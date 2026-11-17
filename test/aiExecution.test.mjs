@@ -323,7 +323,7 @@ test('中等 AI 保留机场扫射，地面攻击打残目标后同回合补刀'
 });
 
 test('历史模式二人和三人开局按主城换特色兵种，英国改换本土巡洋舰', () => {
-    const cases = [['us',9], ['gb',4], ['fr',4], ['ru',7], ['kmt',10], ['cpc',11], ['de',12], ['jp',10]];
+    const cases = [['us',10], ['gb',4], ['fr',4], ['ru',5], ['kmt',10], ['cpc',9], ['de',12], ['jp',10]];
     for (const family of ['crown-ring', 'uncharted-passage']) {
         for (const seats of [2, 3]) {
             const map = getStandardMap(seats, family);
@@ -598,7 +598,7 @@ test('疗愈卡对禁疗武士只允许净化，补员仍可回血', () => {
     assert.equal(samurai._poison, null);
     assert.equal(samurai.hp, 80);
     engine.reinforceUnit(samurai);
-    assert.equal(samurai.hp, 180);
+    assert.equal(samurai.hp, 185);
 });
 
 test('武士冲锋拒绝新兵和堵路，合法冲锋的生命消耗绕过护盾', () => {
@@ -612,7 +612,7 @@ test('武士冲锋拒绝新兵和堵路，合法冲锋的生命消耗绕过护�
     samurai.isNewRecruit = false;
     place('infantry', me, mid);
     assert.equal(executeBanzaiCharge(samurai, target.tile), false);
-    assert.equal(samurai.hp, 200);
+    assert.equal(samurai.hp, 210);
 
     mid.unit = null;
     samurai.remainingMP = 1;
@@ -620,7 +620,7 @@ test('武士冲锋拒绝新兵和堵路，合法冲锋的生命消耗绕过护�
     samurai.remainingMP = 5;
     samurai._shield = 60;
     assert.equal(executeBanzaiCharge(samurai, target.tile), true);
-    assert.equal(samurai.hp, 140);
+    assert.equal(samurai.hp, 147);
     assert.equal(samurai._shield, 60);
     assert.equal(samurai.tile, mid);
 });
@@ -640,17 +640,17 @@ test('武士首次斩杀返还行动，两次斩杀均可叠加武运长久回�
     samurai.remainingMP = 2;
     assert.equal(executeBanzaiCharge(samurai, targets[0].tile), true);
     assert.equal(targets[0].hp, 0);
-    assert.equal(samurai.hp, 166);
+    assert.equal(samurai.hp, 172);
     assert.equal(samurai.remainingMP, 2);
     assert.equal(samurai.canAct, true);
     assert.equal(executeBanzaiCharge(samurai, targets[1].tile), true);
     assert.equal(targets[1].hp, 0);
-    assert.equal(samurai.hp, 200);
+    assert.equal(samurai.hp, 210);
     assert.equal(samurai.canAct, false);
     assert.equal(executeBanzaiCharge(samurai, targets[2].tile), false);
 });
 
-test('游击纵队消耗1行动力隐匿，奇袭+85%伤害且目标无法反击，击杀返还2点撤离行动力，闪避也消耗隐匿', () => {
+test('游击纵队消耗1行动力隐匿，奇袭+75%伤害且目标无法反击，击杀返还2点撤离行动力，闪避也消耗隐匿', () => {
     const { me, foe, home, enemyCity } = setupMatch();
     const guerrilla = place('cpc_guerrilla', me, home);
     const target = place('infantry', foe, state.tileMap.get('1,0'));
@@ -661,8 +661,8 @@ test('游击纵队消耗1行动力隐匿，奇袭+85%伤害且目标无法反击
     assert.equal(isUnitVisibleToCamp(guerrilla, foe, state), true);
     engine.attackUnit(guerrilla, target);
     const dmgBefore = 180 - target.hp;
-    assert.ok(dmgBefore >= 92 && dmgBefore <= 93, `奇袭伤害应约为 92~93，实测 ${dmgBefore}`);
-    assert.equal(guerrilla.hp, 175, '奇袭首击应压制目标反击');
+    assert.ok(dmgBefore >= 79 && dmgBefore <= 81, `奇袭伤害应约为 80，实测 ${dmgBefore}`);
+    assert.equal(guerrilla.hp, 170, '奇袭首击应压制目标反击');
     assert.equal(guerrilla._guerrillaHiddenThroughRound, null);
     assert.equal(guerrilla._guerrillaReadyRound, 2);
     assert.equal(executeGuerrillaConcealment(guerrilla), false);
@@ -672,6 +672,7 @@ test('游击纵队消耗1行动力隐匿，奇袭+85%伤害且目标无法反击
     guerrilla.remainingMP = 6;
     state.turnCounter = 2 * state.turnOrder.length;
     const squishy = place('archer', foe, state.tileMap.get('0,1'));
+    squishy.hp = 60;
     squishy._calcFloat = () => 1;
     assert.equal(executeGuerrillaConcealment(guerrilla), true);
     assert.equal(guerrilla.remainingMP, 5);
@@ -945,12 +946,12 @@ test('陆战队在己方已启用港口按工业海权优惠价补员，每回�
     assert.equal(marine.hp, 45, '尚未启用的己方港口不能补员');
     state.turnCounter = state.turnOrder.length;
     engine.reinforceUnit(marine);
-    assert.equal(marine.hp, 135);
-    assert.equal(state.playerGold.player1, 10);
+    assert.equal(marine.hp, 145);
+    assert.equal(state.playerGold.player1, 12);
     assert.equal(port._reinforcedThisTurn, true);
     engine.reinforceUnit(marine);
-    assert.equal(marine.hp, 135);
-    assert.equal(state.playerGold.player1, 10);
+    assert.equal(marine.hp, 145);
+    assert.equal(state.playerGold.player1, 12);
 });
 
 test('陆战队普攻、反击、攻城均发射机枪弹流，击破城防后仍可进驻', () => {
@@ -988,7 +989,7 @@ test('港口维修走真实扣费回血路径，发生在舰船作战之前', as
     const port = state.tileMap.get('0,1');
     Object.assign(port, { isPort: true, surface: SURFACE_KIND.SHALLOW_WATER, terrain: 'water' });
     const ship = place('warship', me, port);
-    ship.hp = Math.floor(ship.maxHp * 0.5);
+    ship.hp = ship.maxHp - Math.floor(ship.maxHp * 0.5);
     await processOpponentTurn(me);
     const repair = events.find(event => event.action.type === 'repairShip');
     assert.ok(repair, '应执行维修动作');

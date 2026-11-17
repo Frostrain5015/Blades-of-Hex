@@ -3675,10 +3675,6 @@ async function handleRemoteAction(msg) {
             if (e && e.cardId !== 'airdrop') {
                 // 烧牌动画（观战者：中央淡入+燃烧）
                 spawnCardUseEffect(e.cardId, LOGICAL_W / 2, LOGICAL_H / 2, false, 0, 0, e.burnDisplayName || null);
-                // 飞机动画提前启动，与烧牌重叠播放
-                if (e.cardId === 'airstrike') {
-                    spawnAirstrikeEffect(e.x, e.y, e.airstrikeResults || [], 'airstrike', e.q ?? null, e.r ?? null, null, null, null, performance.now(), { antiAir: e.antiAir });
-                }
                 // 具体特效延迟 1.6s 后播放（与烧牌结束对齐）
                 const cardType = e.cardId;
                 setTimeout(() => {
@@ -3746,37 +3742,6 @@ async function handleRemoteAction(msg) {
                                 fm.unit.remainingMP += 2;
                             }
                             spawnCommanderSkillEffect(e.x, e.y, '🏃', '强行军');
-                            break;
-                        }
-                        case 'airstrike': {
-                            const airstrikeResults = e.airstrikeResults || [];
-                            playSound('airstrike');
-                            // damage/HP/particles delayed to match bomb impact timing (~1200ms into flight)
-                            setTimeout(() => {
-                                playSound('explosion');
-                                // 伤害数字由 e.floatTexts 重放；弹着派生跳字（护盾吸收/灵光/临终迸发）
-                                // 两端各自推导（仅显示，不进广播捕获，避免漏进下次广播变幽灵跳字）
-                                setFloatTextCaptureSuppressed(true);
-                                try {
-                                    for (const r of airstrikeResults) {
-                                        const tile = gameState.tileMap.get(`${r.q},${r.r}`);
-                                        if (!tile) continue;
-                                        if (tile.unit) {
-                                            // 统一伤害入口：空袭为远程攻击
-                                            const dc = tile.unit.camp;
-                                            const killed = tile.unit.applyDamage(r.dmg, { source: 'ranged' });
-                                            if (killed) {
-                                                const dck = campToKey(dc);
-                                                gameState.killCount[dck] = (gameState.killCount[dck] || 0) + 1;
-                                            }
-                                        }
-                                        spawnExplosionParticles(tile.x, tile.y, '#ff8800', 10);
-                                    }
-                                } finally {
-                                    setFloatTextCaptureSuppressed(false);
-                                }
-                                triggerScreenShake(6, 300);
-                            }, 1200);
                             break;
                         }
                         case 'orbitalStrike': {

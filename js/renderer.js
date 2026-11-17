@@ -2567,7 +2567,7 @@ function drawCardTargetingPreview(now) {
         }
     }
 
-    if (activeKey && (preview.cardId === 'airstrike' || preview.cardId === 'carpetBomb'
+    if (activeKey && (preview.cardId === 'carpetBomb'
         || preview.cardId === 'air_command_bombing' || preview.cardId === 'scout')) {
         const affected = getTargetingAreaTiles(gameState, hovered);
         if (preview.air) {

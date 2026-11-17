@@ -199,7 +199,7 @@ function buildNecromancer() {
 }
 
 function buildPaladin() {
-    const balance = { faithMax: 3, faithOnDeploy: 1, faithCostPerCharge: 1, defensePerFaith: 0.05, auraAttackBonus: 0, auraDamageBonus: 0.12, smiteCooldown: 1, normalSmiteMin: 25, normalSmiteMax: 40, chargedSmiteMin: 65, chargedSmiteMax: 85, maxSmiteCharges: 2 };
+    const balance = { faithMax: 3, faithOnDeploy: 1, faithCostPerCharge: 1, defensePerFaith: 0.05, auraAttackBonus: 0, auraDamageBonus: 0.12, smiteCooldown: 1, normalSmiteMin: 25, normalSmiteMax: 35, chargedSmiteMin: 50, chargedSmiteMax: 70, maxSmiteCharges: 2 };
     return {
         definition: {
             id: 'paladin', name: '圣骑士', hpBonusPct: 0.25, atkBonusPct: 0.30, spdBonus: 0,

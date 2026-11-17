@@ -22,7 +22,7 @@ import { UNIT_CONFIG, canRecruitUniqueUnit, canUnitBeRecruitedAtSite, getSpecial
 import { TACTICAL_CARD_DATA } from '../../rules/cards.js';
 import { CARD_SYSTEM_CONFIG } from '../../rules/constants.js';
 import { getBanzaiChargePath, resolveTargetingPreview } from '../../rules/targeting.js';
-import { canReinforceAtTile, isHealingBlocked } from '../../rules/healing.js';
+import { canReinforceAtTile, computeHealGoldCost, isHealingBlocked } from '../../rules/healing.js';
 import { getKmtReinforceDeficit } from '../../rules/kmtStronghold.js';
 import { canRepairShipAtPort, isRegularNavalUnit } from '../../rules/naval.js';
 import { areCommanderMechanicsSuppressed } from '../../rules/movement.js';
@@ -97,7 +97,7 @@ const DOCTRINE_STYLE_VECTORS = Object.freeze({
     trickster: [0.0, 0.0, 0.0, 1.0],
     default: [0.4, 0.25, 0.15, 0.2]
 });
-const OFFENSIVE_CARDS = new Set(['lightning', 'poison', 'imprison', 'airstrike', 'orbitalStrike']);
+const OFFENSIVE_CARDS = new Set(['lightning', 'poison', 'imprison', 'orbitalStrike']);
 
 const LAND_RECRUIT_FALLBACK = Object.freeze(['infantry', 'cavalry', 'archer']);
 const NAVAL_RECRUIT_FALLBACK = Object.freeze(['warship', 'destroyer', 'submarine']);
@@ -236,7 +236,7 @@ export function enumerateHybridCandidates(state, camp, helpers, world = null) {
                 if (healAmt > 0) {
                     const scale = getCulturalReinforceCostScale(state, unit.tile, camp);
                     const reinforceCost = getHistoricalCost(
-                        Math.max(1, Math.ceil((unit.config?.cost || 8) * (healAmt / unit.maxHp) * scale)),
+                        computeHealGoldCost(unit.config?.cost || 8, healAmt, unit.maxHp, scale),
                         state, camp
                     );
                     if (gold >= reinforceCost) {
@@ -254,7 +254,7 @@ export function enumerateHybridCandidates(state, camp, helpers, world = null) {
                 const healAmt = Math.min(Math.floor(unit.maxHp * 0.50), unit.maxHp - unit.hp);
                 if (healAmt > 0) {
                     const repairCost = getHistoricalCost(
-                        Math.max(1, Math.ceil((unit.config?.cost || 10) * (healAmt / unit.maxHp))),
+                        computeHealGoldCost(unit.config?.cost || 10, healAmt, unit.maxHp),
                         state, camp
                     );
                     if (gold >= repairCost) {

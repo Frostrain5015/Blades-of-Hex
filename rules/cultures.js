@@ -74,10 +74,10 @@ export const GUERRILLA_CONCEALMENT_CONFIG = Object.freeze({
     movementCost: 1,
     durationRounds: 1,
     cooldown: 1,
-    ambushDamagePct: 0.85,
+    ambushDamagePct: 0.75,
     ambushNoCounter: true,
     ambushKillMovementRefund: 2,
-    desc: '消耗1点行动力隐蔽行踪，施放后本回合仍可继续移动与攻击，效果最长持续至下一次己方回合结束。隐匿期间首次主动攻击敌军将触发【奇袭】：造成伤害提高85%且目标本次无法反击（攻击被闪避同样消耗隐匿）；若【奇袭】击杀目标，立即返还2点行动力以便撤离战线。1格内有敌军时会被敌方看见，但不会失去当次【奇袭】效果。显形后下一己方回合进入冷却。'
+    desc: '消耗1点行动力隐蔽行踪，施放后本回合仍可继续移动与攻击，效果最长持续至下一次己方回合结束。隐匿期间首次主动攻击敌军将触发【奇袭】：造成伤害提高75%且目标本次无法反击（攻击被闪避同样消耗隐匿）；若【奇袭】击杀目标，立即返还2点行动力以便撤离战线。1格内有敌军时会被敌方看见，但不会失去当次【奇袭】效果。显形后下一己方回合进入冷却。'
 });
 
 export function getBanzaiBonusDamage(target) {

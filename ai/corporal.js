@@ -4,7 +4,7 @@
 import { createCombatModel } from './doctrine.js';
 import { isWaterTile } from '../rules/surfaces.js';
 import { getUnitBaseType } from '../rules/units.js';
-import { canReinforceAtTile } from '../rules/healing.js';
+import { canReinforceAtTile, computeHealGoldCost } from '../rules/healing.js';
 import { isNeutralDistrict, isNextToNeutralCoast } from '../rules/neutralDefense.js';
 
 export const meta = {
@@ -380,7 +380,7 @@ export function planActions(gameState, helpers, myCamp = helpers?.CAMP?.neutral)
     if (woundedGarrison) {
         const unit = woundedGarrison.unit;
         const healAmount = Math.min(Math.floor(unit.maxHp * 0.50), unit.maxHp - unit.hp);
-        const cost = Math.max(1, Math.ceil(unit.config.cost * (healAmount / unit.maxHp) * (helpers.getCulturalReinforceCostScale ? helpers.getCulturalReinforceCostScale(woundedGarrison, unit.camp) : 1)));
+        const cost = computeHealGoldCost(unit.config.cost, healAmount, unit.maxHp, helpers.getCulturalReinforceCostScale ? helpers.getCulturalReinforceCostScale(woundedGarrison, unit.camp) : 1);
         if (healAmount > 0 && gold - cost >= recruitReserve) {
             actions.push({ type: 'reinforce', unitId: unit.id });
             gold -= cost;

@@ -714,7 +714,7 @@ function compactUnitHighlight(unit) {
         damageDealt: unit.damageDealt,
         damageTaken: unit.damageTaken,
         healingReceived: unit.healingReceived,
-        captures: unit.captures,
+        captures: unit.captures, recruits: unit.recruits || 0,
         actions: unit.actions,
         firstSequence: unit.firstSequence,
         lastSequence: unit.lastSequence
@@ -832,7 +832,7 @@ on('match:unitHpChanged', payload => recordMatchEvent(boundState, 'unitHpChanged
     delta: payload?.delta,
     source: payload?.source,
     effect: payload?.effect,
-    sourceUnitId: payload?.sourceUnitId,
+    sourceUnitId: payload?.sourceUnitId, sourceUnitType: payload?.sourceUnit?.type || payload?.sourceUnitType || null,
     sourceCampKey: keyOfCamp(payload?.sourceUnit?.camp ?? payload?.sourceCampKey)
 }));
 

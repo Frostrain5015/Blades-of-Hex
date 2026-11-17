@@ -61,7 +61,7 @@ const UNIT_TYPE_NAMES = Object.freeze({
     drone: '天眼哨机',
     fr_heavy_cannon: '法国巨炮',
     bunker: '碉堡',
-    airfield: '机场',
+    airfield: '空军',
     fortification: '野战工事',
     trench: '战壕',
     flak: '防空阵地',
@@ -210,6 +210,7 @@ export function computeUnitMvpScore(unit) {
     const healingReceived = finiteNumber(unit.healingReceived);
     const kills = finiteNumber(unit.kills);
     const captures = finiteNumber(unit.captures);
+    const recruits = finiteNumber(unit.recruits);
     const actions = finiteNumber(unit.actions);
     const survived = unit.survived === true;
     // 抗线承伤需伴随实际输出、治疗或占城才计入正向评分，防止无作为掉血刷榜
@@ -222,15 +223,19 @@ export function computeUnitMvpScore(unit) {
         + healingDone * 0.75
         + healingReceived * 0.40
         + tankEffectiveness
+        + recruits * 40
         + Math.min(40, actions) * 6
         + (survived ? 70 : 0);
 }
 
 export function selectMvpUnits(units, limit = 3) {
     const scored = [...(units || [])]
+        // 虚拟机场（空军）与实体战斗单位口径不同（无承伤等维度），不登上 MVP 榜
+        .filter(unit => unit?.type !== 'airfield')
         .filter(unit => finiteNumber(unit?.damageDealt)
             + finiteNumber(unit?.kills)
             + finiteNumber(unit?.captures)
+            + finiteNumber(unit?.recruits)
             + finiteNumber(unit?.healingDone)
             + finiteNumber(unit?.healingReceived) > 0)
         .map(unit => ({ unit, score: computeUnitMvpScore(unit) }))
@@ -257,12 +262,30 @@ export function selectMvpUnits(units, limit = 3) {
     return picked.map(entry => entry.unit);
 }
 
+const AIRFIELD_ENTITY_RE = /^airfield:(-?\d+),(-?\d+):([^:]+)$/;
+
+export function makeAirfieldEntityId(q, r, campKey) {
+    return `airfield:${q},${r}:${campKey}`;
+}
+
+export function parseAirfieldEntityId(unitId) {
+    if (typeof unitId !== 'string') return null;
+    const match = AIRFIELD_ENTITY_RE.exec(unitId);
+    if (!match) return null;
+    return { q: Number(match[1]), r: Number(match[2]), campKey: match[3] };
+}
+
 function normalizedRound(item) {
     return Math.max(1, Math.floor(finiteNumber(item?.round) || 1));
 }
 
 function unitDisplayName(unit) {
     const type = unit?.type;
+    if (type === 'airfield') {
+        const coords = parseAirfieldEntityId(unit?.id)
+            || (Number.isFinite(unit?.q) && Number.isFinite(unit?.r) ? { q: unit.q, r: unit.r } : null);
+        return `空军${coords ? ` (${coords.q},${coords.r})` : ''}`;
+    }
     const specName = type && unit?.specializationKey
         ? getSpecialization(type, unit.specializationKey)?.name
         : null;
@@ -282,16 +305,17 @@ function collectUnitCatalog(log) {
     const catalog = new Map();
     const remember = raw => {
         if (!raw?.id) return null;
+        const parsedAirfield = parseAirfieldEntityId(raw.id);
         const key = unitCatalogKey(raw.id);
         const previous = catalog.get(key) || {};
         const unit = {
             id: previous.id ?? raw.id,
-            type: raw.type || previous.type || 'unknown',
-            campKey: raw.campKey || previous.campKey || null,
+            type: raw.type || previous.type || (parsedAirfield ? 'airfield' : 'unknown'),
+            campKey: raw.campKey || previous.campKey || parsedAirfield?.campKey || null,
             specializationKey: raw.specializationKey ?? previous.specializationKey ?? null,
             commanderId: raw.commanderId ?? previous.commanderId ?? null,
             isCommanderUnit: raw.isCommanderUnit ?? previous.isCommanderUnit ?? false,
-            maxHp: finiteNumber(raw.maxHp || previous.maxHp),
+            maxHp: parsedAirfield || raw.type === 'airfield' ? 0 : finiteNumber(raw.maxHp || previous.maxHp),
             initialHp: previous.initialHp ?? finiteNumber(raw.hp),
             finalHp: previous.finalHp ?? null
         };
@@ -311,6 +335,23 @@ function collectUnitCatalog(log) {
                 remember({ id: changed.unitId, commanderId, isCommanderUnit, specializationKey });
             }
         }
+        if (item.kind === 'action' && item.actionType === 'airCommand' && item.accepted !== false) {
+            const payload = item.payload || {};
+            const airUnitId = payload.sourceUnitId
+                || (payload.launcherQ != null && payload.launcherR != null && item.actorCampKey
+                    ? makeAirfieldEntityId(payload.launcherQ, payload.launcherR, item.actorCampKey)
+                    : null);
+            if (airUnitId) {
+                remember({
+                    id: airUnitId,
+                    type: payload.sourceUnitType || (parseAirfieldEntityId(airUnitId) ? 'airfield' : undefined),
+                    campKey: item.actorCampKey,
+                    commanderId: payload.colonelCommander || undefined,
+                    isCommanderUnit: payload.colonelId && payload.colonelId === airUnitId ? true : undefined
+                });
+            }
+            continue;
+        }
         if (item.kind !== 'event') continue;
         const payload = item.payload || {};
         if (payload.unitId) remember({
@@ -320,9 +361,14 @@ function collectUnitCatalog(log) {
             commanderId: payload.commanderId,
             isCommanderUnit: payload.isCommanderUnit
         });
+        if (payload.sourceUnitId) remember({
+            id: payload.sourceUnitId,
+            type: payload.sourceUnitType || (parseAirfieldEntityId(payload.sourceUnitId) ? 'airfield' : undefined),
+            campKey: payload.sourceCampKey
+        });
         if (payload.killerId) remember({
             id: payload.killerId,
-            type: payload.killerType,
+            type: payload.killerType || (parseAirfieldEntityId(payload.killerId) ? 'airfield' : undefined),
             campKey: payload.killerCampKey,
             commanderId: payload.killerCommanderId
         });
@@ -369,9 +415,10 @@ function keyEventLabel(item, participantsByKey) {
             isCommanderUnit: payload.isCommanderUnit
         });
         const killerCampName = participantsByKey[payload.killerCampKey]?.name;
-        const killer = payload.killerType
+        const killer = payload.killerType || parseAirfieldEntityId(payload.killerId)
             ? unitDisplayName({
-                type: payload.killerType,
+                id: payload.killerId,
+                type: payload.killerType || 'airfield',
                 commanderId: payload.killerCommanderId
             })
             : null;
@@ -871,12 +918,13 @@ export function buildMatchStats(log) {
     const unitStats = new Map();
     const getUnit = (unitId, fallback = {}) => {
         if (!unitId) return null;
+        const parsedAirfield = parseAirfieldEntityId(unitId);
         const key = unitCatalogKey(unitId);
         if (!catalog.has(key)) {
             catalog.set(key, {
                 id: unitId,
-                type: fallback.type || 'unknown',
-                campKey: fallback.campKey || null,
+                type: fallback.type || (parsedAirfield ? 'airfield' : 'unknown'),
+                campKey: fallback.campKey || parsedAirfield?.campKey || null,
                 commanderId: null,
                 isCommanderUnit: false,
                 maxHp: 0,
@@ -952,14 +1000,23 @@ export function buildMatchStats(log) {
             const bucket = ACTION_BUCKETS[item.actionType];
             if (bucket) addCampMetric(item.actorCampKey, round, bucket);
             if (item.actionType === 'attack') round.engagements++;
-            const unitId = item.payload?.attackerUnitId || item.payload?.unitId || null;
+            const airUnitId = item.actionType === 'airCommand'
+                ? (item.payload?.sourceUnitId
+                    || (item.payload?.launcherQ != null && item.payload?.launcherR != null && item.actorCampKey
+                        ? makeAirfieldEntityId(item.payload.launcherQ, item.payload.launcherR, item.actorCampKey)
+                        : null))
+                : null;
+            const unitId = item.payload?.attackerUnitId || item.payload?.unitId || airUnitId || null;
             const unit = getUnit(unitId, {
-                type: item.payload?.attackerType,
+                type: item.payload?.attackerType || item.payload?.sourceUnitType || (parseAirfieldEntityId(unitId) ? 'airfield' : undefined),
                 campKey: item.actorCampKey
             });
             if (unit) {
                 unit.actions++;
                 if (bucket) unit[bucket]++;
+                if (item.actionType === 'airCommand' && item.payload?.kind === 'airdrop') {
+                    unit.recruits++;
+                }
                 touchUnit(unit, item);
             }
             for (const changed of item.outcome?.changes?.sitesChanged || []) {
@@ -974,7 +1031,10 @@ export function buildMatchStats(log) {
         if (item.eventType === 'unitHpChanged') {
             const delta = finiteNumber(payload.delta);
             const target = getUnit(payload.unitId, { type: payload.unitType, campKey: payload.campKey });
-            const source = getUnit(payload.sourceUnitId, { campKey: payload.sourceCampKey });
+            const source = getUnit(payload.sourceUnitId, {
+                type: payload.sourceUnitType || (parseAirfieldEntityId(payload.sourceUnitId) ? 'airfield' : undefined),
+                campKey: payload.sourceCampKey
+            });
             touchUnit(target, item);
             touchUnit(source, item);
             if (delta < 0) {
@@ -1086,11 +1146,26 @@ export function buildMatchStats(log) {
         }
     }
 
-    const units = [...unitStats.values()].map(unit => ({
-        ...unit,
-        survived: finalIds.has(unitCatalogKey(unit.id)),
-        finalHp: catalog.get(unitCatalogKey(unit.id))?.finalHp ?? null
-    }));
+    const finalSiteOwnerByCoord = new Map(
+        finalSites
+            .filter(site => site?.kind === 'city' && Number.isFinite(site.q) && Number.isFinite(site.r))
+            .map(site => [`${site.q},${site.r}`, site.campKey || null])
+    );
+    const units = [...unitStats.values()].map(unit => {
+        const parsedAirfield = unit.type === 'airfield' ? parseAirfieldEntityId(unit.id) : null;
+        let survived = finalIds.has(unitCatalogKey(unit.id));
+        if (parsedAirfield) {
+            const coordKey = `${parsedAirfield.q},${parsedAirfield.r}`;
+            survived = finalSiteOwnerByCoord.has(coordKey)
+                ? finalSiteOwnerByCoord.get(coordKey) === unit.campKey
+                : null;
+        }
+        return {
+            ...unit,
+            survived,
+            finalHp: catalog.get(unitCatalogKey(unit.id))?.finalHp ?? null
+        };
+    });
     const camps = attachCampRatings(Object.values(campsByKey).map(camp => ({
         ...camp,
         killDeathRatio: camp.losses > 0 ? camp.kills / camp.losses : camp.kills,
@@ -1149,6 +1224,7 @@ export function buildMatchStats(log) {
 
 function unitFromReview(unit) {
     if (!unit) return null;
+    const id = unit.id ?? unit.unitId;
     const type = unit.type ?? unit.unitType;
     let commanderId = unit.commanderId || null;
     if (!commanderId && typeof unit.displayName === 'string' && unit.displayName.includes(' · ')) {
@@ -1159,11 +1235,12 @@ function unitFromReview(unit) {
         || (type && (UNIT_TYPE_NAMES[type] || UNIT_CONFIG[type]?.name) && String(unit.displayName).startsWith(String(type)));
     return {
         ...unit,
-        id: unit.id ?? unit.unitId,
+        id,
         type,
         commanderId,
         displayName: needsRelocalize
             ? unitDisplayName({
+                id,
                 type,
                 commanderId,
                 isCommanderUnit: unit.isCommanderUnit ?? Boolean(commanderId),

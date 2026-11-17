@@ -111,7 +111,7 @@ test('match stats reject missing logs without throwing', () => {
 });
 
 test('battle events use relative per-match intensity instead of a fixed attack count', () => {
-    const log = makeLog();
+    const log = makeLog(); log.schema = 'blades-of-hex.match-log';
     log.timeline = [];
     let sequence = 0;
     for (const [round, attacks] of [[1, 1], [2, 2], [3, 6], [4, 2]]) {
@@ -136,7 +136,7 @@ test('battle events use relative per-match intensity instead of a fixed attack c
 });
 
 test('战线突破按阵亡与占城识别，不会因攻击次数较少漏掉关键回合', () => {
-    const log = makeLog();
+    const log = makeLog(); log.schema = 'blades-of-hex.match-log';
     log.timeline = [];
     let sequence = 0;
     for (let index = 0; index < 5; index++) {
@@ -175,7 +175,7 @@ test('战线突破按阵亡与占城识别，不会因攻击次数较少漏掉�
 });
 
 test('将领单位显示具体身份并生成显著的阵亡时间点', () => {
-    const log = makeLog();
+    const log = makeLog(); log.schema = 'blades-of-hex.match-log';
     log.initialState.units[1] = {
         id: 'u2', type: 'warship', campKey: 'player2', hp: 180, maxHp: 180,
         commanderId: 'colonel', isCommanderUnit: true
@@ -196,7 +196,7 @@ test('将领单位显示具体身份并生成显著的阵亡时间点', () => {
 });
 
 test('单位占比快照分别统计同阵营陆军与海军色带', () => {
-    const log = makeLog();
+    const log = makeLog(); log.schema = 'blades-of-hex.match-log';
     log.initialState.units.push({
         id: 'u3', type: 'warship', campKey: 'player1', hp: 180, maxHp: 180
     });
@@ -212,7 +212,7 @@ test('单位占比快照分别统计同阵营陆军与海军色带', () => {
 });
 
 test('faction skill events preserve round, camp and logo for chart markers', () => {
-    const log = makeLog();
+    const log = makeLog(); log.schema = 'blades-of-hex.match-log';
     log.participants[0].flagEmoji = '🐉';
     log.timeline.push({
         kind: 'event',
@@ -298,7 +298,7 @@ test('lightweight review documents rebuild the statistics view without a full ti
 });
 
 test('cultural and special units display Chinese names and gb_battleship counts as naval', () => {
-    const log = makeLog();
+    const log = makeLog(); log.schema = 'blades-of-hex.match-log';
     log.initialState.units = [
         { id: 'c1', type: 'kmt_training_brigade', campKey: 'player1', hp: 210, maxHp: 210, commanderId: 'colonel', isCommanderUnit: true },
         { id: 'c2', type: 'cpc_guerrilla', campKey: 'player2', hp: 165, maxHp: 165 },
@@ -320,7 +320,7 @@ test('cultural and special units display Chinese names and gb_battleship counts 
 });
 
 test('high-threshold battleEvents keeps long matches focused on a few climax rounds', () => {
-    const log = makeLog();
+    const log = makeLog(); log.schema = 'blades-of-hex.match-log';
     log.timeline = [];
     let sequence = 0;
     for (let round = 1; round <= 22; round++) {
@@ -387,7 +387,7 @@ test('imported review refreshes legacy raw unit names, unitShare wording and par
 
 test('camp rating grades span A+ through C across dominant, contested and collapsed camps', async () => {
     const { computeCampRating } = await import('../js/matchStats.js');
-    const log = makeLog();
+    const log = makeLog(); log.schema = 'blades-of-hex.match-log';
     const stats = buildMatchStats(log);
     const p1 = stats.camps.find(c => c.campKey === 'player1');
     const p2 = stats.camps.find(c => c.campKey === 'player2');
@@ -446,7 +446,7 @@ test('matchStatsView renders 8 summary cards, medal ranks, HUD flags, chart flag
     globalThis.document = dom.window.document;
     try {
         const { initMatchStatsPanel } = await import('../js/matchStatsView.js');
-        const log = makeLog();
+        const log = makeLog(); log.schema = 'blades-of-hex.match-log';
         log.schema = 'blades-of-hex.match-log';
         log.participants[0].flagPreset = 'img/flags/kuomintang.svg';
         log.participants[1].flagPreset = 'img/flags/chinese-communist-party-old.svg';
@@ -694,6 +694,163 @@ test('matchStatsView displays specialization watermark and stacked badges for mu
         const elimSide = dom.window.document.querySelector('#matchBattleEvents .match-battle-event.is-elimination .match-battle-side');
         assert.equal(elimSide.querySelectorAll('.match-hud-flag').length, 3, 'dual elimination badge shows finisher vs both eliminated camps');
         assert.ok(!dom.window.document.querySelector('#matchStatsOverlay').textContent.includes('·'));
+    } finally {
+        globalThis.document = prevDoc;
+    }
+});
+
+
+test('single-city virtual airfield entities track air commands, separate by controlling camp on capture, credit airdrops as recruits, and render in MVP and leaderboard', async () => {
+    const { JSDOM } = await import('jsdom');
+    const log = makeLog(); log.schema = 'blades-of-hex.match-log';
+    log.initialState.units = [
+        { id: 'colonel-1', type: 'infantry', campKey: 'player1', hp: 120, maxHp: 120, commanderId: 'colonel', isCommanderUnit: true }
+    ];
+    log.initialState.sites = [
+        { key: 'city:1,1', kind: 'city', q: 1, r: 1, campKey: 'player1', installation: 'airfield' },
+        { key: 'city:4,4', kind: 'city', q: 4, r: 4, campKey: 'player2', installation: 'airfield' }
+    ];
+    log.finalState.units = [...log.initialState.units];
+    log.finalState.sites = [
+        { key: 'city:1,1', kind: 'city', q: 1, r: 1, campKey: 'player2', installation: 'airfield' },
+        { key: 'city:4,4', kind: 'city', q: 4, r: 4, campKey: 'player2', installation: 'airfield' }
+    ];
+    log.timeline = [
+        {
+            kind: 'action', sequence: 1, round: 1, actorCampKey: 'player1', actionType: 'airCommand', accepted: true,
+            payload: { kind: 'airdrop', launcherQ: 1, launcherR: 1, sourceUnitId: 'airfield:1,1:player1', sourceUnitType: 'airfield' }
+        },
+        {
+            kind: 'action', sequence: 2, round: 1, actorCampKey: 'player1', actionType: 'airCommand', accepted: true,
+            payload: { kind: 'strafe', launcherQ: 1, launcherR: 1, sourceUnitId: 'airfield:1,1:player1', sourceUnitType: 'airfield' }
+        },
+        {
+            kind: 'event', sequence: 3, round: 1, eventType: 'unitHpChanged',
+            payload: { unitId: 'u2', unitType: 'cavalry', campKey: 'player2', delta: -120, sourceUnitId: 'airfield:1,1:player1', sourceUnitType: 'airfield', sourceCampKey: 'player1' }
+        },
+        {
+            kind: 'event', sequence: 4, round: 1, eventType: 'unitKilled',
+            payload: { unitId: 'u2', unitType: 'cavalry', campKey: 'player2', killerId: 'airfield:1,1:player1', killerType: 'airfield', killerCampKey: 'player1' }
+        },
+        // 城市 (1,1) 被蓝军占领后，同一城市以新阵营独立建立虚拟空军实体
+        {
+            kind: 'action', sequence: 5, round: 2, actorCampKey: 'player2', actionType: 'airCommand', accepted: true,
+            payload: { kind: 'airdrop', launcherQ: 1, launcherR: 1, sourceUnitId: 'airfield:1,1:player2', sourceUnitType: 'airfield' }
+        },
+        {
+            kind: 'action', sequence: 6, round: 2, actorCampKey: 'player2', actionType: 'airCommand', accepted: true,
+            payload: { kind: 'bombing', launcherQ: 1, launcherR: 1, sourceUnitId: 'airfield:1,1:player2', sourceUnitType: 'airfield' }
+        },
+        {
+            kind: 'event', sequence: 7, round: 2, eventType: 'unitHpChanged',
+            payload: { unitId: 'u-p1', unitType: 'infantry', campKey: 'player1', delta: -360, sourceUnitId: 'airfield:1,1:player2', sourceUnitType: 'airfield', sourceCampKey: 'player2' }
+        },
+        // 空军上校驻守发出的指令归入上校本人
+        {
+            kind: 'action', sequence: 8, round: 2, actorCampKey: 'player1', actionType: 'airCommand', accepted: true,
+            payload: { kind: 'stukaDiveBomb', launcherQ: 0, launcherR: 0, sourceUnitId: 'colonel-1', sourceUnitType: 'infantry', colonelId: 'colonel-1', colonelCommander: 'colonel' }
+        },
+        {
+            kind: 'event', sequence: 9, round: 2, eventType: 'unitHpChanged',
+            payload: { unitId: 'u-p2', unitType: 'archer', campKey: 'player2', delta: -180, sourceUnitId: 'colonel-1', sourceUnitType: 'infantry', sourceCampKey: 'player1' }
+        }
+    ];
+
+    const stats = buildMatchStats(log);
+    const p1Air = stats.units.find(u => u.id === 'airfield:1,1:player1');
+    const p2Air = stats.units.find(u => u.id === 'airfield:1,1:player2');
+    const colonel = stats.units.find(u => u.id === 'colonel-1');
+    assert.ok(p1Air && p2Air, 'same city flipped between factions yields two distinct virtual airfield entities');
+    assert.equal(p1Air.displayName, '空军 (1,1)');
+    assert.equal(p1Air.recruits, 1);
+    assert.equal(p1Air.damageDealt, 120);
+    assert.equal(p1Air.kills, 1);
+    assert.equal(p1Air.survived, false, 'player1 lost control of city (1,1)');
+    assert.equal(p2Air.displayName, '空军 (1,1)');
+    assert.equal(p2Air.recruits, 1);
+    assert.equal(p2Air.damageDealt, 360);
+    assert.equal(p2Air.survived, true, 'player2 controls city (1,1) at match end');
+    assert.equal(colonel.damageDealt, 180);
+    assert.equal(colonel.airCommands, 1);
+    assert.equal(stats.mvpUnits.some(u => u.type === 'airfield'), false, 'virtual airfield must not appear on MVP podium');
+    assert.ok(stats.mvpUnits.some(u => u.id === 'colonel-1'), 'colonel garrison remains eligible for MVP');
+
+    const dom = new JSDOM('<!doctype html><body><div id="matchStatsOverlay"><button id="matchStatsCloseBtn"></button><p id="matchStatsSubtitle"></p><div id="matchStatsSummary"></div><button type="button" data-control-metric="controlShare" class="active"></button><button type="button" data-control-metric="unitShare"></button><button type="button" data-control-metric="cityShare"></button><svg id="matchControlChart"></svg><div id="matchControlTooltip" hidden></div><div id="matchControlLegend"></div><p id="matchControlMethod"></p><div id="matchCampCards"></div><div id="matchUnitLeaders"></div><div id="matchUnitMvp"></div><select id="matchUnitMetric"><option value="damageDealt">造成伤害</option><option value="recruits">招募</option></select><select id="matchUnitCamp"></select><div id="matchUnitTable"></div><div id="matchBattleEvents"></div><p id="matchBattleMethod"></p></div></body>');
+    const prevDoc = globalThis.document;
+    globalThis.document = dom.window.document;
+    try {
+        const { initMatchStatsPanel } = await import('../js/matchStatsView.js');
+        const panel = initMatchStatsPanel({ getLog: () => log });
+        assert.equal(panel.open(), true);
+        const mvpIds = [...dom.window.document.querySelectorAll('#matchUnitMvp .match-mvp-identity small')].map(el => el.textContent.trim());
+        assert.ok(mvpIds.every(id => !id.startsWith('#airfield:')), 'MVP podium excludes virtual airfields');
+        const dmgRows = [...dom.window.document.querySelectorAll('#matchUnitTable .match-unit-row .match-unit-id')].map(el => el.textContent.trim());
+        assert.ok(dmgRows.includes('#airfield:1,1:player2'), 'leaderboard still includes virtual airfields');
+        const metricEl = dom.window.document.getElementById('matchUnitMetric');
+        metricEl.value = 'recruits';
+        metricEl.dispatchEvent(new dom.window.Event('change'));
+        const rows = [...dom.window.document.querySelectorAll('#matchUnitTable .match-unit-row')];
+        assert.equal(rows.length, 2, 'recruits tab displays both airfield entities sorted cleanly');
+        assert.ok(!dom.window.document.querySelector('#matchStatsOverlay').textContent.includes('·'));
+    } finally {
+        globalThis.document = prevDoc;
+    }
+});
+
+
+test('unit leaderboard limits each metric to top 5 and neutral captures show neutral flag without splitting', async () => {
+    const { JSDOM } = await import('jsdom');
+    const reviewDoc = {
+        schema: 'blades-of-hex.match-review',
+        matchId: 'top5-and-neutral',
+        complete: true,
+        durationMs: 90000,
+        mode: { type: 'pve' },
+        result: { winnerCampKey: 'player1' },
+        participants: [
+            { campKey: 'player1', name: '红军', flagPreset: 'img/flags/svg/us.svg', colorId: 'red' },
+            { campKey: 'player2', name: '蓝军', flagPreset: 'img/flags/svg/fr.svg', colorId: 'blue' }
+        ],
+        overview: {
+            totalActions: 20, totalDamage: 1200, totalLosses: 4,
+            camps: [
+                { campKey: 'player1', name: '红军', kills: 3, losses: 1, damageDealt: 900, damageTaken: 300, captures: 2, initialCities: 1, finalCities: 3, initialForce: { units: 7 }, finalForce: { units: 7 } },
+                { campKey: 'player2', name: '蓝军', kills: 1, losses: 3, damageDealt: 300, damageTaken: 900, captures: 0, initialCities: 1, finalCities: 1, initialForce: { units: 4 }, finalForce: { units: 2 } }
+            ],
+            leaders: {}
+        },
+        unitHighlights: Array.from({ length: 7 }, (_, i) => ({
+            id: `u-${i + 1}`, type: 'infantry', displayName: '步兵', campKey: 'player1',
+            kills: 0, damageDealt: (7 - i) * 100, damageTaken: 50, healingReceived: 0, actions: 2, survived: true
+        })),
+        commanderDeathEvents: [],
+        keyEvents: [
+            { round: 2, type: 'cityCaptured', campKey: 'player1', previousCampKey: 'neutral', districtId: 3, label: '红军攻占行政区3' },
+            { round: 2, type: 'cityCaptured', campKey: 'player1', previousCampKey: 'neutral', districtId: 4, label: '红军攻占行政区4' }
+        ],
+        controlTimeline: [
+            { round: 0, byCamp: { player1: { units: 7, cities: 1, controlShare: 0.5 }, player2: { units: 4, cities: 1, controlShare: 0.5 } } },
+            { round: 2, byCamp: { player1: { units: 7, cities: 3, controlShare: 0.75 }, player2: { units: 2, cities: 1, controlShare: 0.25 } } }
+        ],
+        roundIndex: [
+            { round: 1, engagements: 2, byCamp: { player1: { damageDealt: 200, damageTaken: 100, kills: 0, losses: 0, captures: 0 }, player2: { damageDealt: 100, damageTaken: 200, kills: 0, losses: 0, captures: 0 } } },
+            { round: 2, engagements: 4, byCamp: { player1: { damageDealt: 700, damageTaken: 200, kills: 3, losses: 1, captures: 2 }, player2: { damageDealt: 200, damageTaken: 700, kills: 1, losses: 3, captures: 0 } } }
+        ]
+    };
+    const dom = new JSDOM('<!doctype html><body><div id="matchStatsOverlay"><button id="matchStatsCloseBtn"></button><p id="matchStatsSubtitle"></p><div id="matchStatsSummary"></div><button type="button" data-control-metric="controlShare" class="active"></button><button type="button" data-control-metric="unitShare"></button><button type="button" data-control-metric="cityShare"></button><svg id="matchControlChart"></svg><div id="matchControlTooltip" hidden></div><div id="matchControlLegend"></div><p id="matchControlMethod"></p><div id="matchCampCards"></div><div id="matchUnitLeaders"></div><div id="matchUnitMvp"></div><select id="matchUnitMetric"><option value="damageDealt">造成伤害</option></select><select id="matchUnitCamp"></select><div id="matchUnitTable"></div><div id="matchBattleEvents"></div><p id="matchBattleMethod"></p></div></body>');
+    const prevDoc = globalThis.document;
+    globalThis.document = dom.window.document;
+    try {
+        const { initMatchStatsPanel } = await import('../js/matchStatsView.js');
+        const panel = initMatchStatsPanel({ getLog: () => reviewDoc });
+        assert.equal(panel.open(), true);
+        const rows = [...dom.window.document.querySelectorAll('#matchUnitTable .match-unit-row')];
+        assert.equal(rows.length, 5, 'leaderboard displays at most top 5 entries per metric');
+        const headline = dom.window.document.querySelector('#matchBattleEvents .match-battle-event.is-breakthrough .match-battle-headline');
+        assert.ok(headline.innerHTML.includes('img/flags/training-targets.svg'), 'neutral capture headline shows neutral faction flag');
+        assert.ok(headline.textContent.includes('夺取') && !headline.textContent.includes('攻占'), 'uses unified capture phrasing instead of separate neutral phrasing');
+        const sideBadge = dom.window.document.querySelector('#matchBattleEvents .match-battle-event.is-breakthrough .match-battle-side');
+        assert.ok(sideBadge.innerHTML.includes('img/flags/training-targets.svg'), 'breakthrough badge shows capture from neutral flag');
     } finally {
         globalThis.document = prevDoc;
     }

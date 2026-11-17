@@ -44,7 +44,7 @@ function makeState() {
         tiles: [start, destination, enemy],
         visibleTiles: { player1: new Set(['0,0', '0,1']), player2: new Set(['2,0']) },
         playerGold: { player1: 100, player2: 100 },
-        playerHands: { player1: ['airstrike'], player2: [] },
+        playerHands: { player1: ['lightning'], player2: [] },
         killCount: { player1: 0, player2: 0 }, surrenderedCamps: [],
         logHistory: [], gameOver: false, victoryCamp: null,
         attacker, defender, start, destination, enemy

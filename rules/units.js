@@ -8,37 +8,37 @@ import { campToKey } from './camps.js';
  * 专精面板差值与逐阶能力不得反写到本对象，避免招募阶段泄露专精。
  */
 export const UNIT_CONFIG = deepFreeze({
-    infantry: { name: '步兵', hp: 180, attack: 40, defense: 0, speed: 4, range: 1, cost: 8, color: '#0a0a0a', movementDomain: 'land' },
-    cavalry: { name: '骑兵', hp: 150, attack: 50, defense: 0, speed: 8, range: 1, cost: 10, color: '#0a0a0a', movementDomain: 'land' },
-    archer: { name: '炮兵', hp: 90, attack: 55, defense: 0, speed: 3, range: 2, cost: 12, color: '#0a0a0a', movementDomain: 'land' },
+    infantry: { name: '步兵', hp: 180, attack: 40, defense: 0.05, speed: 4, range: 1, cost: 8, color: '#0a0a0a', movementDomain: 'land' },
+    cavalry: { name: '骑兵', hp: 160, attack: 50, defense: 0, speed: 8, range: 1, cost: 10, color: '#0a0a0a', movementDomain: 'land' },
+    archer: { name: '炮兵', hp: 85, attack: 55, defense: 0, speed: 3, range: 2, cost: 12, color: '#0a0a0a', movementDomain: 'land' },
     mgNest: { name: '碉堡', hp: 200, attack: 40, defense: 0.05, speed: 0, range: 2, cost: 0, color: '#8B7355', movementDomain: 'land', rankLocked: true, building: true },
     shoreBattery: { name: '岸防炮', hp: 150, attack: 50, defense: 0, speed: 0, range: 2, cost: 10, color: '#6f6657', movementDomain: 'land', rankLocked: true, building: true },
     drone: { name: '无人机', hp: 75, attack: 30, defense: 0, speed: 8, range: 2, cost: 0, color: '#6bbcff', movementDomain: 'land', rankLocked: true, building: true },
-    destroyer: { name: '驱逐舰', hp: 140, attack: 40, defense: 0, speed: 6, range: 1, cost: 10, color: '#477b8c', movementDomain: 'naval' },
+    destroyer: { name: '驱逐舰', hp: 160, attack: 45, defense: 0, speed: 6, range: 1, cost: 10, color: '#477b8c', movementDomain: 'naval' },
     // 保留 warship 内部 ID 兼容旧存档与战役，显示及数值为 0 阶巡洋舰。
-    warship: { name: '巡洋舰', hp: 180, attack: 55, defense: 0, speed: 4, range: 2, cost: 15, color: '#315f78', movementDomain: 'naval' },
+    warship: { name: '巡洋舰', hp: 175, attack: 50, defense: 0.05, speed: 4, range: 2, cost: 15, color: '#315f78', movementDomain: 'naval' },
     submarine: { name: '潜艇', hp: 100, attack: 50, defense: 0, speed: 8, range: 1, cost: 8, color: '#233f50', movementDomain: 'naval' },
-    carrier: { name: '航空母舰', hp: 250, attack: 45, defense: 0.08, speed: 3, range: 5, cost: 20, color: '#244d69', movementDomain: 'naval', attackRole: 'carrierStrafe' },
+    carrier: { name: '航空母舰', hp: 250, attack: 50, defense: 0.10, speed: 3, range: 5, cost: 18, color: '#244d69', movementDomain: 'naval', attackRole: 'carrierStrafe' },
     // ==== 历史文化特色兵种 ====
     us_marine: {
-        name: '海军陆战队', hp: 180, attack: 54, defense: 0.05, speed: 8, range: 1, cost: 11,
+        name: '海军陆战队', hp: 200, attack: 55, defense: 0.05, speed: 8, range: 1, cost: 10,
         color: '#1b6d96', movementDomain: 'amphibious', baseType: 'cavalry',
         cultureId: 'us', isUniqueUnit: true, recruitmentSites: ['city', 'port']
     },
     gb_battleship: {
-        name: '皇家战列舰', hp: 230, attack: 64, defense: 0.10, speed: 4, range: 2, cost: 17,
+        name: '皇家战列舰', hp: 220, attack: 60, defense: 0.10, speed: 4, range: 2, cost: 18,
         color: '#3b4f6e', movementDomain: 'naval', baseType: 'warship',
         cultureId: 'gb', isUniqueUnit: true, recruitmentSites: ['port']
     },
     fr_heavy_cannon: {
-        name: '巨炮', hp: 115, attack: 85, defense: 0, speed: 2, range: 5, cost: 15,
+        name: '巨炮', hp: 115, attack: 80, defense: 0, speed: 2, range: 5, cost: 15,
         color: '#334d39', movementDomain: 'land', baseType: 'archer',
         cultureId: 'fr', isUniqueUnit: true, recruitmentSites: ['city'], splashPct: 0.35
     },
     ru_katyusha: {
-        name: '喀秋莎火箭炮', hp: 100, attack: 48, defense: 0, speed: 4, range: 2, cost: 13,
+        name: '喀秋莎火箭炮', hp: 100, attack: 48, defense: 0, speed: 4, range: 2, cost: 15,
         color: '#8c1d18', movementDomain: 'land', baseType: 'archer',
-        cultureId: 'ru', isUniqueUnit: true, recruitmentSites: ['city'], splashPct: 0.35
+        cultureId: 'ru', isUniqueUnit: true, recruitmentSites: ['city'], splashPct: 0.30
     },
     kmt_training_brigade: {
         name: '中央教导旅', hp: 210, attack: 42, defense: 0.05, speed: 4, range: 1, cost: 9,
@@ -46,12 +46,12 @@ export const UNIT_CONFIG = deepFreeze({
         cultureId: 'kmt', isUniqueUnit: true, recruitmentSites: ['city']
     },
     cpc_guerrilla: {
-        name: '游击纵队', hp: 175, attack: 50, defense: 0.05, speed: 6, range: 1, cost: 8,
+        name: '游击纵队', hp: 170, attack: 48, defense: 0.05, speed: 6, range: 1, cost: 10,
         color: '#9e3b14', movementDomain: 'land', baseType: 'infantry',
         cultureId: 'cpc', isUniqueUnit: true, recruitmentSites: ['city'], recruitmentLimit: 2
     },
     jp_samurai: {
-        name: '帝国武士', hp: 200, attack: 46, defense: 0.05, speed: 5, range: 1, cost: 9,
+        name: '帝国武士', hp: 210, attack: 50, defense: 0.05, speed: 5, range: 1, cost: 9,
         color: '#6b2259', movementDomain: 'land', baseType: 'infantry',
         cultureId: 'jp', isUniqueUnit: true, recruitmentSites: ['city'], permanentAntiHeal: true
     }
@@ -135,7 +135,7 @@ export const DEFENSE_BUILDING_TYPES = Object.freeze(['mgNest', 'shoreBattery']);
 export const UNIT_RANK_CONFIG = deepFreeze({
     xpThresholds: [5, 15, 25, 35],
     rankUpHealLostPct: 0.25,
-    rank2: { hp: 15, attack: 10 },
+    rank2: { hp: 15, attack: 8 },
     rank4: { regenPct: 0.15, critBonus: 0.25 }
 });
 
@@ -147,21 +147,21 @@ const spec = (name, panel, abilities, description) => ({ name, panel, abilities,
  */
 export const UNIT_SPECIALIZATION_CONFIG = deepFreeze({
     infantry: {
-        garrisonInfantry: spec('卫戍步兵', { hp: 200, attack: 40, defense: 0.10, speed: 4, range: 1 }, {
+        garrisonInfantry: spec('卫戍步兵', { hp: 210, attack: 40, defense: 0.10, speed: 4, range: 1 }, {
             cityRegen: { rank1: 0.10, rank3: 0.20 },
             holdFirstHitReduction: { rank1: 0.15, rank3: 0.25 }
         }, unit => `驻守城市时每回合恢复${Math.round((unit.getSpecializationAbility('cityRegen') || 0) * 100)}%最大生命；本回合未移动时，首次受击伤害降低${Math.round((unit.getSpecializationAbility('holdFirstHitReduction') || 0) * 100)}%。`),
-        assaultInfantry: spec('突击步兵', { hp: 180, attack: 48, defense: 0.05, speed: 6, range: 1 }, {
+        assaultInfantry: spec('突击步兵', { hp: 190, attack: 50, defense: 0.05, speed: 6, range: 1 }, {
             fortificationDamage: { rank1: 0.20, rank3: 0.35 },
             killHeal: { rank1: 0.10, rank3: 0.20 }
         }, unit => `对要塞单位的伤害提高${Math.round((unit.getSpecializationAbility('fortificationDamage') || 0) * 100)}%；击败敌军时立即恢复${Math.round((unit.getSpecializationAbility('killHeal') || 0) * 100)}%最大生命。`)
     },
     cavalry: {
-        lightCavalry: spec('轻骑兵', { hp: 150, attack: 55, defense: 0.05, speed: 9, range: 1 }, {
+        lightCavalry: spec('轻骑兵', { hp: 160, attack: 55, defense: 0.05, speed: 9, range: 1 }, {
             chargePerStep: { rank1: 0.10, rank3: 0.15, maxStacks: 3 },
             skirmishVisionBonus: 1
         }, unit => `每移动1格伤害提高${Math.round((unit.getSpecializationAbility('chargePerStep') || 0) * 100)}%，最多3层；未击败目标时可用剩余行动力撤退；遭遇战视野+1。`),
-        heavyCavalry: spec('重骑兵', { hp: 170, attack: 50, defense: 0.10, speed: 5, range: 1 }, {
+        heavyCavalry: spec('重骑兵', { hp: 180, attack: 50, defense: 0.10, speed: 5, range: 1 }, {
             counterDamageReduction: { rank1: 0.25, rank3: 0.40 },
             rangedArmorPierce: { rank1: 0.10, rank3: 0.15 }
         }, unit => `受到的反击伤害降低${Math.round((unit.getSpecializationAbility('counterDamageReduction') || 0) * 100)}%；攻击远程单位时无视敌人${Math.round((unit.getSpecializationAbility('rangedArmorPierce') || 0) * 100)}%防御力。`)
@@ -175,12 +175,12 @@ export const UNIT_SPECIALIZATION_CONFIG = deepFreeze({
         }, unit => `使2格内友军受到的空军伤害降低${Math.round((unit.getSpecializationAbility('antiAir') || 0) * 100)}%。`)
     },
     destroyer: {
-        antiAirDestroyer: spec('防空驱逐舰', { hp: 140, attack: 40, defense: 0.05, speed: 6, range: 1 }, {
+        antiAirDestroyer: spec('防空驱逐舰', { hp: 175, attack: 45, defense: 0.10, speed: 6, range: 1 }, {
             antiAir: { radius: 2, rank1: 0.35, rank3: 0.50 }
         }, unit => `使2格内友军受到的空军伤害降低${Math.round((unit.getSpecializationAbility('antiAir') || 0) * 100)}%。`),
-        antiSubDestroyer: spec('反潜驱逐舰', { hp: 150, attack: 40, defense: 0.05, speed: 7, range: 1 }, {
+        antiSubDestroyer: spec('反潜驱逐舰', { hp: 165, attack: 45, defense: 0.05, speed: 7, range: 1 }, {
             submarineDetectionRadius: 2,
-            submarineDamage: { rank1: 0.30, rank3: 0.50 }
+            submarineDamage: { rank1: 0.40, rank3: 0.60 }
         }, unit => `侦测2格内潜艇，对潜艇伤害提高${Math.round((unit.getSpecializationAbility('submarineDamage') || 0) * 100)}%。`)
     },
     warship: {
@@ -189,9 +189,9 @@ export const UNIT_SPECIALIZATION_CONFIG = deepFreeze({
             extraSalvo: { rank1: 0.25, rank3: 0.4, multiplier: 0.5 }
         }, unit => `对海军单位的伤害提高${Math.round((unit.getSpecializationAbility('shipDamage') || 0) * 100)}%，并有同等概率舰炮齐射造成原本50%的额外伤害。`),
         supportCruiser: spec('支援型巡洋舰', { hp: 180, attack: 60, defense: 0.05, speed: 5, range: 3 }, {
-            landDamage: 0.50,
+            landDamage: 0.40,
             shoreSplashChance: { rank1: 0.25, rank3: 0.40, multiplier: 0.30, totalDamageCap: 1 }
-        }, unit => `对陆地单位造成的伤害提高50%；攻击要塞单位时有${Math.round((unit.getSpecializationAbility('shoreSplashChance') || 0) * 100)}%的概率对相邻敌方单位造成相当于原本30%的溅射伤害。`)
+        }, unit => `对陆地单位造成的伤害提高${Math.round((unit.getSpecializationAbility('landDamage') || 0) * 100)}%；攻击要塞单位时有${Math.round((unit.getSpecializationAbility('shoreSplashChance') || 0) * 100)}%的概率对相邻敌方单位造成相当于原本30%的溅射伤害。`)
     }
 });
 

@@ -34,7 +34,7 @@
     interaction: 'march',
     targeting: 'attack',
     targetingHoverKey: null,
-    airTargeting: 'airstrike',
+    airTargeting: 'airdrop',
     airTargetingHoverKey: null,
     interactionMotion: !window.matchMedia('(prefers-reduced-motion: reduce)').matches,
     interactionElapsed: 0,
@@ -2224,7 +2224,7 @@
     const unitByKey = new Map(unitSpecs.map(spec => [spec.key, spec]));
     const colonel = unitSpecs.find(spec => spec.colonel)?.tile;
     const pickupSource = unitSpecs.find(spec => spec.pickup)?.tile;
-    const profile = AIR_TARGETING_PROFILES[state.airTargeting] || AIR_TARGETING_PROFILES.airstrike;
+    const profile = AIR_TARGETING_PROFILES[state.airTargeting] || AIR_TARGETING_PROFILES.airdrop;
     const isColonelMode = ['diveStrafe', 'carpetBomb', 'airliftPickup', 'airliftDestination'].includes(state.airTargeting);
     const airEntryOrigin = isColonelMode ? colonel : null;
 
@@ -2240,7 +2240,7 @@
 
     let legalKeys = [];
     const visibleEnemies = unitSpecs.filter(spec => spec.side === 'enemy' && spec.tile.visible);
-    if (state.airTargeting === 'airstrike') {
+    if (false) {
       legalKeys = visibleEnemies.map(spec => spec.key);
     } else if (state.airTargeting === 'diveStrafe' || state.airTargeting === 'carpetBomb') {
       legalKeys = visibleEnemies.filter(spec => colonel && airDistance(colonel, spec.tile) <= 6).map(spec => spec.key);
@@ -2258,7 +2258,7 @@
     const hoverKey = legalSet.has(state.airTargetingHoverKey) ? state.airTargetingHoverKey : null;
     const hoverTile = grid.tileMap.get(hoverKey);
 
-    if ((state.airTargeting === 'airstrike' || state.airTargeting === 'carpetBomb') && hoverTile) {
+    if (state.airTargeting === 'carpetBomb' && hoverTile) {
       const affected = new Set(grid.tiles.filter(tile => airDistance(hoverTile, tile) <= 1).map(tile => tileKey(tile.q, tile.r)));
       drawAirRegion(ctx, grid, affected, '#ee453c', '#ffd1cc', .17, grid.size * .072, time, airEntryOrigin);
     }
@@ -2282,7 +2282,7 @@
     for (const spec of antiAirSpecs) drawAntiAirSource(ctx, spec.tile, grid.size, time, airEntryOrigin);
     for (const spec of flakSpecs) drawAntiAirSource(ctx, spec.tile, grid.size, time, airEntryOrigin);
 
-    if (state.airTargeting === 'airstrike' || state.airTargeting === 'carpetBomb') {
+    if (state.airTargeting === 'carpetBomb') {
       for (const key of legalKeys) {
         const spec = unitByKey.get(key);
         if (spec) drawAreaCenterTarget(ctx, spec.tile, grid.size, profile.color, time, key === hoverKey, airEntryOrigin);

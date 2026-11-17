@@ -96,7 +96,7 @@ export const config = {
     // never replaced by its aircraft-specific hand.
     commanders: { player1: 'diplomat', player2: 'ironGuard', player3: 'priest' },
     hands: {
-        player1: ['airstrike', 'heal', 'forceMarch', 'shield'],
+        player1: ['lightning', 'heal', 'forceMarch', 'shield'],
         player2: [],
         player3: []
     },

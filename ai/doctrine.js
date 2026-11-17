@@ -415,7 +415,7 @@ export function selectCommanderPair(pool, { rng, preferSynergy = true } = {}) {
 // Optio 只调用 estimateDamage 判断能否斩杀；Legatus 会一并读反击；
 // Imperator 还会把它喂给集火账本与净交换否决。
 
-/** 远程攻击者：战壕只挡近战、高射机枪只挡远程、森林对远程额外加成。 */
+/** 远程攻击者：战壕挡近战与炮击、森林对远程额外加成。 */
 export function isRangedAttacker(attacker) {
     const base = getUnitBaseType(attacker);
     return base === 'archer' || base === 'mgNest' || attacker?._isDrone === true;
@@ -429,7 +429,7 @@ export function createCombatModel({ state = null, weather = 'clear', hexDistance
     // 地形+工事防御（对齐 rules/terrain.js）
     function terrainDefense(tile, attackerRanged) {
         let def = TERRAIN_DEF[tile?.terrain] || 0;
-        if (tile?.fortification === 'trench' && !attackerRanged) def += 0.25;
+        if (tile?.fortification === 'trench') def += 0.25;
         if (tile?.fortification === 'flak' && attackerRanged) def += 0.25;
         if (tile?.terrain === 'forest' && attackerRanged) def += 0.15;
         return def;

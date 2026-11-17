@@ -35,10 +35,10 @@ test('0阶标准型、待专精与选定专精使用同一确定性军衔映射'
 
     const selected = resolveUnitRankProfile('infantry', 2, 'garrisonInfantry');
     assert.equal(selected.pendingSpecialization, false);
-    assert.equal(selected.hp, 215);
-    assert.equal(selected.attack, 50);
+    assert.equal(selected.hp, 225);
+    assert.equal(selected.attack, 48);
     assert.equal(getSpecializationAbilityValue({ type: 'infantry', specializationKey: 'garrisonInfantry', _rank: 3 }, 'cityRegen'), 0.20);
-    assert.equal(resolveUnitRankProfile('archer', 2, 'antiAirArtillery').attack, 55,
+    assert.equal(resolveUnitRankProfile('archer', 2, 'antiAirArtillery').attack, 53,
         '防空炮保留普通攻击，防空火力是附加能力');
     const invalidRocket = resolveUnitRankProfile('archer', 2, 'rocketArtillery');
     assert.equal(invalidRocket.specializationKey, null);
@@ -55,7 +55,7 @@ test('建筑锁定军衔，航母把2阶攻击奖励映射为航空火力', () =
     assert.equal(isStaticBattleStructure('drone'), false);
     assert.equal(isStaticBattleStructure('infantry'), false);
     const carrier = resolveUnitRankProfile('carrier', 2, null);
-    assert.equal(carrier.carrierAirPowerBonus, 10);
+    assert.equal(carrier.carrierAirPowerBonus, 8);
     assert.equal(carrier.unbranchedReward.damageBonus, 0.15);
 });
 
@@ -226,4 +226,43 @@ test('战役 schema 接受机场、军衔专精和精确专精数量条件', () 
 
     level.triggers[0].when[0].specializationKey = 'heavyCavalry';
     assert.match(validateLevel(level).errors.join('\n'), /专精筛选/);
+});
+
+
+test('战壕覆盖炮击减伤，且补员与修船费用统一下调25%并四舍五入', async () => {
+    const { FORTIFICATION_CONFIG } = await import('../rules/terrain.js');
+    const { computeHealGoldCost } = await import('../rules/healing.js');
+    const { wireHeadlessEngine } = await import('../core/headless.js');
+    wireHeadlessEngine();
+    const { gameState } = await import('../js/state.js');
+    const { HexTile } = await import('../js/HexTile.js');
+    const { Unit } = await import('../js/Unit.js');
+
+    assert.equal(FORTIFICATION_CONFIG.trench.appliesTo, 'meleeAndBombardment');
+    assert.equal(computeHealGoldCost(8, 90, 180), 3, '半血步兵原4金降25%并四舍五入为3金');
+    assert.equal(computeHealGoldCost(15, 87, 175), 6, '约半血巡洋舰15*0.5*0.75=5.625四舍五入为6金');
+    assert.equal(computeHealGoldCost(8, 1, 180), 1, '最低不少于1金');
+
+    const P1 = { id: 'player1', name: '红军' };
+    const P2 = { id: 'player2', name: '蓝军' };
+    const flakTile = new HexTile(0, 0);
+    flakTile.fortification = 'flak';
+    const trenchTile = new HexTile(1, 0);
+    trenchTile.fortification = 'trench';
+    const shooterTile = new HexTile(3, 0);
+    gameState.tiles = [flakTile, trenchTile, shooterTile];
+    gameState.tileMap = new Map([['0,0', flakTile], ['1,0', trenchTile], ['3,0', shooterTile]]);
+    gameState.factions = { player1: P1, player2: P2 };
+    gameState.turnOrder = ['player1', 'player2'];
+    gameState.currentCamp = P1;
+    gameState.mechanics = { fortifications: true };
+    gameState.diplomacy = { player1: { player2: 'enemy' }, player2: { player1: 'enemy' } };
+    gameState.rng = { next: () => 0.5, range: (a, b) => (a + b) / 2, chance: () => false, between: a => a };
+
+    const archer = new Unit('archer', P1, shooterTile, false);
+    const flakDefender = new Unit('infantry', P2, flakTile, false);
+    const trenchDefender = new Unit('infantry', P2, trenchTile, false);
+    const flakHit = archer.calculateDamage(flakDefender, 0, { showDamageText: false });
+    const trenchHit = archer.calculateDamage(trenchDefender, 0, { showDamageText: false });
+    assert.ok(trenchHit.dmg < flakHit.dmg * 0.80, '同为工事要塞格时，战壕应有效削减炮兵炮击伤害 (+25% 防御)');
 });

@@ -379,8 +379,8 @@ export function applyMaxCandidateToSim(baseSim, cand, world) {
             }
             return sim;
         }
-        if (['lightning', 'imprison', 'poison', 'airstrike', 'orbitalStrike'].includes(cid)) {
-            const dmg = Number(TACTICAL_CARD_DATA[cid]?.balance?.damage || (cid === 'lightning' ? 60 : cid === 'airstrike' ? 55 : 0));
+        if (['lightning', 'imprison', 'poison', 'orbitalStrike'].includes(cid)) {
+            const dmg = Number(TACTICAL_CARD_DATA[cid]?.balance?.damage || (cid === 'lightning' ? 60 : 0));
             const target = sim.rivalUnits.get(cand.targetId)
                 || sim.neutralUnits.get(cand.targetId)
                 || Array.from(sim.rivalUnits.values()).find(e => e.q === cand.q && e.r === cand.r);

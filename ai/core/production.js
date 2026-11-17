@@ -8,7 +8,7 @@
 import { W, isImperatorTier } from './weights.js';
 import { isFieldCapturer, shouldReserveCityGarrison } from './roster.js';
 import { canRepairShipAtPort } from '../../rules/naval.js';
-import { canReinforceAtTile } from '../../rules/healing.js';
+import { canReinforceAtTile, computeHealGoldCost } from '../../rules/healing.js';
 import { canUnitBeRecruitedAtSite, getUniqueRecruitmentStatus, getUnitBaseType } from '../../rules/units.js';
 import { getHistoricalCost, getHistoricalRecruitCost, getCulturalReinforceCostScale, getHeavyCannonStanceBlock, isHeavyCannonDeployed } from '../../rules/cultures.js';
 import { getCulturalRecruitmentCandidate } from '../../rules/aiRecruitment.js';
@@ -210,8 +210,8 @@ export function planProduction(world, strategy, missionsCtx) {
             if (reinforced >= cap) break;
             if (savingForUnique && !(onThreatenedCity && effectiveRatio < 0.60)) continue;
             const heal = Math.min(Math.floor(tile.unit.maxHp * 0.50), deficit);
-            const base = Math.ceil(tile.unit.config.cost * (heal / tile.unit.maxHp) * getCulturalReinforceCostScale(world.gameState, tile, world.myCamp));
-            const cost = getHistoricalCost(Math.max(1, base), world.gameState, world.myCamp);
+            const base = computeHealGoldCost(tile.unit.config.cost, heal, tile.unit.maxHp, getCulturalReinforceCostScale(world.gameState, tile, world.myCamp));
+            const cost = getHistoricalCost(base, world.gameState, world.myCamp);
             if (heal <= 0 || gold - cost < tianyanProtectedFund(reserveFloor)) continue;
             actions.push({ type: 'reinforce', unitId: tile.unit.id });
             reinforceLedger[tile.unit.id] = (reinforceLedger[tile.unit.id] || 0) + 1;
@@ -229,7 +229,7 @@ export function planProduction(world, strategy, missionsCtx) {
             if (onlyUrgent && !urgentShip) continue;
             const heal = Math.min(Math.floor(unit.maxHp * 0.5), unit.maxHp - unit.hp);
             if (heal < unit.maxHp * 0.2) continue;
-            const cost = getHistoricalCost(Math.max(1, Math.ceil(unit.config.cost * heal / unit.maxHp)), world.gameState, world.myCamp);
+            const cost = getHistoricalCost(computeHealGoldCost(unit.config.cost, heal, unit.maxHp), world.gameState, world.myCamp);
             if (gold - cost < reserveFloor) continue;
             setup.unshift({ type: 'repairShip', unitId: unit.id });
             gold -= cost;

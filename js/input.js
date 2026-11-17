@@ -39,7 +39,7 @@ import { isPlayableBoardTile, isPointInBoardHex } from '../rules/boardLayout.js'
 import { RECRUITMENT_OPTIONS, getUniqueRecruitmentOption } from './recruitmentUi.js';
 import { areCommanderMechanicsSuppressed, getTransportBaseDefense } from '../rules/movement.js';
 import { isCoastalLandTile, canRepairShipAtPort } from '../rules/naval.js';
-import { canReinforceAtTile } from '../rules/healing.js';
+import { canReinforceAtTile, computeHealGoldCost } from '../rules/healing.js';
 import { canSwitchRiverGate, getRiverGate, getRiverGateOpenLane } from '../rules/riverGate.js';
 import { getSpecialization, getSpecializationOptions, getUnitBaseType, getUnitDisplayName, getAttackRangeCap, getMinimumAttackRange, resolveUnitRankProfile, UNBRANCHED_UNIT_REWARDS } from '../rules/units.js';
 import { getAntiAirReduction } from '../rules/antiAir.js';
@@ -346,7 +346,7 @@ function _getReinforcementAction(unit) {
     }
 
     const healAmt = Math.min(Math.floor(unit.maxHp * 0.50), deficit);
-    const cost = getHistoricalCost(Math.max(1, Math.ceil(unit.config.cost * (healAmt / unit.maxHp) * getCulturalReinforceCostScale(gameState, unit.tile, unit.camp))), gameState, unit.camp);
+    const cost = getHistoricalCost(computeHealGoldCost(unit.config.cost, healAmt, unit.maxHp, getCulturalReinforceCostScale(gameState, unit.tile, unit.camp)), gameState, unit.camp);
     const campKey = _campKeyInput(unit.camp);
     const hasGold = !!campKey && (gameState.playerGold[campKey] || 0) >= cost;
     return {
@@ -402,7 +402,7 @@ function _getPortRepairAction(unit) {
     }
 
     const healAmt = Math.min(Math.floor(unit.maxHp * 0.50), unit.maxHp - unit.hp);
-    const cost = getHistoricalCost(Math.max(1, Math.ceil(unit.config.cost * (healAmt / unit.maxHp))), gameState, unit.camp);
+    const cost = getHistoricalCost(computeHealGoldCost(unit.config.cost, healAmt, unit.maxHp), gameState, unit.camp);
     const campKey = _campKeyInput(unit.camp);
     const hasGold = !!campKey && (gameState.playerGold[campKey] || 0) >= cost;
     return {
@@ -2140,7 +2140,7 @@ function _syncSelectionHud(tile) {
         const auraDefBonus = getCommanderAuraDefenseBonus(unit);
         const commanderDefBonus = getCommanderDefenseBonus(unit);
         const terrainDefBonus = unit.isEmbarked ? 0 : TERRAIN_CONFIG[tile.terrain].defenseBonus;
-        // 工事防御为定向减伤（战壕仅挡近战），其数值不并入汇总，由效果栏条目承担说明
+        // 工事防御为定向减伤（战壕挡近战与炮击），其数值不并入汇总，由效果栏条目承担说明
         const rankDefBonus = unit._rankPanelDefenseBonus || 0;
         const campaignDefBonus = unit.getCampaignDefenseBonus?.() || 0;
         const factionSynergyDefBonus = _timedMemo(_fellowRobeMemo, `${unit.id}:${unit.hp > 0}`,
@@ -3140,7 +3140,7 @@ const SPECIALIZATION_DETAILS = {
     antiAirDestroyer: unit => `使2格内友军受到的空军伤害降低${Math.round((unit.getSpecializationAbility('antiAir') || 0) * 100)}%。`,
     antiSubDestroyer: unit => `侦测2格内潜艇，对潜艇伤害提高${Math.round((unit.getSpecializationAbility('submarineDamage') || 0) * 100)}%。`,
     fleetCruiser: unit => `对海军单位的伤害提高${Math.round((unit.getSpecializationAbility('shipDamage') || 0) * 100)}%，并有同等概率舰炮齐射造成原本50%的额外伤害。`,
-    supportCruiser: unit => `对陆地单位造成的伤害提高50%；攻击要塞单位时有${Math.round((unit.getSpecializationAbility('shoreSplashChance') || 0) * 100)}%的概率对相邻敌方单位造成相当于原本30%的溅射伤害。`
+    supportCruiser: unit => `对陆地单位造成的伤害提高${Math.round((unit.getSpecializationAbility('landDamage') || 0) * 100)}%；攻击要塞单位时有${Math.round((unit.getSpecializationAbility('shoreSplashChance') || 0) * 100)}%的概率对相邻敌方单位造成相当于原本30%的溅射伤害。`
 };
 
 function _showSpecializationChoice(unit) {

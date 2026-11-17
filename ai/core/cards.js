@@ -219,24 +219,7 @@ export function planCards(world, strategy, missionsCtx) {
         }
     }
 
-    // ── 空袭/天基：打集群与高价值 ──────────────────────────────
-    if (has('airstrike')) {
-        const damage = (BAL.airstrike.balance.minDamage + BAL.airstrike.balance.maxDamage) / 2;
-        let best = null;
-        for (const target of enemies) {
-            if (shouldSkipNeutralCardTarget('airstrike', target)) continue;
-            let score = damage * hpGold(target);
-            for (const other of enemies) {
-                if (other.id !== target.id && world.helpers.hexDistance(other.tile, target.tile) <= 1) {
-                    score += damage * hpGold(other);
-                }
-            }
-            if (!best || score > best.score) best = { target, score };
-        }
-        if (best && best.score > 34) {
-            spend(setup, { type: 'tacticalCard', cardId: 'airstrike', targetId: best.target.id });
-        }
-    }
+    // ── 天基打击：打集群与高价值 ──────────────────────────────
     if (has('orbitalStrike')) {
         let best = null;
         for (const target of enemies) {

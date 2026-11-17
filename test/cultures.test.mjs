@@ -440,7 +440,7 @@ test('苏联文化：喀秋莎保留溅射且全阵营普通炮兵禁用火箭�
     const ru = state.factions.player1;
     const us = state.factions.player2;
 
-    assert.equal(UNIT_CONFIG.ru_katyusha.splashPct, 0.35);
+    assert.equal(UNIT_CONFIG.ru_katyusha.splashPct, 0.30);
     const ruOpts = getSpecializationOptions('archer', state, ru).map(o => o.key);
     assert.deepEqual(ruOpts, ['fieldGun', 'antiAirArtillery']);
     assert.equal(isValidSpecialization('archer', 'rocketArtillery', state, ru), false);
