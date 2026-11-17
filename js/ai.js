@@ -489,7 +489,18 @@ async function runAiAirCommands(aiCamp, difficultyProfile, stukaSorties, afterGr
         const enemySet = new Set(knownEnemies);
         const enemies = knownEnemies.filter(tile => hexDistance(city, tile) <= range);
         const allies = gameState.tiles.filter(tile => tile.unit?.camp === aiCamp && tile.unit.hp > 0);
-        const canHit = tile => tile.unit?.hp > 0 && canTargetWithSingleAirCommand(tile, aiCamp, gameState, true);
+        const neutralCamp = gameState.factions?.neutral;
+        const isRivalSideNeutralBuffer = tile => {
+            if (!tile?.unit || !neutralCamp || tile.unit.camp !== neutralCamp) return false;
+            if (ownedCities.some(ownCity => hexDistance(ownCity, tile) <= 2)) return false;
+            if (allies.some(ally => hexDistance(ally, tile) <= 2)) return false;
+            return knownEnemies.some(enemyTile => enemyTile.unit
+                && enemyTile.unit.camp !== neutralCamp
+                && hexDistance(enemyTile, tile) <= 3);
+        };
+        const canHit = tile => tile.unit?.hp > 0
+            && canTargetWithSingleAirCommand(tile, aiCamp, gameState, true)
+            && !isRivalSideNeutralBuffer(tile);
         const lethal = (kind, tile, multiplier) => estimateAirCommandDamage(kind, city, tile.unit, multiplier, knownAirDefenses)
             >= tile.unit.hp + tile.unit.activeShield;
 

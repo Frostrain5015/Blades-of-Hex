@@ -269,7 +269,7 @@ export const IMPERATOR_DOCTRINES = Object.freeze({
         commanderRiskPush: true,
         allowRiskySiege: true,
         siegeEtaTickRatio: 0.080,
-        cardDrawSurplusMin: 1,
+        cardDrawSurplusMin: 2,
         cardFocus: true,
         navalWarshipBias: 1.2,
         navalSaturatedScale: 1.1,

@@ -198,11 +198,14 @@ function missionTargetBonus(world, missionsCtx, target, kills) {
 /** 敌方占城者的威胁定价（真人：雷击只打能占城的）。 */
 export function enemyCapturerPremium(world, target) {
     if (!world.caps.interceptPricing || !world.isCapturable(target)) return 0;
+    const isNeutralTarget = target.camp === world.gameState.factions?.neutral;
     let best = 0;
     for (const city of world.cities) {
         if (city.ownerKey !== world.myCampKey && city.ownerKey !== 'neutral') continue;
+        // 中立单位原本就是中立城守军/缓冲带，绝不把站在自己城边的中立兵误判为"即将抢城的敌方占城者"。
+        if (isNeutralTarget && city.ownerKey !== world.myCampKey) continue;
         const distance = world.helpers.hexDistance(target.tile, city.tile);
-        if (distance > 3) continue;
+        if (distance > (isNeutralTarget ? 2 : 3)) continue;
         const value = city.asset.total * W.interceptBaseRatio
             + (city.mine ? 45 : 12)
             + (city.hp <= 0 ? 40 : 0)
@@ -380,7 +383,11 @@ export function evaluateAttack(world, missionsCtx, attacker, target) {
             && target.tile.q === m.targetQ && target.tile.r === m.targetR);
     // 全回合反集火与反机场斩杀线：禁止将领或高星老兵为了击杀一名非关键外围敌军而停在下一动必死（地面+机场）格
     const criticalAsset = Boolean(attacker.commander) || (attacker._rank || 0) >= 2;
-    const aggressiveAllowance = w.commanderRiskPush && (kills || target.commander || damage >= 45);
+    // 激进前压只放行健康的前线搏杀型将领，绝不放行亡灵法师/军师/谋士等脆皮功能将领硬吃集火。
+    const aggressiveAllowance = w.commanderRiskPush
+        && !FRAGILE_COMMANDERS.has(attacker.commander)
+        && attacker.hp >= attacker.maxHp * 0.55
+        && (kills || target.commander || damage >= 45);
     const suicidalCriticalExposure = world.caps.duelModel && criticalAsset
         && !holdingOwnCity
         && !target.commander
@@ -906,7 +913,7 @@ function shouldRetreat(world, unit, missionsCtx = null) {
     const w = world.weights || W;
     // 高 rank 老兵按将领级保护：一个 rank2+ 单位是两倍身家的资产。
     const veteran = (unit._rank || 0) >= 2;
-    const threshold = FRAGILE_COMMANDERS.has(unit.commander) ? 0.48
+    const threshold = FRAGILE_COMMANDERS.has(unit.commander) ? 0.52
         : unit.commander || veteran ? w.retreatHpRatioCommander : w.retreatHpRatio;
     if (hpRatio >= threshold) return false;
     return incoming > 0 && (incoming >= unit.hp * 0.5 || hpRatio < threshold * 0.7);
@@ -994,7 +1001,9 @@ function planMove(world, missionsCtx, unit, posture, actions, { captureObjective
         if (shouldLand && (canStayAshore ? !safeLand(tile) : world.onWater(tile))) continue;
         if (captureObjective && (distance(tile, captureObjective) >= distanceToObjective
             || world.threatAt(tile, unit) >= unit.hp + (unit._shield || 0))) continue;
-        if (protectCommander && !retreating && tile !== captureObjective && !(w.commanderRiskPush && attackPotential(world, missionsCtx, unit, tile) > 0)) {
+        if (protectCommander && !retreating && tile !== captureObjective
+            && !(w.commanderRiskPush && !FRAGILE_COMMANDERS.has(unit.commander)
+                && unit.hp >= unit.maxHp * 0.55 && attackPotential(world, missionsCtx, unit, tile) > 0)) {
             const incoming = combinedThreatAt(world, tile, unit, null, 0).total;
             if (incoming > currentThreat
                 && incoming * w.lethalThreatMargin >= unit.hp + (unit._shield || 0)) continue;

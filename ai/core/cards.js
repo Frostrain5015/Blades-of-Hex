@@ -94,8 +94,14 @@ export function planCards(world, strategy, missionsCtx) {
             const pool = unit.hp + (unit.activeShield ?? unit._shield ?? 0);
             const preventsCombatDeath = incoming >= pool && incoming < pool + heal;
             let score = heal * hpGold(unit) + (unit._poison ? 30 : 0);
+            const hpRatio = unit.hp / Math.max(1, unit.maxHp);
             if (missionCriticalIds.has(unit.id)) score += 40;
-            if (unit.commander) score += 20;
+            if (unit.commander) {
+                score += 20;
+                // 重伤退回后方的将领即便当回合 incoming=0，也必须高于半血普通攻城兵，避免吃余波/持续伤阵亡。
+                if (hpRatio <= 0.35) score += 140 + residualGold(unit) * 0.6;
+                else if (hpRatio <= 0.55) score += 55;
+            }
             if (preventsPoisonDeath) score += 100 + residualGold(unit);
             else if (preventsCombatDeath) score += W.healThreatRescueBonus + residualGold(unit) * 0.7;
             else if (incoming >= pool * 0.65 && heal > 0) score += 24;
@@ -105,7 +111,9 @@ export function planCards(world, strategy, missionsCtx) {
             type: 'tacticalCard', cardId: 'heal', targetId: best.unit.id
         });
     }
-    // 反拆门规则：伤害卡打在无攻城任务的城市守军身上 = 替下一个路过的对手开门。
+    // 反拆门 & 反帮对手清中立缓冲带：
+    // 1. 打在无攻城任务的城市守军上 = 替下一个路过的对手开门；
+    // 2. 用稀缺雷击/禁锢/空袭打在正被对手压低、离我方占城部队更远的中立缓冲兵上 = 帮对手加速推进到中场。
     const siegeTargets = new Set(missionsCtx.missions
         .filter(m => m.kind === 'siege')
         .map(m => `${m.targetQ},${m.targetR}`));
@@ -114,13 +122,37 @@ export function planCards(world, strategy, missionsCtx) {
         const city = world.cities.find(c => c.tile === target.tile);
         return !!city && city.hostile && !siegeTargets.has(`${target.tile.q},${target.tile.r}`);
     };
+    const neutralCamp = world.gameState.factions?.neutral;
+    const dist = world.helpers.hexDistance;
+    const shouldSkipNeutralCardTarget = (cardId, target) => {
+        if (!target?.tile || !neutralCamp || target.camp !== neutralCamp) return false;
+        if (giftedDoor(target)) return true;
+        if (cardId === 'imprison') {
+            return !world.myCities.some(city => world.isCapturable(target) && dist(city, target.tile) <= 2);
+        }
+        const onOwnSiegeObjective = siegeTargets.has(`${target.tile.q},${target.tile.r}`)
+            || missionsCtx.missions.some(m => m.kind === 'siege'
+                && dist({ q: m.targetQ, r: m.targetR }, target.tile) <= 2);
+        if (onOwnSiegeObjective) return false;
+        const threatensMySide = world.myCities.some(city => dist(city, target.tile) <= 2)
+            || world.myUnits.some(unit => unit.tile && dist(unit.tile, target.tile) <= 1);
+        if (threatensMySide) return false;
+        const rivalFrontDist = world.rivalUnits.reduce((best, rival) => (
+            rival.tile && rival.hp > 0 ? Math.min(best, dist(rival.tile, target.tile)) : best
+        ), Infinity);
+        const myAssaultDist = world.myUnits.reduce((best, ally) => (
+            ally.tile && ally.hp > 0 && world.isCapturable(ally) ? Math.min(best, dist(ally.tile, target.tile)) : best
+        ), Infinity);
+        return (rivalFrontDist <= 3 && (myAssaultDist > 2 || rivalFrontDist < myAssaultDist))
+            || (rivalFrontDist <= 4 && myAssaultDist > 3);
+    };
 
     // ── 雷击：占城威胁 > 斩杀 > 高价值 ─────────────────────────
     if (has('lightning')) {
         const damage = expectedLightningDamage(world.weather);
         let best = null;
         for (const target of enemies) {
-            if (!allowedByPolicy(world, strategy, target) || giftedDoor(target)) continue;
+            if (!allowedByPolicy(world, strategy, target) || shouldSkipNeutralCardTarget('lightning', target)) continue;
             const { value, kills } = enemyValueOfTarget(world, target, damage);
             const premium = enemyCapturerPremium(world, target)
                 + (target.commander ? 25 : 0)
@@ -138,7 +170,7 @@ export function planCards(world, strategy, missionsCtx) {
     if (has('poison')) {
         let best = null;
         for (const target of enemies) {
-            if (target._poison || giftedDoor(target)) continue;
+            if (target._poison || shouldSkipNeutralCardTarget('poison', target)) continue;
             const perTick = Math.round(target.maxHp * BAL.poison.balance.damageMaxHpPct);
             let total = perTick * BAL.poison.balance.ticks * hpGold(target);
             if (target.commander) total += 24;
@@ -168,7 +200,8 @@ export function planCards(world, strategy, missionsCtx) {
     if (has('imprison')) {
         let best = null;
         for (const target of enemies) {
-            if (target._imprisoned || !allowedByPolicy(world, strategy, target)) continue;
+            if (target._imprisoned || !allowedByPolicy(world, strategy, target)
+                || shouldSkipNeutralCardTarget('imprison', target)) continue;
             let score = enemyCapturerPremium(world, target) * 1.2;
             if (target.commander) score += 30;
             if (target._poison) {
@@ -191,7 +224,7 @@ export function planCards(world, strategy, missionsCtx) {
         const damage = (BAL.airstrike.balance.minDamage + BAL.airstrike.balance.maxDamage) / 2;
         let best = null;
         for (const target of enemies) {
-            if (giftedDoor(target)) continue;
+            if (shouldSkipNeutralCardTarget('airstrike', target)) continue;
             let score = damage * hpGold(target);
             for (const other of enemies) {
                 if (other.id !== target.id && world.helpers.hexDistance(other.tile, target.tile) <= 1) {
@@ -207,7 +240,7 @@ export function planCards(world, strategy, missionsCtx) {
     if (has('orbitalStrike')) {
         let best = null;
         for (const target of enemies) {
-            if (giftedDoor(target)) continue;
+            if (shouldSkipNeutralCardTarget('orbitalStrike', target)) continue;
             let score = BAL.orbitalStrike.balance.centerAttack * hpGold(target) * 0.8;
             if (target.commander) score += 40;
             for (const other of enemies) {
@@ -427,7 +460,15 @@ export function shouldDrawCard(world, strategy, plannedRecruitSpend = 0, planned
         gold: world.gold - plannedRecruitSpend
     });
     const strategicSave = Number(world.gameState._aiCoreMemory?.[world.myCampKey]?.strategicSaveReserve || 0);
-    const leftover = world.gold - cost - plannedRecruitSpend - Math.max(strategy.reserve, strategicSave) - tianyanReserve;
+    const urgentCommanderRescue = world.myUnits.some(u => u.commander && u.hp < u.maxHp * 0.50)
+        && !world.hand.some(c => c === 'heal' || c === 'shield');
+    const pendingEarlyRecruitReserve = plannedRecruitSpend === 0
+        && !world.myUnits.some(u => u._poison) && !urgentCommanderRescue
+        && world.round <= 3 && world.myUnits.length < 16
+        && world.myCities.some(city => !city.disabled)
+        ? 8 : 0;
+    const floorReserve = Math.max(strategy.reserve, strategicSave, pendingEarlyRecruitReserve);
+    const leftover = world.gold - cost - plannedRecruitSpend - floorReserve - tianyanReserve;
     if (leftover < 0) return false;
     if (needsAnswer) return true;
     if (effectiveHandCount >= 2 && drawsDone > 0) return false;

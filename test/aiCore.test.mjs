@@ -20,6 +20,7 @@ import { estimateForceValue } from '../ai/strategy.js';
 import { planFollowupAttack, planTurn } from '../ai/core/planner.js';
 import { planCards, shouldDrawCard } from '../ai/core/cards.js';
 import { estimateCaptureEta } from '../ai/core/strategize.js';
+import { enemyCapturerPremium } from '../ai/core/tactics.js';
 import { rankCityObjectives } from '../ai/core/perceive.js';
 import { CULTURE_CONFIG } from '../rules/cultures.js';
 
@@ -1448,4 +1449,112 @@ test('残血三段优先：先城内补员再向野战分配治疗卡，退无�
     assert.ok(!doomedActions.some(a => a.type === 'move' && a.tileQ === waterTrap.q), '必死单位绝不逃到水上');
     assert.deepEqual(doomedActions[0], { type: 'attack', unitId: doomed.id, targetId: targetArcher.id },
         '退无可退的必死单位应取消无意义后撤，直接打满最后一轮输出价值');
+});
+
+test('脆皮将领受保护不吃激进前压豁免，残血将领优先吃治疗且前期留足募兵费不被抽空', async () => {
+    const { buildWorld, decideStrategy } = await loadCore();
+    const me = { id: 'player1' }, foe = { id: 'player2' }, neutral = { id: 'neutral' };
+    const home = makeTile(5, 0, { isCity: true, camp: me, districtId: 1 });
+    const rearTile = makeTile(4, 0);
+    const midTile = makeTile(0, 2);
+    const dangerForward = makeTile(-1, 3);
+    const frontSoldierTile = makeTile(-1, 4);
+    const enemyCavalryTile = makeTile(-2, 4);
+    const foeArcher1 = makeTile(-2, 2);
+    const foeArcher2 = makeTile(-3, 3);
+    const foeCity = makeTile(-5, 0, { isCity: true, camp: foe, districtId: 2 });
+
+    // 48% 血量的亡灵法师虽在 trickster 分支，也不得绕过脆皮保护前压送进敌方双火力圈
+    const necro = makeUnit(1, 'infantry', me, midTile, { hp: 108, maxHp: 225, commander: 'necromancer', isCommanderUnit: true });
+    // 16/188 重伤退回后方的圣骑士，应优先于前线 103/170 普通攻城兵拿到 heal
+    const paladin = makeUnit(2, 'cavalry', me, rearTile, { hp: 16, maxHp: 188, commander: 'paladin', isCommanderUnit: true });
+    const soldier = makeUnit(3, 'infantry', me, frontSoldierTile, { hp: 103, maxHp: 170 });
+    makeUnit(10, 'cavalry', foe, enemyCavalryTile, { hp: 150, maxHp: 150 });
+    makeUnit(11, 'archer', foe, foeArcher1, { hp: 90, maxHp: 90, config: { attack: 60, range: 2, speed: 2, hp: 90, cost: 10, armor: 0, critRate: 0, dodgeRate: 0, movementDomain: 'land' } });
+    makeUnit(12, 'archer', foe, foeArcher2, { hp: 90, maxHp: 90, config: { attack: 60, range: 2, speed: 2, hp: 90, cost: 10, armor: 0, critRate: 0, dodgeRate: 0, movementDomain: 'land' } });
+    makeUnit(13, 'infantry', foe, foeCity);
+
+    const tiles = [home, rearTile, midTile, dangerForward, frontSoldierTile, enemyCavalryTile, foeArcher1, foeArcher2, foeCity];
+    const helpers = {
+        ...makeHelpers(tiles),
+        getMovableTiles: unit => unit === necro ? [dangerForward, rearTile] : [],
+        getAttackableTiles: (unit, opts) => {
+            const tile = opts?.fromTile || unit.tile;
+            if (unit === necro && tile === dangerForward) return [enemyCavalryTile];
+            return [];
+        }
+    };
+    const state = makeState(tiles, { player1: me, player2: foe, neutral }, {
+        currentCamp: me,
+        round: 2,
+        turnCount: 4,
+        _imperatorDoctrinePin: 'trickster',
+        playerGold: { player1: 8, player2: 12, neutral: 0 },
+        playerHands: { player1: ['heal'], player2: [] }
+    });
+
+    const plan = planTurn(state, helpers, me, TIER_CAPABILITIES.hard);
+    const necroMove = plan.find(a => a.type === 'move' && a.unitId === necro.id);
+    assert.ok(!necroMove || necroMove.tileQ !== dangerForward.q,
+        'trickster 绝不应放行 48% 血亡灵法师踩进致命火网前压');
+
+    // 当亡灵法师未处于濒危抢救时，16/188 退回后方的圣骑士必须优于前线 103/170 普通攻城兵获得治疗卡
+    necro.hp = 225;
+    const healPlan = planTurn(state, helpers, me, TIER_CAPABILITIES.hard);
+    const healAct = healPlan.find(a => a.type === 'tacticalCard' && a.cardId === 'heal');
+    assert.equal(healAct?.targetId, paladin.id, '16/188 重伤后方将领应优先于 103/170 普通前线兵获得治疗卡');
+
+    // 前期手头刚好 $8 且占着自己城市尚未募兵时，trickster 也不应先抽牌导致断招
+    const paladinHealthy = makeUnit(2, 'cavalry', me, rearTile, { hp: 170, maxHp: 188, commander: 'paladin', isCommanderUnit: true });
+    const homeUnit = makeUnit(4, 'infantry', me, home, { hp: 180, maxHp: 180 });
+    const drawCheckState = makeState([home, rearTile, foeCity], { player1: me, player2: foe, neutral }, {
+        currentCamp: me,
+        round: 2,
+        turnCount: 4,
+        _imperatorDoctrinePin: 'trickster',
+        playerGold: { player1: 8, player2: 12, neutral: 0 },
+        playerHands: { player1: ['heal'], player2: [] }
+    });
+    paladinHealthy.camp = me;
+    homeUnit.camp = me;
+    const drawWorld = buildWorld(drawCheckState, makeHelpers([home, rearTile, foeCity]), me, TIER_CAPABILITIES.hard);
+    const drawStrategy = decideStrategy(drawWorld);
+    assert.equal(shouldDrawCard(drawWorld, drawStrategy, 0, 0), false,
+        '前期手头仅 $8 且规划募兵尚未结算时，应保留至少 1 队步兵费而不先抽卡耗空');
+});
+
+test('反帮对手拆中立缓冲带：对手西侧压残中立兵时，Imperator 不对其浪费雷击与禁锢', async () => {
+    const { buildWorld } = await loadCore();
+    const me = { id: 'player1' }, foe = { id: 'player2' }, neutral = { id: 'neutral' };
+    const myCity = makeTile(7, 0, { isCity: true, camp: me, districtId: 1 });
+    const westNeutralCity = makeTile(-3, 0, { isCity: true, camp: neutral, districtId: 2, hp: 180 });
+    const westFlankHex = makeTile(-4, 1);
+    const rivalCity = makeTile(-7, 0, { isCity: true, camp: foe, districtId: 3 });
+
+    makeUnit(1, 'infantry', me, myCity);
+    const westNeutralGuard = makeUnit(20, 'infantry', neutral, westNeutralCity, { hp: 25, maxHp: 180 });
+    const westNeutralScreen = makeUnit(21, 'cavalry', neutral, westFlankHex, { hp: 20, maxHp: 150 });
+    // 西线对面的对手骑兵紧贴缓冲中立兵，正准备踩破西侧防线推进
+    makeUnit(10, 'cavalry', foe, makeTile(-5, 1), { hp: 140, maxHp: 150 });
+    makeUnit(11, 'infantry', foe, rivalCity);
+
+    const tiles = [myCity, westNeutralCity, westFlankHex, makeTile(-5, 1), rivalCity];
+    const state = makeState(tiles, { player1: me, player2: foe, neutral }, {
+        currentCamp: me,
+        round: 2,
+        turnCount: 4,
+        playerGold: { player1: 20, player2: 15, neutral: 0 },
+        playerHands: { player1: ['lightning', 'imprison'], player2: [] }
+    });
+    const helpers = makeHelpers(tiles);
+    const world = buildWorld(state, helpers, me, TIER_CAPABILITIES.hard);
+    assert.equal(enemyCapturerPremium(world, westNeutralScreen), 0,
+        '中立缓冲兵靠近中立城时绝不能按"即将夺城的敌方占城者"额外加分');
+
+    const plan = planTurn(state, helpers, me, TIER_CAPABILITIES.hard);
+    const cardHitsOnWestNeutrals = plan.filter(a => a.type === 'tacticalCard'
+        && ['lightning', 'imprison'].includes(a.cardId)
+        && [westNeutralGuard.id, westNeutralScreen.id].includes(a.targetId));
+    assert.equal(cardHitsOnWestNeutrals.length, 0,
+        `Imperator 不应对替对手拖节奏的西侧中立缓冲兵放雷击或禁锢：${JSON.stringify(cardHitsOnWestNeutrals)}`);
 });
