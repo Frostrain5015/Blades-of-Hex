@@ -10,7 +10,7 @@ const { HexTile } = await import('../js/HexTile.js');
 const { Unit } = await import('../js/Unit.js');
 const { SURFACE_KIND } = await import('../rules/surfaces.js');
 const { AIR_COMMAND_CONFIG, AIRFIELD_BASE_POWER } = await import('../rules/airCommands.js');
-const { AIRSTRIKE_FLIGHT, AIRSTRIKE_TARGET_PROGRESS, isUnitWaitingForAirdrop } = await import('../rules/attackPresentation.js');
+const { AIRSTRIKE_FLIGHT, AIRSTRIKE_TARGET_PROGRESS, isUnitWaitingForAirdrop, shouldRenderAirstrikeEngineFire } = await import('../rules/attackPresentation.js');
 const { airstrikeEffects } = await import('../js/effects.js');
 const { buildBattlefieldSnapshot } = await import('../js/rendering/battlefieldSnapshot.js');
 const { resolveTargetingPreview } = await import('../rules/targeting.js');
@@ -275,4 +275,73 @@ test('机场可向无驻军的破城空降，城市和行政区在同步快照�
         .find(unit => unit.id === breached.unit.id)?.renderable, false, '降落前 Pixi 不显示新单位');
     applyRemoteState(snapshot, HexTile, Unit);
     assert.equal(gameState.tileMap.get('8,0').unit._airdropLandAt, landAt, '后续快照同步不提前结束空降动画');
+});
+
+
+test('空降落点受防空火力拦截时立即按比例扣血且封顶85%，空袭>50%触发过半起火标记', () => {
+    const airfield = enemyCityTile(0, 0);
+    airfield.camp = P1;
+    airfield.installation = { type: 'airfield', status: 'ready', campKey: P1.id };
+
+    const dropSingleAA = new HexTile(2, 0);
+    const aaUnit1 = new Unit('archer', P2, new HexTile(3, 0), false);
+    aaUnit1.specializationKey = 'antiAirArtillery'; // 35%
+    aaUnit1._rank = 1;
+
+    const dropCapPlain = new HexTile(4, 0);
+    dropCapPlain.fortification = 'flak'; // 30%
+    dropCapPlain.fieldFortification = { type: 'flak', campKey: P2.id, ownerKnown: true };
+    const aaUnit2 = new Unit('archer', P2, new HexTile(5, 0), false);
+    aaUnit2.specializationKey = 'antiAirArtillery';
+    aaUnit2._rank = 3; // 50%
+    const aaUnit3 = new Unit('destroyer', P2, waterTile(4, 1), false);
+    aaUnit3.specializationKey = 'antiAirDestroyer';
+    aaUnit3._rank = 3; // +50% -> raw 130%, capped 85%
+
+    const cardDropTile = new HexTile(4, -1);
+    cardDropTile.camp = P2;
+
+    const exact50Tile = enemyCityTile(0, 3, 200);
+    const exact50Defender = new Unit('infantry', P2, exact50Tile, false);
+    const aaExact50 = new Unit('archer', P2, new HexTile(1, 3), false);
+    aaExact50.specializationKey = 'antiAirArtillery';
+    aaExact50._rank = 3; // 50%
+
+    setupMatch([
+        airfield,
+        dropSingleAA, aaUnit1.tile,
+        dropCapPlain, aaUnit2.tile, aaUnit3.tile,
+        cardDropTile,
+        exact50Tile, aaExact50.tile
+    ]);
+    gameState.mechanics = { fortifications: true, airCommands: true };
+
+    assert.equal(gl.executeAirCommand('airdrop', airfield, dropSingleAA), true);
+    assert.equal(dropSingleAA.unit.hp, Math.round(180 * 0.65), '35% 防空拦截后空降步兵落地为 117 HP');
+    assert.equal(dropSingleAA.unit.displayHp, dropSingleAA.unit.hp);
+
+    airfield.installation.airCommandReadyRound.airdrop = 0;
+    assert.equal(gl.executeAirCommand('airdrop', airfield, dropCapPlain), true);
+    assert.equal(dropCapPlain.unit.hp, Math.round(180 * 0.15), '超 85% 防空总和应封顶在 85% 扣血 (180 -> 27)');
+
+    const cardInf = new Unit('infantry', P1, cardDropTile, false);
+    cardInf.maxHp = 100;
+    cardInf.hp = 100;
+    cardInf.displayHp = 100;
+    gl.applyAADropHP(cardInf, cardDropTile, P1, gameState.tileMap, gameState);
+    assert.equal(cardInf.hp, 15, '战术卡/空运落点在已占位且防空 100% 时也按 85% 封顶扣血');
+
+    // 空袭 50% 不触发起火，>50% 在飞到一半起火
+    assert.equal(gl.executeAirCommand('strafe', airfield, exact50Tile), true);
+    const exact50Fx = airstrikeEffects.at(-1);
+    assert.equal(exact50Fx.antiAir, 0.5);
+    assert.equal(shouldRenderAirstrikeEngineFire(exact50Fx, 0.75), false, '恰好等于50%防空不应触发着火');
+    assert.equal(exact50Defender.hp > 0, true);
+
+    airfield.installation.airCommandReadyRound.bombing = 0;
+    assert.equal(gl.executeAirCommand('bombing', airfield, aaUnit2.tile), true);
+    const heavyAAFx = airstrikeEffects.at(-1);
+    assert.ok(heavyAAFx.antiAir > 0.5);
+    assert.equal(shouldRenderAirstrikeEngineFire(heavyAAFx, 0.45), false, '飞到一半前不起火');
+    assert.equal(shouldRenderAirstrikeEngineFire(heavyAAFx, 0.5), true, '飞到一半起开始起火拖黑烟');
 });

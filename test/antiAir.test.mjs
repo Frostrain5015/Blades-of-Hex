@@ -83,3 +83,17 @@ test('radius, faction relation and mechanic gates filter sources', () => {
     assert.equal(result.reduction, 0.35);
     assert.equal(result.sources[0].unitId, friendly.unit.id);
 });
+
+test('airspace mode ignores placed attacker unit and resolves hostile AA even on neutral or own tiles', () => {
+    const map = makeMap(
+        makeTile(0, 0, { camp: P1, unit: makeUnit('infantry', P1) }),
+        makeTile(1, 0, { camp: P2, unit: makeUnit('archer', P2, { specializationKey: 'antiAirArtillery' }) }),
+        makeTile(5, 0, { camp: null, unit: makeUnit('infantry', P1), fieldFortification: { type: 'flak', campKey: 'player2', ownerKnown: true } })
+    );
+    const ownTileWithPlacedUnit = map.get('0,0');
+    const neutralTileWithHostileFlak = map.get('5,0');
+
+    assert.equal(getAntiAirReduction(ownTileWithPlacedUnit, P1, map, { state: state() }), 0);
+    assert.equal(getAntiAirReduction(ownTileWithPlacedUnit, P1, map, { state: state(), airspace: true }), 0.35);
+    assert.equal(getAntiAirReduction(neutralTileWithHostileFlak, P1, map, { state: state(), airspace: true }), 0.30);
+});

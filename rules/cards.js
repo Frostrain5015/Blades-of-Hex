@@ -140,10 +140,10 @@ export const TACTICAL_CARD_CONFIG = deepFreeze({
             const inf = new UnitClass('infantry', myCamp, targetTile, false);
             const hp = TACTICAL_CARD_DATA.airdrop.balance.infantryHp;
             inf.maxHp = hp; inf.hp = hp; inf.displayHp = hp;
-            // 通用防空接口：每层-25%当前生命值（上限不变）
-            applyAADropHP(inf, targetTile, myCamp, gameState.tileMap);
+            // 通用防空接口：按累计防空百分比扣除最大生命值（85% 上限，不低于 1 HP）
+            const aaDamage = applyAADropHP(inf, targetTile, myCamp, gameState.tileMap) || 0;
             inf.canAct = false; // cannot act on drop turn
-            return { deployed: true, tileQ: targetTile.q, tileR: targetTile.r };
+            return { deployed: true, tileQ: targetTile.q, tileR: targetTile.r, aaDamage };
         }
     },
     imprison: {
@@ -173,17 +173,24 @@ export const TACTICAL_CARD_CONFIG = deepFreeze({
             const balance = TACTICAL_CARD_DATA.airstrike.balance;
             const dmgBase = gameState.rng.between(balance.minDamage, balance.maxDamage);
             const results = [];
-            const { applyAADefense } = helpers;
+            const myCamp = helpers.getMyCamp();
+            const { applyAADefense, getAALayers } = helpers;
             const dirs = [[0,0],[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
+            let maxAntiAir = 0;
             for (const [dq, dr] of dirs) {
                 const ht = gameState.tileMap.get(`${targetTile.q + dq},${targetTile.r + dr}`);
                 if (!ht) continue;
+                const tileAA = typeof getAALayers === 'function'
+                    ? getAALayers(ht, myCamp, gameState.tileMap)
+                    : 0;
+                if (dq === 0 && dr === 0) maxAntiAir = Math.max(maxAntiAir, tileAA);
                 let dmg = dmgBase;
                 // 森林掩蔽：对空军+20%防御
                 if (ht.terrain === 'forest') dmg = Math.round(dmg * balance.forestMultiplier);
-                // 通用防空接口：每层减伤25%
-                dmg = applyAADefense(dmg, ht, helpers.getMyCamp(), gameState.tileMap);
+                // 通用防空接口：按累计百分比减伤（85% 上限）
+                dmg = applyAADefense(dmg, ht, myCamp, gameState.tileMap);
                 if (ht.unit) {
+                    maxAntiAir = Math.max(maxAntiAir, tileAA);
                     // 预演扣血（含护盾）：调用方随即回滚，真正结算延迟走 Unit.applyDamage
                     // （勿改用 applyDamage，否则击杀无法回滚）
                     let remaining = dmg;
@@ -196,7 +203,8 @@ export const TACTICAL_CARD_CONFIG = deepFreeze({
                     results.push({ q: ht.q, r: ht.r, dmg, killed: ht.unit.hp <= 0 });
                 }
             }
-            return { airstrike: true, targetTile, results, dmgBase };
+            const antiAir = Math.min(COMBAT_BALANCE.defense.maximumReduction, maxAntiAir);
+            return { airstrike: true, targetTile, results, dmgBase, antiAir };
         }
     },
     // 天鹰阵营协同奖励卡：虚拟"天基平台"作为攻击方，伤害走标准四乘区管线——
@@ -356,18 +364,28 @@ export const COLONEL_CARDS = deepFreeze({
         execute(targetTile, gameState, helpers) {
             const colonel = _findColonel(gameState, helpers.getMyCamp());
             const target = targetTile.unit;
-            if (!colonel || !target) return { dmg: 0, diveStrafe: true, targetTile };
+            if (!colonel || !target) return { dmg: 0, antiAir: 0, diveStrafe: true, targetTile };
             // 预演值：最终伤害由 gameLogic.executeTacticalCard 按通用空军增伤与已损生命攻击加成重算覆盖
             const r = colonel._resolveDamage(colonel, target, COLONEL_CARD_DATA.diveStrafe.balance.attackMultiplier, 0, false, false, true);
-            return { dmg: Math.round(r.dmg), isCrit: r.isCrit, diveStrafe: true, targetTile };
+            return {
+                dmg: Math.round(r.dmg),
+                isCrit: r.isCrit,
+                antiAir: Math.min(COMBAT_BALANCE.defense.maximumReduction, r.antiAir || 0),
+                diveStrafe: true,
+                targetTile
+            };
         }
     },
     carpetBomb: {
         ...COLONEL_CARD_DATA.carpetBomb,
         execute(targetTile, gameState, helpers) {
-            const colonel = _findColonel(gameState, helpers.getMyCamp());
+            const myCamp = helpers.getMyCamp();
+            const colonel = _findColonel(gameState, myCamp);
             const dirs = [[0,0],[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
             const results = [];
+            let maxAntiAir = typeof helpers.getAALayers === 'function'
+                ? helpers.getAALayers(targetTile, myCamp, gameState.tileMap)
+                : 0;
             for (const [dq, dr] of dirs) {
                 const ht = gameState.tileMap ? gameState.tileMap.get(`${targetTile.q + dq},${targetTile.r + dr}`) : null;
                 if (!ht || !ht.unit || !colonel) continue;
@@ -375,9 +393,15 @@ export const COLONEL_CARDS = deepFreeze({
                 // 对群骚扰：中心50%、溅射35%攻击力，走标准管线
                 const balance = COLONEL_CARD_DATA.carpetBomb.balance;
                 const r = colonel._resolveDamage(colonel, ht.unit, isCenter ? balance.centerMultiplier : balance.splashMultiplier, 0, false, false, true);
+                maxAntiAir = Math.max(maxAntiAir, r.antiAir || 0);
                 results.push({ q: ht.q, r: ht.r, dmg: Math.round(r.dmg), isCrit: r.isCrit, killed: false });
             }
-            return { carpetBomb: true, targetTile, results };
+            return {
+                carpetBomb: true,
+                targetTile,
+                results,
+                antiAir: Math.min(COMBAT_BALANCE.defense.maximumReduction, maxAntiAir)
+            };
         }
     },
     airlift: {

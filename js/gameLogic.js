@@ -3078,7 +3078,8 @@ function _attackUnit(attackerUnit, targetUnit, options) {
         if (attackPresentation === ATTACK_PRESENTATION.FIRE_TORPEDO) {
             spawnTorpedo(fromX, fromY, toX, toY, isCrit);
         } else if (attackPresentation === ATTACK_PRESENTATION.FIRE_AIR_STRAFE) {
-            spawnAirstrikeEffect(toX, toY, [{ q: targetUnit.tile.q, r: targetUnit.tile.r, dmg: attackResult.dmg }], 'diveStrafe', targetUnit.tile.q, targetUnit.tile.r);
+            const carrierAntiAir = Math.min(COMBAT_BALANCE.defense.maximumReduction, attackResult.antiAir || 0);
+            spawnAirstrikeEffect(toX, toY, [{ q: targetUnit.tile.q, r: targetUnit.tile.r, dmg: attackResult.dmg }], 'diveStrafe', targetUnit.tile.q, targetUnit.tile.r, null, null, attackerUnit.camp, performance.now(), { antiAir: carrierAntiAir });
             setTimeout(() => {
                 playSound('machinegun');
                 for (let i = 0; i < 12; i++) {
@@ -3487,7 +3488,10 @@ function _attackUnit(attackerUnit, targetUnit, options) {
             berserkerQixue: qixueActive,
             berserkerSplash: qixueSplashResults.length ? qixueSplashResults : null,
             aureliaOathEvents: aureliaOathEvents.length ? aureliaOathEvents : null,
-            eagleSynergyEvents: eagleSynergyEvents.length ? eagleSynergyEvents : null
+            eagleSynergyEvents: eagleSynergyEvents.length ? eagleSynergyEvents : null,
+            antiAir: attackPresentation === ATTACK_PRESENTATION.FIRE_AIR_STRAFE
+                ? Math.min(COMBAT_BALANCE.defense.maximumReduction, attackResult.antiAir || 0)
+                : null
         });
         emit('match:combatResolved', {
             attackerId: attackerUnit.id,
@@ -3972,14 +3976,17 @@ export function applyAADefense(dmg, tile, camp, tileMap, state = gameState) {
 }
 
 // 接口2：空降减血——所有空降/空运卡（空降步兵/上校空运）共用
-// 按累计防空百分比扣除最大生命值（不低于 1 HP），保持生命上限不变。
+// 按累计防空百分比扣除最大生命值（不低于 1 HP），最高 85% 上限，保持生命上限不变。
 export function applyAADropHP(unit, tile, camp, tileMap, state = gameState) {
-    const aa = getAALayers(tile, camp, tileMap, state);
+    const aa = getAntiAirReduction(tile, camp, tileMap, { state, airspace: true });
     if (aa > 0) {
-        const hpLoss = Math.round(unit.maxHp * Math.min(COMBAT_BALANCE.defense.maximumReduction, aa));
+        const capped = Math.min(COMBAT_BALANCE.defense.maximumReduction, aa);
+        const hpLoss = Math.round(unit.maxHp * capped);
         unit.hp = Math.max(1, unit.hp - hpLoss);
         unit.displayHp = unit.hp;
+        return hpLoss;
     }
+    return 0;
 }
 
 // 目标地块是否超出上校航程（硬限制）。防空火力不在此阻挡——它只降低伤害(见 _resolveDamage)。
@@ -4395,7 +4402,8 @@ function _resolveCityBombingSiegeDamage(basePower, multiplier, targetTile, launc
     return {
         damage: Math.max(1, Math.round(power * multiplier
             * (1 + airBonus + neverSurrenderAtk + getKmtLinkDamageBonus(launcherTile.unit, gameState)) * floatMultiplier * (1 - reduction))),
-        isCrit: !!launcherTile.unit && floatMultiplier > COMBAT_BALANCE.float.attack.critThreshold
+        isCrit: !!launcherTile.unit && floatMultiplier > COMBAT_BALANCE.float.attack.critThreshold,
+        antiAir: reduction
     };
 }
 
@@ -4420,14 +4428,16 @@ function _resolveCarrierCityStrafeDamage(carrierUnit, targetTile) {
         : gameState.rng.range(0.95, 1.05);
     let antiAir = getAntiAirReduction(targetTile, carrierUnit.camp, gameState.tileMap, { state: gameState });
     if (colonelActive) antiAir = Math.max(0, antiAir - COLONEL_ANTI_AIR_PIERCE);
+    const cappedAntiAir = Math.min(COMBAT_BALANCE.defense.maximumReduction, antiAir);
     const defenseMulti = Math.max(
         COMBAT_BALANCE.defense.minimumMultiplier,
-        1 - Math.min(COMBAT_BALANCE.defense.maximumReduction, antiAir)
+        1 - cappedAntiAir
     );
     return {
         damage: Math.max(1, Math.round(power * (1 + carrierRankBonus + colonelBonus + aureliaOathBonus
             + getKmtLinkDamageBonus(carrierUnit, gameState)) * floatMult * defenseMulti)),
-        isCrit: floatMult > COMBAT_BALANCE.float.attack.critThreshold
+        isCrit: floatMult > COMBAT_BALANCE.float.attack.critThreshold,
+        antiAir: cappedAntiAir
     };
 }
 
@@ -4495,7 +4505,7 @@ function _attackCityTile(attackerUnit, targetTile, options) {
     const isCrit = result.isCrit;
     if (attackPresentation === ATTACK_PRESENTATION.FIRE_AIR_STRAFE) {
         playSound('airstrike');
-        spawnAirstrikeEffect(toX, toY, [{ q: targetTile.q, r: targetTile.r, dmg: result.damage }], 'diveStrafe', targetTile.q, targetTile.r);
+        spawnAirstrikeEffect(toX, toY, [{ q: targetTile.q, r: targetTile.r, dmg: result.damage }], 'diveStrafe', targetTile.q, targetTile.r, null, null, attackerUnit.camp, performance.now(), { antiAir: result.antiAir });
         setTimeout(() => {
             playSound('machinegun');
             for (let i = 0; i < 12; i++) {
@@ -4576,7 +4586,8 @@ function _attackCityTile(attackerUnit, targetTile, options) {
         damage: result.damage, isCrit: result.isCrit,
         cityHpAfter: targetTile.hp, cityCaptured,
         specializationSplashResults: katyushaSplash?.length ? katyushaSplash : null,
-        eagleSynergyEvents: siegeEagleSynergyEvents.length ? siegeEagleSynergyEvents : null
+        eagleSynergyEvents: siegeEagleSynergyEvents.length ? siegeEagleSynergyEvents : null,
+        antiAir: isCarrierStrafe ? (result.antiAir || 0) : null
     });
     return true;
 }
@@ -4624,23 +4635,26 @@ function _executeAirCommand(kind, launcherTile, targetTile, aiPhase) {
     const results = [];
     const commandCost = getAirCommandCost(kind, launcherTile, gameState);
     let destroyedFortification = null;
+    let strikeAntiAir = 0;
     if ((kind === 'strafe' || kind === 'stukaDiveBomb')
         && !canTargetWithSingleAirCommand(targetTile, launcherTile.camp, gameState, kind === 'stukaDiveBomb')) return false;
     if (kind === 'strafe') {
         const target = targetTile.unit;
         if (target) {
             const result = _resolveAirCommandDamage(AIRFIELD_BASE_POWER, 1, target, launcherTile, { missingHpBonus: true });
+            strikeAntiAir = Math.min(COMBAT_BALANCE.defense.maximumReduction, result.antiAir || 0);
             results.push({ q: targetTile.q, r: targetTile.r, unitId: target.id, damage: result.damage, killed: false, isCrit: result.isCrit, dodged: !!result.dodged });
         } else if ((targetTile.isCity || targetTile.isUrban) && targetTile.hp > 0 && canAttack(gameState, launcherTile.camp, targetTile.camp)) {
             // 扫射无驻军但HP>0的敌方/中立城市：与轰炸同一城市结构管线，削减城市HP
             const result = _resolveCityBombingSiegeDamage(AIRFIELD_BASE_POWER, 1, targetTile, launcherTile);
+            strikeAntiAir = Math.min(COMBAT_BALANCE.defense.maximumReduction, result.antiAir || 0);
             results.push({ q: targetTile.q, r: targetTile.r, damage: result.damage, killed: false, isCrit: result.isCrit, isCitySiege: true });
         } else {
             return false;
         }
         // 复用上校扫射动画：战机俯冲 + 机炮扫射曳光弹（除烧牌部分外）
         playSound('airstrike');
-        spawnAirstrikeEffect(targetTile.x, targetTile.y, results, 'diveStrafe', targetTile.q, targetTile.r);
+        spawnAirstrikeEffect(targetTile.x, targetTile.y, results, 'diveStrafe', targetTile.q, targetTile.r, null, null, launcherTile.camp, performance.now(), { antiAir: strikeAntiAir });
         setTimeout(() => {
             playSound('machinegun');
             const tx = targetTile.x, ty = targetTile.y;
@@ -4652,6 +4666,9 @@ function _executeAirCommand(kind, launcherTile, targetTile, aiPhase) {
             }
         }, 600);
     } else if (kind === 'bombing') {
+        const colonel = getAirfieldColonel(launcherTile);
+        let maxRawAntiAir = getAntiAirReduction(targetTile, launcherTile.camp, gameState.tileMap, { state: gameState });
+        if (colonel) maxRawAntiAir = Math.max(0, maxRawAntiAir - COLONEL_ANTI_AIR_PIERCE);
         const affected = getTargetingAreaTiles(gameState, targetTile);
         for (let index = 0; index < affected.length; index++) {
             const tile = affected[index];
@@ -4659,12 +4676,15 @@ function _executeAirCommand(kind, launcherTile, targetTile, aiPhase) {
             if (target) {
                 if (!canAttack(gameState, launcherTile.camp, target.camp) || target._campaignTargetable === false) continue;
                 const result = _resolveAirCommandDamage(AIRFIELD_BASE_POWER, index === 0 ? 1 : 0.5, target, launcherTile);
+                maxRawAntiAir = Math.max(maxRawAntiAir, result.antiAir || 0);
                 results.push({ q: tile.q, r: tile.r, unitId: target.id, damage: result.damage, killed: false, isCrit: result.isCrit, dodged: !!result.dodged });
             } else if ((tile.isCity || tile.isUrban) && tile.hp > 0 && canAttack(gameState, launcherTile.camp, tile.camp)) {
                 const result = _resolveCityBombingSiegeDamage(AIRFIELD_BASE_POWER, index === 0 ? 1 : 0.5, tile, launcherTile);
+                maxRawAntiAir = Math.max(maxRawAntiAir, result.antiAir || 0);
                 results.push({ q: tile.q, r: tile.r, damage: result.damage, isCrit: result.isCrit, isCitySiege: true });
             }
         }
+        strikeAntiAir = Math.min(COMBAT_BALANCE.defense.maximumReduction, maxRawAntiAir);
         const engineerProtectedAirfield = targetTile.isCity
             && targetTile.installation?.type === 'airfield'
             && targetTile.installation.status === 'ready'
@@ -4676,27 +4696,32 @@ function _executeAirCommand(kind, launcherTile, targetTile, aiPhase) {
             targetTile.fieldFortification = null;
             invalidateBoard();
         }
-        spawnAirstrikeEffect(targetTile.x, targetTile.y, results, 'carpetBomb', targetTile.q, targetTile.r);
+        spawnAirstrikeEffect(targetTile.x, targetTile.y, results, 'carpetBomb', targetTile.q, targetTile.r, null, null, launcherTile.camp, performance.now(), { antiAir: strikeAntiAir });
         playSound('airstrike');
     } else if (kind === 'stukaDiveBomb') {
         const target = targetTile.unit;
         const result = _resolveAirCommandDamage(AIRFIELD_BASE_POWER, config.multiplier, target, launcherTile, { allowAntiAirPierce: false });
+        strikeAntiAir = Math.min(COMBAT_BALANCE.defense.maximumReduction, result.antiAir || 0);
         results.push({ q: targetTile.q, r: targetTile.r, unitId: target.id, damage: result.damage, killed: false, isCrit: result.isCrit, dodged: !!result.dodged });
         playSound('airstrike');
-        playStukaStrafe(targetTile, results, launcherTile.camp);
+        playStukaStrafe(targetTile, results, launcherTile.camp, { antiAir: strikeAntiAir });
     } else if (kind === 'airdrop') {
         if (!canAirCommandAirdropAt(targetTile) || !isVisibleForAction(targetTile, launcherTile.camp, gameState)) return false;
-        const unit = new Unit('infantry', launcherTile.camp, targetTile, true);
         const colonel = getAirfieldColonel(launcherTile);
-        let antiAir = getAntiAirReduction(targetTile, launcherTile.camp, gameState.tileMap, { state: gameState });
+        let antiAir = getAntiAirReduction(targetTile, launcherTile.camp, gameState.tileMap, { state: gameState, airspace: true });
         if (colonel) antiAir = Math.max(0, antiAir - COLONEL_ANTI_AIR_PIERCE);
-        // 落点防空只削减当前 HP，不混入地形等普通防御（验收标准13）。
+        // 落点防空只削减当前 HP，不混入地形等普通防御，最高 85% 上限。
         const landingReduction = Math.min(COMBAT_BALANCE.defense.maximumReduction, antiAir);
-        unit.hp = Math.max(1, Math.round(unit.maxHp * (1 - landingReduction)));
-        unit.displayHp = unit.hp;
+        strikeAntiAir = landingReduction;
+        const unit = new Unit('infantry', launcherTile.camp, targetTile, true);
+        const hpLoss = Math.round(unit.maxHp * landingReduction);
+        if (hpLoss > 0) {
+            unit.hp = Math.max(1, unit.hp - hpLoss);
+            unit.displayHp = unit.hp;
+        }
         unit.canAct = false;
         unit.remainingMP = 0;
-        results.push({ q: targetTile.q, r: targetTile.r, unitId: unit.id, hp: unit.hp });
+        results.push({ q: targetTile.q, r: targetTile.r, unitId: unit.id, hp: unit.hp, aaDamage: hpLoss, antiAir: landingReduction });
         startAirdropPresentation(targetTile);
     } else if (kind === 'recon') {
         if (!gameState.skirmishFog || gameState.campaignMode) return false;
@@ -4785,6 +4810,7 @@ function _executeAirCommand(kind, launcherTile, targetTile, aiPhase) {
         destroyedFortification,
         fireSeaCoords,
         eagleSynergyEvents: Number.isFinite(impactDelay) ? gameState._pendingEagleSynergyEvents.splice(0) : [],
+        antiAir: strikeAntiAir,
         results
     });
     return true;
@@ -5294,8 +5320,10 @@ function _executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) {
                 const _calc = _colUnit._resolveDamage(_colUnit, targetTile.unit, 1.0, airBonus, false, false, true, 0, _missingHpBonus);
                 result.dmg = Math.round(_calc.dmg);
                 result.isCrit = _calc.isCrit;
+                result.antiAir = Math.min(COMBAT_BALANCE.defense.maximumReduction, _calc.antiAir || 0);
                 if (_missingHpBonus > 0) logMessage(`目标已损生命转化为+${_missingHpBonus}攻击力，触发弱点打击！`);
             } else if (cardId === 'carpetBomb' && result.results) {
+                let maxAntiAir = getAALayers(targetTile, myCamp, gameState.tileMap);
                 for (const _r of result.results) {
                     const _ht = gameState.tileMap ? gameState.tileMap.get(`${_r.q},${_r.r}`) : null;
                     if (_ht && _ht.unit) {
@@ -5305,8 +5333,10 @@ function _executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) {
                         const _calc = _colUnit._resolveDamage(_colUnit, _ht.unit, 1.0, airBonus, false, false, true, _ignoreDef);
                         _r.dmg = _isCenter ? Math.round(_calc.dmg) : Math.round(_calc.dmg * (balance.splashMultiplier / balance.centerMultiplier));
                         _r.isCrit = _calc.isCrit;
+                        maxAntiAir = Math.max(maxAntiAir, _calc.antiAir || 0);
                     }
                 }
+                result.antiAir = Math.min(COMBAT_BALANCE.defense.maximumReduction, maxAntiAir);
             }
         }
     }
@@ -5370,10 +5400,9 @@ function _executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) {
     airUnit.canAct = false;
     const hpLoss = Math.min(Math.round(airUnit.hp * 0.20), Math.round(airUnit.maxHp * 0.40));
     if (hpLoss > 0) airUnit.applyDamage(hpLoss, { source: 'true', minHp: 1 });
-    // 通用防空接口：空运落入防空区 → 每层-25%最大生命值（上限不变）
-    applyAADropHP(airUnit, targetTile, myCamp, gameState.tileMap);
-    const aa = getAALayers(targetTile, myCamp, gameState.tileMap);
-    if (aa > 0) logMessage(`🪂 空运落入防空火力：损失${aa * 25}%最大生命值`);
+    // 通用防空接口：空运落入防空区 → 按防空百分比扣减最大生命值（85% 上限，不低于 1 HP）
+    const aaLoss = applyAADropHP(airUnit, targetTile, myCamp, gameState.tileMap);
+    if (aaLoss > 0) logMessage(`🪂 空运落入防空火力：损失${aaLoss}点生命值（${airUnit.hp}/${airUnit.maxHp}）`);
     // 空运动画：运输机自起点飞抵终点上空 → 降落伞投放 → 单位落地时才现身
     airUnit._airliftLandAt = spawnAirliftEffect(fromTile.x, fromTile.y, targetTile.x, targetTile.y, { color: airUnit.camp.color, q: targetTile.q, r: targetTile.r });
     logMessage(`🪂【空运】${airUnit.camp.name}${airUnit.config.name}传送至(${targetTile.q},${targetTile.r})`);
@@ -5524,7 +5553,7 @@ function _executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) {
             }
             setTimeout(() => {
                 // airstrike visual AFTER card burn animation
-                spawnAirstrikeEffect(x, y, results, 'airstrike', targetTile.q, targetTile.r);
+                spawnAirstrikeEffect(x, y, results, 'airstrike', targetTile.q, targetTile.r, null, null, myCamp, performance.now(), { antiAir: result.antiAir });
                 playSound('airstrike');
                 // damage/HP/particles delayed to match bomb impact timing (~1400ms into flight)
                 setTimeout(() => withCardCause(() => {
@@ -5633,7 +5662,7 @@ function _executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) {
                 value: result.dmg, timeLeft: 900, delayMs: BURN_MS + 1000
             });
             setTimeout(() => {
-                spawnAirstrikeEffect(x, y, [{ q: targetTile.q, r: targetTile.r, dmg: result.dmg }], 'diveStrafe', targetTile.q, targetTile.r);
+                spawnAirstrikeEffect(x, y, [{ q: targetTile.q, r: targetTile.r, dmg: result.dmg }], 'diveStrafe', targetTile.q, targetTile.r, null, null, myCamp, performance.now(), { antiAir: result.antiAir });
                 playSound('airstrike');
                 // 单条弹道持续射出~5发追踪曳光弹，每发单独计算飞机位置
                 setTimeout(() => {
@@ -5693,7 +5722,7 @@ function _executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) {
                 });
             }
             setTimeout(() => {
-                spawnAirstrikeEffect(x, y, cResults, 'carpetBomb', targetTile.q, targetTile.r);
+                spawnAirstrikeEffect(x, y, cResults, 'carpetBomb', targetTile.q, targetTile.r, null, null, myCamp, performance.now(), { antiAir: result.antiAir });
                 playSound('airstrike');
                 setTimeout(() => withCardCause(() => {
                     playSound('explosion');
@@ -5740,7 +5769,8 @@ function _executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) {
         }
         // 注：'airlift' 为两段式，第一段已在上方 early-return，不会进入本 switch
         case 'airdrop': {
-            logMessage(`🪂【空降】${myCamp.name}在(${targetTile.q},${targetTile.r})空降了步兵`);
+            const aaDamageText = result.aaDamage > 0 ? `（遭防空火力拦截，损失${result.aaDamage}点生命值）` : '';
+            logMessage(`🪂【空降】${myCamp.name}在(${targetTile.q},${targetTile.r})空降了步兵${aaDamageText}`);
             startAirdropPresentation(targetTile, {
                 delayMs: BURN_MS,
                 onLand: (tile, unit) => withCardCause(() => {
@@ -5891,6 +5921,6 @@ function _executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) {
     const carpetBombResults = (cardId === 'carpetBomb') ? (result.results || []).map(r => ({ q: r.q, r: r.r, dmg: r.dmg, isCrit: r.isCrit })) : null;
     // 天基打击与空袭同理：伤害在本地 setTimeout 内结算，广播时状态尚未含伤害，携带结果供远端重放
     const orbitalStrikeResults = (cardId === 'orbitalStrike') ? (result.results || []).map(r => ({ q: r.q, r: r.r, dmg: r.dmg, ticks: r.ticks, isCitySiege: r.isCitySiege })) : null;
-    const recordedAction = broadcastAction('tacticalCard', { cardId, x, y, q: targetTile.q, r: targetTile.r, dmg: result.dmg, isCrit: result.isCrit, deployed: result.deployed, commander: result.commander, healAmt: result.healAmt, purifiedPoison: result.purifiedPoison, poisoned: result.poisoned, mineType: result.mineType, imprisoned: result.imprisoned, killedTiles: result.killedTiles, airstrikeResults, carpetBombResults, orbitalStrikeResults, burnDisplayName, scoutQ: result.scoutQ, scoutR: result.scoutR });
+    const recordedAction = broadcastAction('tacticalCard', { cardId, x, y, q: targetTile.q, r: targetTile.r, dmg: result.dmg, isCrit: result.isCrit, deployed: result.deployed, commander: result.commander, healAmt: result.healAmt, purifiedPoison: result.purifiedPoison, poisoned: result.poisoned, mineType: result.mineType, imprisoned: result.imprisoned, killedTiles: result.killedTiles, airstrikeResults, carpetBombResults, orbitalStrikeResults, burnDisplayName, scoutQ: result.scoutQ, scoutR: result.scoutR, antiAir: result.antiAir ?? null });
     committedActionId = recordedAction?.actionId || null;
 }

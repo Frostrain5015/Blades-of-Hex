@@ -10,7 +10,7 @@ import {
 import {
     getBorderlessBoundaryTopology, getBorderlessVisualGrid, drawVisualFillerTile, drawVisualFillerTiles
 } from './militaryMap.js';
-import { resolveAntiAirCoverage } from '../rules/antiAir.js';
+import { capAntiAirReduction, getAntiAirReduction, resolveAntiAirCoverage } from '../rules/antiAir.js';
 import { getHistoricalCost } from '../rules/cultures.js';
 import { getRiverGate, getRiverGateOpenLane, isRiverSegmentFlooded } from '../rules/riverGate.js';
 import { isCityDisabled, isSiegeableCityTile } from '../rules/citySiege.js';
@@ -63,7 +63,16 @@ import {
     drawOperationPreview,
     OPERATION_PREVIEW_ACTIONS
 } from './operationPreviewRenderer.js';
-import { AIRSTRIKE_FLIGHT, AIRSTRIKE_TARGET_PROGRESS, getDiveStrafePlanePosition, getStukaFlightPosition, operationArrowStyleForAttacker } from '../rules/attackPresentation.js';
+import {
+    AIRSTRIKE_DAMAGED_START_PROGRESS,
+    AIRSTRIKE_FLIGHT,
+    AIRSTRIKE_TARGET_PROGRESS,
+    getAirstrikePassPlanePosition,
+    getDiveStrafePlanePosition,
+    getStukaFlightPosition,
+    operationArrowStyleForAttacker,
+    shouldRenderAirstrikeEngineFire
+} from '../rules/attackPresentation.js';
 import {
     getTargetingAreaTiles,
     resolveTargetingPreview,
@@ -1175,14 +1184,15 @@ function _renderGame() {
 const _aaFlakCoverageCache = new Map(); // key -> { at, tiles }
 const _AA_FLAK_CACHE_MS = 200;
 
-function _aaFlakSourceTiles(targetTile, friendlyCamp) {
-    const key = `${targetTile.q},${targetTile.r}|${friendlyCamp?.id ?? friendlyCamp ?? ''}`;
+function _aaFlakSourceTiles(targetTile, friendlyCamp, airspace = false) {
+    const key = `${targetTile.q},${targetTile.r}|${friendlyCamp?.id ?? friendlyCamp ?? ''}|${airspace ? 1 : 0}`;
     const now = performance.now();
     const hit = _aaFlakCoverageCache.get(key);
     if (hit && now - hit.at < _AA_FLAK_CACHE_MS) return hit.tiles;
     const coverage = resolveAntiAirCoverage(targetTile, friendlyCamp, gameState.tileMap, {
         state: gameState,
-        includeSources: true
+        includeSources: true,
+        airspace
     });
     const sourceKeys = new Set(coverage.sources.map(source => source.tileKey));
     const tiles = [...sourceKeys].map(k => gameState.tileMap.get(k)).filter(Boolean);
@@ -1191,10 +1201,10 @@ function _aaFlakSourceTiles(targetTile, friendlyCamp) {
     return tiles;
 }
 
-function _renderAAFlak(planeX, planeY, targetQ, targetR, t, seed, friendlyCamp) {
+function _renderAAFlak(planeX, planeY, targetQ, targetR, t, seed, friendlyCamp, airspace = false) {
     const targetTile = gameState.tileMap.get(`${targetQ},${targetR}`);
     if (!targetTile) return;
-    const _sources = _aaFlakSourceTiles(targetTile, friendlyCamp);
+    const _sources = _aaFlakSourceTiles(targetTile, friendlyCamp, airspace);
     for (const _t of _sources) {
         ctx.save();
         const sx2 = _t.x, sy2 = _t.y;
@@ -1235,6 +1245,128 @@ function _renderAAFlak(planeX, planeY, targetQ, targetR, t, seed, friendlyCamp) 
     }
 }
 
+function _resolveFxAirstrikeAntiAir(fx, friendlyCamp) {
+    if (fx?.antiAir != null && Number.isFinite(Number(fx.antiAir))) {
+        return Number(fx.antiAir);
+    }
+    if (!gameState.tileMap) return 0;
+    let rawMax = 0;
+    if (fx?.q != null && fx?.r != null) {
+        const centerTile = gameState.tileMap.get(`${fx.q},${fx.r}`);
+        if (centerTile) rawMax = Math.max(rawMax, getAntiAirReduction(centerTile, friendlyCamp, gameState.tileMap, { state: gameState }));
+    }
+    if (Array.isArray(fx?.results)) {
+        for (const hit of fx.results) {
+            if (hit?.q == null || hit?.r == null) continue;
+            const tile = gameState.tileMap.get(`${hit.q},${hit.r}`);
+            if (tile) rawMax = Math.max(rawMax, getAntiAirReduction(tile, friendlyCamp, gameState.tileMap, { state: gameState }));
+        }
+    }
+    return capAntiAirReduction(rawMax);
+}
+
+function _renderAirstrikeBlackSmokeTrail(fx, posAtProgress, t, alpha, scale = 1, engineOffset = 6, now = performance.now()) {
+    const smokeWindow = 0.36;
+    const smokeStart = Math.max(AIRSTRIKE_DAMAGED_START_PROGRESS, t - smokeWindow);
+    if (t <= smokeStart) return;
+    const ignite = Math.min(1, (t - AIRSTRIKE_DAMAGED_START_PROGRESS) / 0.06);
+    const baseAlpha = alpha * ignite;
+    if (baseAlpha <= 0.01) return;
+
+    const samples = settings.reducedMotion ? 8 : 18;
+    const seed = ((fx.x | 0) * 13) ^ ((fx.y | 0) * 7);
+    ctx.save();
+    for (let s = 0; s <= samples; s++) {
+        const u = s / samples; // 0 = 最老尾烟，1 = 刚离开引擎
+        const tp = smokeStart + (t - smokeStart) * u;
+        const age = Math.max(0, t - tp);
+        const ageNorm = Math.min(1, age / smokeWindow);
+        const pos = posAtProgress(tp);
+        const cosA = Math.cos(pos.angle || 0);
+        const sinA = Math.sin(pos.angle || 0);
+        const ex = pos.x + cosA * engineOffset;
+        const ey = pos.y + sinA * engineOffset;
+        const swirl = settings.reducedMotion ? 0 : Math.sin(tp * 48 + seed + s * 0.9) * (3.5 + ageNorm * 7) * scale;
+        const swirlY = settings.reducedMotion ? 0 : Math.cos(tp * 34 - seed + s * 0.6) * (2.5 + ageNorm * 5) * scale;
+        const riseY = -age * 48 * scale;
+        const px = ex - cosA * (6 * scale) + (-sinA) * swirl;
+        const py = ey - sinA * (6 * scale) + cosA * swirl + riseY + swirlY;
+
+        const fadeTail = Math.pow(Math.max(0, 1 - ageNorm), 0.75);
+        const puffAlpha = baseAlpha * (0.28 + 0.56 * fadeTail);
+        const outerR = (5.5 + ageNorm * 16) * scale;
+        const innerR = (3.4 + ageNorm * 10) * scale;
+
+        ctx.globalAlpha = Math.max(0, puffAlpha * 0.62);
+        ctx.fillStyle = '#252427';
+        ctx.beginPath();
+        ctx.arc(px, py, outerR, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.globalAlpha = Math.max(0, puffAlpha * 0.82);
+        ctx.fillStyle = u > 0.78 ? '#2b1b16' : '#0f1012';
+        ctx.beginPath();
+        ctx.arc(px, py, innerR, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    ctx.restore();
+}
+
+function _renderAirstrikeEngineFire(planeX, planeY, angle, t, alpha, scale = 1, engineOffset = 6, seed = 0, now = performance.now()) {
+    const ignite = Math.min(1, (t - AIRSTRIKE_DAMAGED_START_PROGRESS) / 0.05);
+    const fireAlpha = alpha * ignite;
+    if (fireAlpha <= 0.01) return;
+
+    const ex = planeX + Math.cos(angle) * engineOffset;
+    const ey = planeY + Math.sin(angle) * engineOffset;
+    const flicker = settings.reducedMotion
+        ? 1
+        : 0.85 + 0.28 * Math.sin(now * 0.036 + seed) * Math.cos(now * 0.021 - seed);
+
+    ctx.save();
+    ctx.translate(ex, ey);
+    ctx.rotate((angle || 0) + Math.PI); // 火焰朝机尾方向喷吐
+
+    // 外焰
+    ctx.globalAlpha = fireAlpha * 0.88;
+    ctx.shadowColor = '#ff5511';
+    ctx.shadowBlur = 10 * scale;
+    ctx.fillStyle = '#ff4d0a';
+    ctx.beginPath();
+    ctx.moveTo(0, -5.2 * scale);
+    ctx.quadraticCurveTo(11 * scale * flicker, -3.4 * scale, 22 * scale * flicker, 0);
+    ctx.quadraticCurveTo(11 * scale * flicker, 3.4 * scale, 0, 5.2 * scale);
+    ctx.closePath();
+    ctx.fill();
+
+    // 亮橙黄内焰
+    ctx.shadowBlur = 4 * scale;
+    ctx.fillStyle = '#ffd452';
+    ctx.globalAlpha = fireAlpha * 0.95;
+    ctx.beginPath();
+    ctx.moveTo(0, -2.8 * scale);
+    ctx.quadraticCurveTo(6 * scale * flicker, -1.8 * scale, 12.5 * scale * flicker, 0);
+    ctx.quadraticCurveTo(6 * scale * flicker, 1.8 * scale, 0, 2.8 * scale);
+    ctx.closePath();
+    ctx.fill();
+
+    // 发动机飞溅火星
+    if (!settings.reducedMotion) {
+        ctx.shadowBlur = 0;
+        for (let e = 0; e < 4; e++) {
+            const phase = ((now * 0.008 + e * 0.27 + (seed % 7) * 0.1) % 1);
+            const sx = (5 + phase * 22) * scale;
+            const sy = Math.sin(e * 2.3 + now * 0.025) * (4 + phase * 5) * scale;
+            ctx.globalAlpha = fireAlpha * (1 - phase) * 0.9;
+            ctx.fillStyle = e % 2 === 0 ? '#ff9f2e' : '#ffe378';
+            ctx.beginPath();
+            ctx.arc(sx, sy, (1.8 - phase * 1.1) * scale, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+    ctx.restore();
+}
+
 function drawAirstrikeEffects(now) {
     for (let i = airstrikeEffects.length - 1; i >= 0; i--) {
         const fx = airstrikeEffects[i];
@@ -1245,17 +1377,21 @@ function drawAirstrikeEffects(now) {
 
         const t = elapsed / fx.duration;
         const cx = fx.x, cy = fx.y;
+        const fxAntiAir = _resolveFxAirstrikeAntiAir(fx, _ac);
+        const engineFire = shouldRenderAirstrikeEngineFire(fx, t, fxAntiAir);
+        const fxSeed = (fx.x | 0) * 7 + (fx.y | 0) * 13;
 
         // 德国专属空军指令：斯图卡俯冲射击
         if (fx.type === 'stukaStrafe') {
-            const { x: px, y: py, angle: ang } = getStukaFlightPosition(cx, cy, LOGICAL_W, t);
+            const posAt = tp => getStukaFlightPosition(cx, cy, LOGICAL_W, tp);
+            const { x: px, y: py, angle: ang } = posAt(t);
             if (!settings.reducedMotion) {
                 ctx.save();
                 ctx.lineCap = 'round';
                 const trailStart = Math.max(0, t - 0.24);
                 for (let segment = 0; segment < 14; segment++) {
-                    const a = getStukaFlightPosition(cx, cy, LOGICAL_W, trailStart + (t - trailStart) * segment / 14);
-                    const b = getStukaFlightPosition(cx, cy, LOGICAL_W, trailStart + (t - trailStart) * (segment + 1) / 14);
+                    const a = posAt(trailStart + (t - trailStart) * segment / 14);
+                    const b = posAt(trailStart + (t - trailStart) * (segment + 1) / 14);
                     ctx.beginPath();
                     ctx.moveTo(a.x, a.y);
                     ctx.lineTo(b.x, b.y);
@@ -1264,6 +1400,9 @@ function drawAirstrikeEffects(now) {
                     ctx.stroke();
                 }
                 ctx.restore();
+            }
+            if (engineFire) {
+                _renderAirstrikeBlackSmokeTrail(fx, posAt, t, 1, 0.95, 10, now);
             }
 
             ctx.save();
@@ -1301,6 +1440,10 @@ function drawAirstrikeEffects(now) {
             ctx.stroke();
             ctx.restore();
 
+            if (engineFire) {
+                _renderAirstrikeEngineFire(px, py, ang, t, 1, 0.95, 10, fxSeed, now);
+            }
+
             if (t >= 0.12 && t <= 0.85) {
                 _renderAAFlak(px, py, fx.q, fx.r, t, (fx.x | 0) * 11 + (fx.y | 0) * 17, _ac);
             }
@@ -1311,15 +1454,21 @@ function drawAirstrikeEffects(now) {
         // E4 俯冲扫射：战机俯冲 + 机炮扫射曳光弹（区别于投弹空袭）
         if (fx.type === 'diveStrafe') {
             // 俯冲航线：自左上俯冲掠过目标上方，再拉起飞向右下
-            const plane = getDiveStrafePlanePosition(cx, cy, elapsed);
+            const posAt = tp => getDiveStrafePlanePosition(cx, cy, tp * fx.duration);
+            const plane = posAt(t);
             const px = plane.x;
             const py = plane.y;
             // 飞行方向角；🛩️ 此字体默认朝向右上方（+π/4），补正后机头对准航向
             const ang = plane.angle;
+            const planeAlpha = t < 0.9 ? 1 : Math.max(0, 1 - (t - 0.9) / 0.1);
+
+            if (engineFire) {
+                _renderAirstrikeBlackSmokeTrail(fx, posAt, t, planeAlpha, 0.9, 6, now);
+            }
 
             // 战机
             ctx.save();
-            ctx.globalAlpha = t < 0.9 ? 1 : Math.max(0, 1 - (t - 0.9) / 0.1);
+            ctx.globalAlpha = planeAlpha;
             ctx.fillStyle = '#000';
             ctx.translate(px, py);
             ctx.rotate(ang + Math.PI / 4);
@@ -1329,10 +1478,14 @@ function drawAirstrikeEffects(now) {
             ctx.fillText('🛩️', 0, 0);
             ctx.restore();
 
+            if (engineFire) {
+                _renderAirstrikeEngineFire(px, py, ang, t, planeAlpha, 0.9, 6, fxSeed, now);
+            }
+
             // 通用防空炮火：AA单位向俯冲战机射曳光弹流
             const flakStart = 0.12, flakEnd = 0.85;
             if (t >= flakStart && t <= flakEnd) {
-                _renderAAFlak(px, py, fx.q, fx.r, t, (fx.x | 0) * 7 + (fx.y | 0) * 13, _ac);
+                _renderAAFlak(px, py, fx.q, fx.r, t, fxSeed, _ac);
             }
 
             continue;
@@ -1345,41 +1498,50 @@ function drawAirstrikeEffects(now) {
         const flyStartX = cx + AIRSTRIKE_FLIGHT.startOffsetX;
         const flyEndX = cx + AIRSTRIKE_FLIGHT.endOffsetX;
         const totalFlyDist = flyEndX - flyStartX;
-        const planeX = flyStartX + t * totalFlyDist;
-        const planeY = cy - 80;
+        const passPosAt = tp => getAirstrikePassPlanePosition(cx, cy, tp);
+        const { x: planeX, y: planeY, angle: passAng } = passPosAt(t);
+        const planeAlpha = t < 0.88 ? 1 : Math.max(0, 1 - (t - 0.88) / 0.12);
 
         ctx.save();
         ctx.globalAlpha = 1;
-        // 飞行烟迹
-        for (let _t = 1; _t <= 3; _t++) {
-            const _tp = t - _t * 0.02;
-            if (_tp < 0) continue;
-            const _tx = flyStartX + _tp * totalFlyDist;
-            const _ty = cy - 80 - _t * 6;
-            const _ta = (0.15 - _t * 0.04) * (1 - t);
-            ctx.globalAlpha = Math.max(0, _ta);
-            ctx.fillStyle = '#aaa';
-            ctx.beginPath();
-            ctx.arc(_tx, _ty, 4 - _t, 0, Math.PI * 2);
-            ctx.fill();
+        // 飞行烟迹（>50%防空着火后转为浓黑尾烟，未达阈值保留淡白烟迹）
+        if (engineFire) {
+            _renderAirstrikeBlackSmokeTrail(fx, passPosAt, t, planeAlpha, 1, 5, now);
+        } else {
+            for (let _t = 1; _t <= 3; _t++) {
+                const _tp = t - _t * 0.02;
+                if (_tp < 0) continue;
+                const _tx = flyStartX + _tp * totalFlyDist;
+                const _ty = cy - 80 - _t * 6;
+                const _ta = (0.15 - _t * 0.04) * (1 - t);
+                ctx.globalAlpha = Math.max(0, _ta);
+                ctx.fillStyle = '#aaa';
+                ctx.beginPath();
+                ctx.arc(_tx, _ty, 4 - _t, 0, Math.PI * 2);
+                ctx.fill();
+            }
         }
         // 航线不再必然飞出屏幕，收尾淡出避免战机凭空消失
-        ctx.globalAlpha = t < 0.88 ? 1 : Math.max(0, 1 - (t - 0.88) / 0.12);
+        ctx.globalAlpha = planeAlpha;
         ctx.fillStyle = '#000';
         ctx.translate(planeX, planeY);
         ctx.rotate(Math.PI / 4);
         ctx.font = '54px sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.shadowColor = '#ff8844';
-        ctx.shadowBlur = 8;
+        ctx.shadowColor = engineFire ? '#ff3300' : '#ff8844';
+        ctx.shadowBlur = engineFire ? 12 : 8;
         ctx.fillText('✈️', 0, 0);
         ctx.shadowBlur = 0;
         ctx.restore();
 
+        if (engineFire) {
+            _renderAirstrikeEngineFire(planeX, planeY, passAng, t, planeAlpha, 1, 5, fxSeed, now);
+        }
+
         // 通用防空炮火（地毯轰炸 + 普通空袭 + 空降）
         if (fx.q != null && t > 0.15 && t < 0.85) {
-            _renderAAFlak(planeX, planeY, fx.q, fx.r, t, (fx.x | 0) * 7 + (fx.y | 0) * 13, _ac);
+            _renderAAFlak(planeX, planeY, fx.q, fx.r, t, fxSeed, _ac, isAirdrop);
         }
 
         // sequential drops: release times relative to when plane passes over target
@@ -1469,7 +1631,7 @@ function drawAirliftEffects(now) {
             // 防空炮火（空运阶段A）
             if (fx.q != null && p > 0.1 && p < 0.9) {
                 const seed = (fx.fromX | 0) * 7 + (fx.toY | 0) * 13;
-                _renderAAFlak(px, py, fx.q, fx.r, t, seed, _alc);
+                _renderAAFlak(px, py, fx.q, fx.r, t, seed, _alc, true);
             }
         } else if (t < land) {
             // 阶段B：降落伞自终点上空垂直下降

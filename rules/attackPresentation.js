@@ -33,6 +33,31 @@ export const AIRSTRIKE_TARGET_PROGRESS = -AIRSTRIKE_FLIGHT.startOffsetX
     / (AIRSTRIKE_FLIGHT.endOffsetX - AIRSTRIKE_FLIGHT.startOffsetX);
 export const AIRDROP_LANDING_MS = (AIRSTRIKE_TARGET_PROGRESS + AIRSTRIKE_FLIGHT.dropDuration)
     * AIRSTRIKE_FLIGHT.durationMs;
+export const AIRSTRIKE_DAMAGED_AA_THRESHOLD = 0.5;
+export const AIRSTRIKE_DAMAGED_START_PROGRESS = 0.5;
+
+export function isAirstrikeDamagedByAntiAir(antiAirReduction) {
+    const value = Number(antiAirReduction);
+    return Number.isFinite(value) && value > AIRSTRIKE_DAMAGED_AA_THRESHOLD + 1e-6;
+}
+
+export function shouldRenderAirstrikeEngineFire(fx, progress, resolvedAntiAir = fx?.antiAir) {
+    if (!fx || fx.type === 'airdrop') return false;
+    const t = Number(progress);
+    if (!Number.isFinite(t) || t < AIRSTRIKE_DAMAGED_START_PROGRESS || t >= 1) return false;
+    return isAirstrikeDamagedByAntiAir(resolvedAntiAir);
+}
+
+export function getAirstrikePassPlanePosition(targetX, targetY, progress) {
+    const t = Math.min(1, Math.max(0, Number(progress) || 0));
+    const startX = targetX + AIRSTRIKE_FLIGHT.startOffsetX;
+    const endX = targetX + AIRSTRIKE_FLIGHT.endOffsetX;
+    return {
+        x: startX + t * (endX - startX),
+        y: targetY - 80,
+        angle: 0
+    };
+}
 
 export function isUnitWaitingForAirdrop(unit, now) {
     return unit._airdropWaiting || unit._airdropLandAt > now;

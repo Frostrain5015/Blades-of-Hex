@@ -14,6 +14,12 @@ export const FLAK_SELF_REDUCTION = FORTIFICATION_CONFIG.flak.antiAirReduction;
 export const ANTI_AIR_TOTAL_REDUCTION_CAP = 0.85;
 export const ANTI_AIR_RADIUS = 2;
 
+export function capAntiAirReduction(reduction, cap = ANTI_AIR_TOTAL_REDUCTION_CAP) {
+    const value = Number(reduction);
+    if (!Number.isFinite(value) || value <= 0) return 0;
+    return Math.min(cap, value);
+}
+
 function axialDistance(a, b) {
     const dq = Number(a?.q) - Number(b?.q);
     const dr = Number(a?.r) - Number(b?.r);
@@ -67,7 +73,13 @@ export function resolveAntiAirCoverage(targetTile, attackingCamp, tileMap, optio
     if (!targetTile) return empty;
 
     const attackingCampKey = campToKey(attackingCamp);
-    const defendingCampKey = campToKey(targetTile.unit?.camp || targetTile.camp);
+    const tileUnitCampKey = targetTile.unit ? campToKey(targetTile.unit.camp) : null;
+    const isAirspace = options.airspace === true;
+    const ignorePlacedAttackerUnit = (isAirspace || options.ignoreTileUnit === true)
+        && targetTile.unit
+        && isFriendly(options.state, tileUnitCampKey, attackingCampKey);
+    const defendingTileUnit = ignorePlacedAttackerUnit ? null : targetTile.unit;
+    const defendingCampKey = campToKey(defendingTileUnit?.camp || targetTile.camp);
     const sources = [];
     let reduction = 0;
     const add = source => {
@@ -79,14 +91,15 @@ export function resolveAntiAirCoverage(targetTile, attackingCamp, tileMap, optio
     if (fortification?.type === 'flak' && isMechanicEnabled(options.state, 'fortifications')) {
         const ownerKnown = fortification.ownerKnown !== false && !!fortification.campKey;
         const protectsTarget = !ownerKnown
-            || isFriendly(options.state, fortification.campKey, defendingCampKey);
+            || isFriendly(options.state, fortification.campKey, defendingCampKey)
+            || (isAirspace && (defendingCampKey === 'neutral' || isFriendly(options.state, defendingCampKey, attackingCampKey)));
         const opposesAttacker = !ownerKnown
             || !isFriendly(options.state, fortification.campKey, attackingCampKey);
         if (protectsTarget && opposesAttacker) {
             add({
                 kind: 'flak', tileKey: tileKey(targetTile), q: targetTile.q, r: targetTile.r,
                 campKey: fortification.campKey || null, ownerKnown,
-                reduction: FLAK_SELF_REDUCTION + getKmtLinkDefenseBonus(targetTile.unit, options.state, FLAK_SELF_REDUCTION)
+                reduction: FLAK_SELF_REDUCTION + getKmtLinkDefenseBonus(defendingTileUnit, options.state, FLAK_SELF_REDUCTION)
             });
         }
     }
@@ -101,8 +114,9 @@ export function resolveAntiAirCoverage(targetTile, attackingCamp, tileMap, optio
             : getAntiAirUnitProfile(unit);
         if (!profile || profile.reduction <= 0) continue;
         const unitCampKey = campToKey(unit.camp);
-        if (unitCampKey === attackingCampKey) continue;
-        if (defendingCampKey !== 'neutral' && !isFriendly(options.state, unitCampKey, defendingCampKey)) continue;
+        if (unitCampKey === attackingCampKey || (isAirspace && isFriendly(options.state, unitCampKey, attackingCampKey))) continue;
+        const airspaceProtects = isAirspace && isFriendly(options.state, defendingCampKey, attackingCampKey);
+        if (defendingCampKey !== 'neutral' && !airspaceProtects && !isFriendly(options.state, unitCampKey, defendingCampKey)) continue;
         if (axialDistance(tile, targetTile) > profile.radius) continue;
         const source = {
             kind: 'unit', tileKey: tileKey(tile), q: tile.q, r: tile.r,

@@ -3677,7 +3677,7 @@ async function handleRemoteAction(msg) {
                 spawnCardUseEffect(e.cardId, LOGICAL_W / 2, LOGICAL_H / 2, false, 0, 0, e.burnDisplayName || null);
                 // 飞机动画提前启动，与烧牌重叠播放
                 if (e.cardId === 'airstrike') {
-                    spawnAirstrikeEffect(e.x, e.y, e.airstrikeResults || [], 'airstrike');
+                    spawnAirstrikeEffect(e.x, e.y, e.airstrikeResults || [], 'airstrike', e.q ?? null, e.r ?? null, null, null, null, performance.now(), { antiAir: e.antiAir });
                 }
                 // 具体特效延迟 1.6s 后播放（与烧牌结束对齐）
                 const cardType = e.cardId;
@@ -3841,7 +3841,7 @@ async function handleRemoteAction(msg) {
                         case 'diveStrafe': {
                             // E4 空军上校：伤害在本地延迟结算，远端同样在此结算以保持一致
                             playSound('airstrike');
-                            spawnAirstrikeEffect(e.x, e.y, [{ q: e.q, r: e.r, dmg: e.dmg }], 'diveStrafe', e.q, e.r);
+                            spawnAirstrikeEffect(e.x, e.y, [{ q: e.q, r: e.r, dmg: e.dmg }], 'diveStrafe', e.q, e.r, null, null, null, performance.now(), { antiAir: e.antiAir });
                             setTimeout(() => {
                                 playSound('machinegun');
                                 const tx = e.x, ty = e.y;
@@ -3880,7 +3880,7 @@ async function handleRemoteAction(msg) {
                         case 'carpetBomb': {
                             const cResults = e.carpetBombResults || [];
                             playSound('airstrike');
-                            spawnAirstrikeEffect(e.x, e.y, cResults, 'carpetBomb', e.q, e.r);
+                            spawnAirstrikeEffect(e.x, e.y, cResults, 'carpetBomb', e.q, e.r, null, null, null, performance.now(), { antiAir: e.antiAir });
                             setTimeout(() => {
                                 playSound('explosion');
                                 // 伤害数字由 e.floatTexts 重放；弹着派生跳字两端各自推导（仅显示，不进广播捕获）
@@ -3948,7 +3948,7 @@ async function handleRemoteAction(msg) {
                 if (_sPres === ATTACK_PRESENTATION.FIRE_AIR_STRAFE) {
                     // 航母扫射空城：与主机端一致的俯冲扫射表现，伤害数字延迟到子弹流抵达
                     playSound('airstrike');
-                    spawnAirstrikeEffect(e.x, e.y, [{ q: e.q, r: e.r, dmg: e.damage }], 'diveStrafe', e.q, e.r);
+                    spawnAirstrikeEffect(e.x, e.y, [{ q: e.q, r: e.r, dmg: e.damage }], 'diveStrafe', e.q, e.r, null, null, null, performance.now(), { antiAir: e.antiAir });
                     setTimeout(() => {
                         playSound('machinegun');
                         for (let i = 0; i < 12; i++) {
@@ -4034,7 +4034,7 @@ async function handleRemoteAction(msg) {
                     if (_rmPresentation === ATTACK_PRESENTATION.FIRE_TORPEDO) {
                         spawnTorpedo(e.fromX ?? e.x, e.fromY ?? e.y, e.x, e.y, e.isCrit);
                     } else if (_rmPresentation === ATTACK_PRESENTATION.FIRE_AIR_STRAFE) {
-                        spawnAirstrikeEffect(e.x, e.y, [{ q: e.q, r: e.r, dmg: e.attackDmg }], 'diveStrafe', e.q, e.r);
+                        spawnAirstrikeEffect(e.x, e.y, [{ q: e.q, r: e.r, dmg: e.attackDmg }], 'diveStrafe', e.q, e.r, null, null, null, performance.now(), { antiAir: e.antiAir });
                         setTimeout(() => {
                             playSound('machinegun');
                             for (let i = 0; i < 12; i++) {
@@ -4231,9 +4231,10 @@ async function handleRemoteAction(msg) {
             if (!e) break;
             const target = gameState.tileMap.get(`${e.targetQ},${e.targetR}`);
             if (!target) break;
+            const launcherCamp = gameState.tileMap.get(`${e.launcherQ},${e.launcherR}`)?.camp || null;
             if (e.kind === 'strafe') {
                 // 复用上校扫射动画：战机俯冲 + 机炮扫射曳光弹（除烧牌部分外）
-                spawnAirstrikeEffect(target.x, target.y, e.results || [], 'diveStrafe', target.q, target.r);
+                spawnAirstrikeEffect(target.x, target.y, e.results || [], 'diveStrafe', target.q, target.r, null, null, launcherCamp, performance.now(), { antiAir: e.antiAir });
                 playSound('airstrike');
                 setTimeout(() => {
                     playSound('machinegun');
@@ -4246,11 +4247,10 @@ async function handleRemoteAction(msg) {
                     }
                 }, 600);
             } else if (e.kind === 'bombing') {
-                spawnAirstrikeEffect(target.x, target.y, e.results || [], 'carpetBomb', target.q, target.r);
+                spawnAirstrikeEffect(target.x, target.y, e.results || [], 'carpetBomb', target.q, target.r, null, null, launcherCamp, performance.now(), { antiAir: e.antiAir });
                 playSound('airstrike');
             } else if (e.kind === 'stukaDiveBomb') {
-                const launcherCamp = gameState.tileMap.get(`${e.launcherQ},${e.launcherR}`)?.camp;
-                playStukaStrafe(target, e.results || [], launcherCamp);
+                playStukaStrafe(target, e.results || [], launcherCamp, { antiAir: e.antiAir });
                 playSound('airstrike');
             } else if (e.kind === 'recon') {
                 spawnCommanderSkillEffect(target.x, target.y, '🔭', '侦察机');

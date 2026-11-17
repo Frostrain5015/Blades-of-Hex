@@ -1797,17 +1797,21 @@ export function spawnSoulRecallEffect(fromX, fromY, toX, toY) {
 // ===== 空袭特效 =====
 export const airstrikeEffects = [];
 
-export function spawnAirstrikeEffect(cx, cy, results, type = 'airstrike', q = null, r = null, fromX = null, fromY = null, camp = null, startTime = performance.now()) {
+export function spawnAirstrikeEffect(cx, cy, results, type = 'airstrike', q = null, r = null, fromX = null, fromY = null, camp = null, startTime = performance.now(), options = null) {
+    const explicitAntiAir = options?.antiAir != null && Number.isFinite(Number(options.antiAir))
+        ? Number(options.antiAir)
+        : null;
     airstrikeEffects.push({
         x: cx, y: cy, fromX, fromY, q, r, results, type,
         startTime,
         duration: type === 'diveStrafe' ? 1500 : type === 'stukaStrafe' ? 1650 : AIRSTRIKE_FLIGHT.durationMs,
-        camp
+        camp,
+        antiAir: explicitAntiAir
     });
 }
 
-export function playStukaStrafe(tile, results, camp) {
-    spawnAirstrikeEffect(tile.x, tile.y, results, 'stukaStrafe', tile.q, tile.r, null, null, camp);
+export function playStukaStrafe(tile, results, camp, options = null) {
+    spawnAirstrikeEffect(tile.x, tile.y, results, 'stukaStrafe', tile.q, tile.r, null, null, camp, performance.now(), options);
     setTimeout(() => {
         playSound('machinegun');
         for (let index = 0; index < 20; index++) {

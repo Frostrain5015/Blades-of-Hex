@@ -774,12 +774,13 @@ export class Unit {
             if (hasStaller) defSum += COMMANDER_CONFIG.staller.balance.rangedDefenseBonus;
         }
         // 防空火力：2格内友军 炮兵/碉堡/停滞者单位 → 仅对空军(上校空军卡)伤害 +25%/层（封顶2层=50%）
+        let antiAir = 0;
         if (isAirDamage && _gameState && _gameState.tileMap) {
-            const antiAirReduction = getAntiAirReduction(defender.tile, attacker.camp, _gameState.tileMap, {
+            antiAir = getAntiAirReduction(defender.tile, attacker.camp, _gameState.tileMap, {
                 state: _gameState,
                 bypassPct: antiAirBypassPct
             });
-            if (antiAirReduction > 0) defSum += antiAirReduction;
+            if (antiAir > 0) defSum += antiAir;
         }
         defSum += getCommanderAuraDefenseBonus(defender);
         defSum += defender.getCampaignDefenseBonus(attacker);
@@ -793,6 +794,7 @@ export class Unit {
         return {
             dmg: ((attacker.getEffectiveAttack() + attackFlatBonus) * baseMulti * offenseMulti * floatMult + bonusDamage) * defenseMulti,
             isCrit,
+            antiAir,
             floatMult // 供诺克提斯【血潮】按「浮动超 1.00 部分」记暴击伤害
         };
     }
