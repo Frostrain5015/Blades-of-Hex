@@ -6,12 +6,17 @@ import {
     AIR_COMMAND_IMPACT_DELAY_MS,
     AIRFIELD_BASE_POWER,
     AIRFIELD_BASE_RANGE,
+    COLONEL_AIR_COOLDOWN_REDUCTION,
+    COLONEL_AIR_DAMAGE_BONUS,
+    COLONEL_AIR_MAX_STACKS,
     COLONEL_AIR_RANGE_BONUS,
     buildAirCommandDamageTexts,
     getAirfieldColonel,
     getAirfieldCommander,
+    getAirCommandCooldown,
     getAirCommandRange,
-    getMountedCommanderAirAttackBonus
+    getMountedCommanderAirAttackBonus,
+    markAirCommandUsed
 } from '../rules/airCommands.js';
 
 const CAMP = { id: 'player1' };
@@ -55,9 +60,31 @@ test('机场识别驻城将领，并仅把空军上校视为航空专属强化�
     assert.equal(getAirfieldCommander({ camp: { id: 'player2' }, unit: colonel }), null);
     assert.equal(AIRFIELD_BASE_RANGE, 8);
     assert.ok(Object.values(AIR_COMMAND_CONFIG).every(command => command.range === AIRFIELD_BASE_RANGE));
+    assert.equal(COLONEL_AIR_DAMAGE_BONUS, 0);
+    assert.equal(COLONEL_AIR_MAX_STACKS, 8);
+    assert.equal(COLONEL_AIR_COOLDOWN_REDUCTION, 1);
     assert.equal(COLONEL_AIR_RANGE_BONUS, 2);
     assert.equal(getAirCommandRange({ camp: CAMP, unit: null }), 8);
     assert.equal(getAirCommandRange(colonelCity), 10);
+
+    const state = {
+        turnCounter: 0,
+        turnOrder: ['player1', 'player2'],
+        factions: { player1: CAMP, player2: { id: 'player2' } },
+        playerGold: { player1: 100, player2: 100 }
+    };
+    const plainCity = { camp: CAMP, unit: other, installation: { type: 'airfield', status: 'ready' } };
+    const boostedCity = { camp: CAMP, unit: colonel, installation: { type: 'airfield', status: 'ready' } };
+    assert.equal(getAirCommandCooldown('strafe', plainCity), 2);
+    assert.equal(getAirCommandCooldown('strafe', boostedCity), 1);
+    assert.equal(getAirCommandCooldown('airdrop', boostedCity), 2);
+    assert.equal(getAirCommandCooldown('stukaDiveBomb', boostedCity), 0);
+    markAirCommandUsed('strafe', plainCity, state);
+    markAirCommandUsed('strafe', boostedCity, state);
+    markAirCommandUsed('airdrop', boostedCity, state);
+    assert.equal(plainCity.installation.airCommandReadyRound.strafe, 3);
+    assert.equal(boostedCity.installation.airCommandReadyRound.strafe, 2);
+    assert.equal(boostedCity.installation.airCommandReadyRound.airdrop, 3);
 });
 
 test('机场扫射与轰炸结果会在命中时刻生成前端伤害数字', () => {

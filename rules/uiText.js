@@ -8,6 +8,9 @@ import { COMMANDER_CONFIG } from './commanders.js';
 import { CULTURE_CONFIG, GUERRILLA_PASSIVE_DESCRIPTION, SAMURAI_PASSIVE_DESCRIPTION } from './cultures.js';
 import { NAVAL_RULES } from './naval.js';
 import { CITY_SIEGE_CONFIG } from './citySiege.js';
+import { DEFENSE_BUILDING_MIN_DISTANCE, MG_NEST_MACHINE_GUN_DAMAGE_BONUS, UNIT_CONFIG } from './units.js';
+import { FORTIFICATION_CONFIG } from './terrain.js';
+import { DEFENSE_CONSTRUCTION_SUPPORT_RANGE } from './construction.js';
 
 export const FRONTEND_TEXT = deepFreeze({
     // v2 起常规兵种的 0 阶不再有兵种被动；专精被动文案由 rules/units.js 的
@@ -21,7 +24,7 @@ export const FRONTEND_TEXT = deepFreeze({
             name: '攻城火力',
             desc: `对仍有生命值的城市（含城内驻军与城郭）伤害提高${percent(CITY_SIEGE_CONFIG.cannonSiegeDamageBonus)}`
         },
-        mgNest: { name: '机枪', desc: '对步兵造成的伤害提高30%' },
+        mgNest: { name: '机枪', desc: `对步兵造成的伤害提高${percent(MG_NEST_MACHINE_GUN_DAMAGE_BONUS)}` },
         carrier: { name: '舰载机', desc: '目标生命每损失5%，攻击力提高1点（至多15点）' },
         us_marine: { name: '两栖登陆', desc: CULTURE_CONFIG.us.tier1.summary },
         gb_battleship: { name: '天佑女王', desc: CULTURE_CONFIG.gb.tier1.summary },
@@ -56,3 +59,35 @@ export const FRONTEND_TEXT = deepFreeze({
         }
     }
 });
+
+/** 战场建设弹窗各工事的效果与建造规则文案（全部从规则常量派生）。 */
+export function getConstructionChoiceContent(kind, { engineer = false } = {}) {
+    switch (kind) {
+        case 'trench':
+            return {
+                effect: `效果：${FORTIFICATION_CONFIG.trench.desc}。`,
+                placement: '建造：可建于任意己方行政区陆地，或己方部队所处的非己方行政区陆地；该格不得已有工事。'
+            };
+        case 'flak':
+            return {
+                effect: `效果：${FORTIFICATION_CONFIG.flak.desc}（对近战、炮击与舰炮无防御加成）。`,
+                placement: '建造：可建于任意己方行政区陆地，或己方部队所处的非己方行政区陆地；该格不得已有工事。'
+            };
+        case 'bunker': {
+            const cfg = UNIT_CONFIG.mgNest;
+            return {
+                effect: `效果：固定防御要塞（${cfg.hp}生命 / ${cfg.attack}攻击 / ${percent(cfg.defense)}防御 / ${cfg.range}射程），${FRONTEND_TEXT.unitPassives.mgNest.desc}，不可移动。`,
+                placement: `建造：己方行政区空地或任意己方部队${DEFENSE_CONSTRUCTION_SUPPORT_RANGE}格内的非己方空地（同类相距至少${DEFENSE_BUILDING_MIN_DISTANCE}格）；${engineer ? '工程师使其立即完成。' : '下次己方回合完工。'}`
+            };
+        }
+        case 'shoreBattery': {
+            const cfg = UNIT_CONFIG.shoreBattery;
+            return {
+                effect: `效果：固定沿海重炮（${cfg.hp}生命 / ${cfg.attack}攻击 / ${cfg.range}射程），${FRONTEND_TEXT.unitPassives.shoreBattery.desc}；${FRONTEND_TEXT.unitPassives.cannonSiege.desc}，不可移动。`,
+                placement: `建造：己方控制的临海空地；阵营共享${NAVAL_RULES.shoreBatteryCooldownRounds}回合冷却，新建炮位至少相距${DEFENSE_BUILDING_MIN_DISTANCE}格，标准地图预置炮位除外。`
+            };
+        }
+        default:
+            return { effect: '', placement: '' };
+    }
+}

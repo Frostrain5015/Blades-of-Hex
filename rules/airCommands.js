@@ -21,10 +21,11 @@ export const AIR_COMMAND_CONFIG = Object.freeze({
 });
 
 export const AIRFIELD_BASE_POWER = 50;
-export const COLONEL_AIR_DAMAGE_BONUS = 0.20;
+export const COLONEL_AIR_DAMAGE_BONUS = 0;
 export const COLONEL_AIR_STACK_BONUS = 0.05;
-export const COLONEL_AIR_MAX_STACKS = 6;
+export const COLONEL_AIR_MAX_STACKS = 8;
 export const COLONEL_AIR_RANGE_BONUS = 2;
+export const COLONEL_AIR_COOLDOWN_REDUCTION = 1;
 export const COLONEL_ANTI_AIR_PIERCE = 0.15;
 export const AIR_COMMAND_IMPACT_DELAY_MS = Object.freeze({
     strafe: 1200,
@@ -79,6 +80,13 @@ export function getAirfieldColonel(cityTile) {
 
 export function getAirCommandRange(cityTile) {
     return AIRFIELD_BASE_RANGE + (getAirfieldColonel(cityTile) ? COLONEL_AIR_RANGE_BONUS : 0);
+}
+
+export function getAirCommandCooldown(kind, cityTile) {
+    const base = AIR_COMMAND_CONFIG[kind]?.cooldown || 0;
+    if (base <= 0) return 0;
+    const reduction = getAirfieldColonel(cityTile) ? COLONEL_AIR_COOLDOWN_REDUCTION : 0;
+    return Math.max(0, base - reduction);
 }
 
 export function canAirCommandAirdropAt(tile) {
@@ -141,8 +149,9 @@ export function markAirCommandUsed(kind, cityTile, state) {
     const config = AIR_COMMAND_CONFIG[kind];
     if (!config || !cityTile?.installation) return;
     cityTile.installation.airCommandReadyRound ||= {};
-    // R 回合使用后，冷却 N 回合意味着 R+N+1 回合恢复。
-    cityTile.installation.airCommandReadyRound[kind] = config.cooldown ? getRoundIndex(state) + config.cooldown + 1 : 0;
+    const cooldown = getAirCommandCooldown(kind, cityTile);
+    // R 回合使用后，冷却 N 回合意味着 R+N+1 回合恢复；空军上校驻城时冷却 -1（最低 0 回合）。
+    cityTile.installation.airCommandReadyRound[kind] = cooldown > 0 ? getRoundIndex(state) + cooldown + 1 : 0;
     if (cityTile.installation.cooldowns) cityTile.installation.cooldowns[kind] = 0;
     state.playerGold[campToKey(cityTile.camp)] -= getAirCommandCost(kind, cityTile, state);
 }

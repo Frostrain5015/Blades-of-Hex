@@ -268,7 +268,7 @@ test('战壕覆盖炮击减伤，且补员与修船费用统一下调25%并四�
 });
 
 test('要塞炮与攻城火力规则、文案及真实 Unit 伤害结算口径一致', async () => {
-    const { FRONTEND_TEXT } = await import('../rules/uiText.js');
+    const { FRONTEND_TEXT, getConstructionChoiceContent } = await import('../rules/uiText.js');
     const { CULTURE_CONFIG } = await import('../rules/cultures.js');
     const { CANNON_SIEGE_ATTACKER_TYPES, getCannonSiegeDamageBonus } = await import('../rules/citySiege.js');
     const { wireHeadlessEngine } = await import('../core/headless.js');
@@ -287,6 +287,11 @@ test('要塞炮与攻城火力规则、文案及真实 Unit 伤害结算口径�
     assert.match(CULTURE_CONFIG.ru.tier1.summary, /30%/);
     assert.match(CULTURE_CONFIG.us.tier1.summary, /40%/);
     assert.match(CULTURE_CONFIG.us.tier1.summary, /要塞炮/);
+    assert.match(getConstructionChoiceContent('trench').effect, /25%/);
+    assert.match(getConstructionChoiceContent('flak').effect, /30%防空/);
+    assert.match(getConstructionChoiceContent('bunker').effect, /200生命.*40攻击.*5%防御.*30%/);
+    assert.match(getConstructionChoiceContent('bunker', { engineer: true }).placement, /立即完成/);
+    assert.match(getConstructionChoiceContent('shoreBattery').effect, /150生命.*50攻击.*15%.*35%.*40%/);
     for (const type of ['archer', 'fr_heavy_cannon', 'ru_katyusha', 'warship', 'gb_battleship', 'shoreBattery']) {
         assert.equal(CANNON_SIEGE_ATTACKER_TYPES.has(type), true);
         assert.equal(getCannonSiegeDamageBonus({ type }), 0.40);

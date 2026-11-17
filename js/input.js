@@ -28,7 +28,7 @@ import { canDeployDrone, DRONE_DEPLOY_COST } from '../commander/tianyan.js';
 import { COMMANDER_CONFIG as COMMANDER_BALANCE_CONFIG } from '../rules/commanders.js';
 import { COMBAT_BALANCE } from '../rules/constants.js';
 import { EMOJI_FONT_STACK } from '../rules/symbols.js';
-import { FRONTEND_TEXT } from '../rules/uiText.js';
+import { FRONTEND_TEXT, getConstructionChoiceContent } from '../rules/uiText.js';
 import { FACTION_ABILITY_LABELS } from '../rules/factionLabels.js';
 import { paintFlagBadgeCanvas } from './flagBadgeCanvas.js';
 import { campToKey } from '../rules/camps.js';
@@ -3222,10 +3222,10 @@ function _showConstructionChoice() {
     const campKey = _campKeyInput(camp);
     const gold = gameState.playerGold[campKey] || 0;
     const definitions = [
-        { kind: 'trench', cardId: 'build_trench', icon: '🚧', detail: '可建于任意己方行政区陆地，或己方部队所处的非己方行政区陆地；该格不得已有工事。' },
-        { kind: 'flak', cardId: 'build_flak', icon: '🔫', detail: '可建于任意己方行政区陆地，或己方部队所处的非己方行政区陆地；该格不得已有工事。' },
-        { kind: 'bunker', cardId: 'build_bunker', icon: '🏰', detail: engineer ? '己方行政区空地或任意己方部队6格内的非己方空地；工程师使其立即完成。' : '己方行政区空地或任意己方部队6格内的非己方空地；下次己方回合完工。' },
-        { kind: 'shoreBattery', cardId: 'build_shore_battery', icon: '🏯', detail: '可建于己方控制的临海空地。阵营共享两回合冷却，新建炮位至少相距7格，标准地图预置炮位除外。' }
+        { kind: 'trench', cardId: 'build_trench', icon: '🚧' },
+        { kind: 'flak', cardId: 'build_flak', icon: '🔫' },
+        { kind: 'bunker', cardId: 'build_bunker', icon: '🏰' },
+        { kind: 'shoreBattery', cardId: 'build_shore_battery', icon: '🏯' }
     ];
     for (const definition of definitions) {
         const cost = constructionCost(definition.kind, engineer, null, gameState);
@@ -3243,9 +3243,13 @@ function _showConstructionChoice() {
         const icon = document.createElement('span'); icon.className = 'wc-icon'; icon.textContent = definition.icon;
         const name = document.createElement('span'); name.className = 'wc-name'; name.textContent = CONSTRUCTION_CONFIG[definition.kind].name;
         const costLabel = document.createElement('span'); costLabel.className = 'specialization-stat is-bonus'; costLabel.textContent = `费用 $${cost}`;
+        const copy = getConstructionChoiceContent(definition.kind, { engineer: !!engineer });
+        const effectEl = document.createElement('span'); effectEl.className = 'specialization-passive';
+        effectEl.style.color = '#e3daf0';
+        effectEl.textContent = copy.effect;
         const detail = document.createElement('span'); detail.className = 'specialization-passive';
-        detail.textContent = available ? definition.detail : `${definition.detail}（${structurallyAvailable ? '金币不足' : '当前位置不可建造'}）`;
-        card.append(icon, name, costLabel, detail);
+        detail.textContent = available ? copy.placement : `${copy.placement}（${structurallyAvailable ? '金币不足' : '当前位置不可建造'}）`;
+        card.append(icon, name, costLabel, effectEl, detail);
         card.addEventListener('click', () => {
             _closeChoiceModal();
             _beginBuildTargeting(

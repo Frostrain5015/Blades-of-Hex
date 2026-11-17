@@ -46,7 +46,7 @@ export const COLONEL_CARD_DATA = (() => {
         range: 6,
         antiairRadius: 2,
         airDamagePerStack: 0.05,
-        maxAirDamageStacks: 6,
+        maxAirDamageStacks: 8,
         diveStrafe: {
             id: 'diveStrafe', name: '扫射', icon: EMOJI.cards.diveStrafe, targeting: 'enemyGlobal',
             balance: { attackMultiplier: 1.5, missingHpToAttackPct: 0.10, maxMissingHpAttack: 15 }

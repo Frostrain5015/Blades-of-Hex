@@ -73,7 +73,8 @@ function buildCenturion() {
 function buildColonel() {
     const balance = {
         ...COLONEL_CARD_DATA,
-        baseAirDamageBonus: 0.20,
+        baseAirDamageBonus: 0,
+        cooldownReduction: 1,
         antiAirPierce: 0.15,
         rangeBonus: 2
     };
@@ -81,7 +82,7 @@ function buildColonel() {
         definition: {
             id: 'colonel', name: '空军上校', hpBonusPct: 0.30, atkBonusPct: 0.30, spdBonus: 1,
             skills: [
-                { name: '制空', desc: `驻扎己方机场城市或挂载航母时，空军伤害提高${percent(balance.baseAirDamageBonus)}、射程+${balance.rangeBonus}并无视${percent(balance.antiAirPierce)}防空；雾天停飞`, type: 'passive' },
+                { name: '制空', desc: `驻扎己方机场城市或挂载航母时，射程+${balance.rangeBonus}、无视${percent(balance.antiAirPierce)}防空，且机场空军指令冷却-${balance.cooldownReduction}回合；雾天停飞`, type: 'passive' },
                 { name: '老练', desc: `每发动1次受强化的空军行动，空军伤害再提高${percent(balance.airDamagePerStack)}，最多叠加${balance.maxAirDamageStacks}层`, type: 'passive' }
             ]
         },

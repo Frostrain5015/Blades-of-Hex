@@ -1250,7 +1250,7 @@ test('全回合反机场斩杀线：残血或拼反伤后的将领避开敌方�
         installation: { type: 'airfield', status: 'ready' }
     });
 
-    const centurion = makeUnit(1, 'cavalry', me, front, { commander: 'centurion', hp: 82, maxHp: 150 });
+    const centurion = makeUnit(1, 'cavalry', me, front, { commander: 'centurion', hp: 65, maxHp: 150 });
     const foeColonel = makeUnit(10, 'archer', foe, foeAirport, { commander: 'colonel', hp: 100 });
     const outerTarget = makeUnit(11, 'infantry', foe, makeTile(2, 0), { hp: 180, maxHp: 180 });
     const tiles = [home, front, safeRear, aaTile, outerTarget.tile, foeAirport, farAir];
@@ -1270,7 +1270,7 @@ test('全回合反机场斩杀线：残血或拼反伤后的将领避开敌方�
 
     const worldNoAa = buildWorld(state, helpers, me, TIER_CAPABILITIES.hard);
     const bareAir = worldNoAa.airThreatAt(front, centurion, 0);
-    assert.ok(bareAir >= 75, `敌方上校就绪机场在9格处应对82血骑兵将领形成致命扫射威胁，实际=${bareAir}`);
+    assert.ok(bareAir >= 65, `敌方上校就绪机场在9格处应对65血骑兵将领形成致命扫射威胁，实际=${bareAir}`);
 
     const strategy = decideStrategy(worldNoAa);
     const actions = planTactics(worldNoAa, strategy, assignMissions(worldNoAa, strategy));

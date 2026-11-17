@@ -17,6 +17,8 @@ export async function run(browser) {
                 assert(gs._colonelDeployed.player1 === true, '_colonelDeployed.player1=true');
                 assert(gs.playerHands.player1.length === 0, '部署上校不再向手牌注入旧空军卡');
                 assert(cmdr.skills.length === 2, '上校保留制空与老练两项航空被动');
+                assert(cmdr.skills[0].desc.includes('冷却-1回合') && !cmdr.skills[0].desc.includes('提高20%'), '制空改为冷却-1回合，移除基础20%增伤');
+                assert(cmdr.skills[1].desc.includes('8层'), '老练上限提高至8层');
             }
         } catch(e) { assert(false, '第 1 项异常: ' + e.message); }
         try {
