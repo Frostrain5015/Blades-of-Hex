@@ -1,5 +1,7 @@
 # Blades of Hex - Complete Field Manual & Tactics Guide
 
+[简体中文版](GAME_RULES.zh-CN.md)
+
 Welcome to **Blades of Hex** (`v5.1.0`)! Whether you are commanding your first skirmish battalion or planning an amphibious invasion across contested straits, this chapter-by-chapter field manual covers every core rule, unit table, commander kit, culture doctrine, and practical battlefield tip drawn straight from the live game engine (`rules/`).
 
 ---
@@ -317,7 +319,7 @@ In **Faction Synergy** mode (Double Commanders enabled), drafting 2 commanders f
 | **Sun-Moon Balance** (*Tianheng*) | `astrologer`, `staller`, `diplomat` | Recovers unused end-of-turn resources (`100` threshold) to fire **Sun-Moon Balance**: `40` Shield for all allies, high morale, `+30%` crit rate (`2` rounds), and `1`-round full-map reveal! |
 | **Fellow Robe** (*Fallback*) | Any 2+ mixed-faction commanders | When living commanders come from different factions with no special synergy active, all living commanders gain **`+10%` Defense**. |
 
-> **Commander's Tip:** For **Celestine**, pairing `priest` + `martyr` alone will **not** activate Oracle because both belong to the `sacredVessel` group - make sure at least one partner is `paladin` or `fallenAngel`! For **Noctis**, **Vampire** + **Fallen Angel** (or **Magician** with advantage crits) accelerates Blood Tide dramatically.
+> **Commander's Tip:** For **Celestine**, pairing `priest` + `martyr` alone will **not** activate Oracle because both belong to the `sacredVessel` group - make sure at least one partner is `paladin` or `fallenAngel`! For **Noctis**, pairing **Vampire** with **Magician** (whose Metamorphosis stacks crit rate rapidly) accelerates **Blood Tide** dramatically.
 
 ---
 
