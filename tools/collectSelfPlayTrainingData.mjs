@@ -130,38 +130,107 @@ function matchSelfPlayCandidate(entry, candidates, state) {
     return matchHumanActionToCandidate(entry, candidates, state);
 }
 
-function computeTerminalReturnMap(log, reviewLog) {
+function computeCampQualityMap(log, reviewLog) {
     const winner = log.result?.winnerCampKey || null;
-    const campCities = new Map();
+    const campStats = new Map();
     const overviewCamps = Array.isArray(reviewLog?.overview?.camps) ? reviewLog.overview.camps : null;
     if (overviewCamps) {
         for (const c of overviewCamps) {
             if (c?.campKey && c.campKey !== 'neutral') {
-                campCities.set(c.campKey, Number(c.finalCities ?? 1));
+                const kills = Number(c.kills || 0);
+                const losses = Math.max(1, Number(c.losses || 0));
+                campStats.set(c.campKey, {
+                    finalCities: Number(c.finalCities ?? 1),
+                    kills,
+                    losses,
+                    kd: kills / losses,
+                    captures: Number(c.captures || 0),
+                    won: winner === c.campKey
+                });
             }
         }
     } else if (log.summary?.byCamp && typeof log.summary.byCamp === 'object') {
         for (const [ck, stats] of Object.entries(log.summary.byCamp)) {
             if (ck !== 'neutral') {
-                campCities.set(ck, 1 + Number(stats?.citiesCaptured ?? 0));
+                const kills = Number(stats?.kills || 0);
+                const losses = Math.max(1, Number(stats?.unitsLost || 0));
+                campStats.set(ck, {
+                    finalCities: 1 + Number(stats?.citiesCaptured ?? 0),
+                    kills,
+                    losses,
+                    kd: kills / losses,
+                    captures: Number(stats?.citiesCaptured || 0),
+                    won: winner === ck
+                });
             }
         }
     }
-    const returns = new Map();
+
+    const out = new Map();
     for (const p of (log.participants || [])) {
         if (!p?.campKey || p.campKey === 'neutral') continue;
         const ck = p.campKey;
+        const st = campStats.get(ck) || { finalCities: 1, kills: 0, losses: 1, kd: 0, captures: 0, won: winner === ck };
         const winBase = winner === ck ? 1.0 : (winner === 'draw' || !winner ? 0.0 : -1.0);
-        const myCities = campCities.get(ck) ?? 1;
         let bestOther = 0;
-        for (const [ok, oc] of campCities.entries()) {
-            if (ok !== ck) bestOther = Math.max(bestOther, oc);
+        for (const [ok, ost] of campStats.entries()) {
+            if (ok !== ck) bestOther = Math.max(bestOther, ost.finalCities);
         }
-        const cityMargin = Math.max(-0.5, Math.min(0.5, (myCities - bestOther) / 3.0));
-        const terminal = Math.max(-1.0, Math.min(1.0, 0.80 * winBase + 0.40 * cityMargin));
-        returns.set(ck, terminal);
+        const cityMargin = Math.max(-0.5, Math.min(0.5, (st.finalCities - bestOther) / 3.0));
+        const kdBonus = st.won ? Math.max(-0.1, Math.min(0.25, (st.kd - 1.0) * 0.20)) : 0;
+        const terminalReturn = Math.max(-1.0, Math.min(1.0, 0.78 * winBase + 0.36 * cityMargin + kdBonus));
+        const isEliteWinner = (st.won && st.kd >= 1.25)
+            || (st.won && st.captures >= 2)
+            || (st.kd >= 1.75 && st.captures >= 2);
+        out.set(ck, { ...st, terminalReturn, isEliteWinner });
     }
-    return returns;
+    return out;
+}
+
+function computeActionStepReward(item, campKey) {
+    let reward = 0;
+    const ch = item.outcome?.changes || {};
+    for (const sc of (ch.sitesChanged || [])) {
+        const ckCh = sc?.changes?.campKey;
+        if (!ckCh) continue;
+        if (ckCh.after === campKey && ckCh.before !== campKey) reward += 0.36;
+        else if (ckCh.before === campKey && ckCh.after !== campKey) reward -= 0.36;
+    }
+    const p = item.payload || {};
+    if (p.attackDmg) reward += Math.min(0.18, Number(p.attackDmg) / 300);
+    if (p.counterDmg) reward -= Math.min(0.16, Number(p.counterDmg) / 300);
+    if (p.killed) reward += 0.14;
+    if (Array.isArray(ch.unitsRemoved)) {
+        for (const rem of ch.unitsRemoved) {
+            if (rem?.campKey === campKey) reward -= (rem.commander ? 0.25 : 0.14);
+            else if (rem?.campKey && rem.campKey !== 'neutral') reward += (rem.commander ? 0.24 : 0.12);
+        }
+    }
+    return Math.max(-0.55, Math.min(0.65, reward));
+}
+
+function buildLocalDiscountedReturns(timeline) {
+    const byCampSeq = new Map();
+    const seqsByCamp = new Map();
+    for (const item of timeline) {
+        if (item.kind !== 'action' || !item.actorCampKey || item.actorCampKey === 'neutral') continue;
+        if (!seqsByCamp.has(item.actorCampKey)) seqsByCamp.set(item.actorCampKey, []);
+        seqsByCamp.get(item.actorCampKey).push({
+            sequence: item.sequence,
+            r: computeActionStepReward(item, item.actorCampKey)
+        });
+    }
+    for (const [ck, list] of seqsByCamp.entries()) {
+        let g = 0;
+        const map = new Map();
+        for (let idx = list.length - 1; idx >= 0; idx--) {
+            g = list[idx].r + 0.85 * g;
+            const clipped = Math.max(-0.85, Math.min(0.85, g));
+            map.set(list[idx].sequence, { stepReward: list[idx].r, localReturn: clipped });
+        }
+        byCampSeq.set(ck, map);
+    }
+    return byCampSeq;
 }
 
 await generateBatch();
@@ -189,10 +258,11 @@ for (const filePath of files) {
             .map(p => p.campKey)
     );
     const diffByCamp = log.mode?.aiDifficultyByCamp || {};
-    const terminalReturns = computeTerminalReturnMap(log, reviewLog);
+    const campQualities = computeCampQualityMap(log, reviewLog);
     const totalRounds = Math.max(1, Number(log.summary?.rounds || log.result?.rounds || 19));
     const state = hydrateMatchInitialState(log);
     const timeline = log.timeline || [];
+    const localReturnsByCamp = buildLocalDiscountedReturns(timeline);
 
     const pendingDeferred = [];
     for (const item of timeline) {
@@ -219,17 +289,23 @@ for (const filePath of files) {
             const matched = matchSelfPlayCandidate(item, candidates, state);
             if (matched) {
                 matchedTotal++;
-                const rTerminal = terminalReturns.get(ck) ?? 0.0;
+                const qInfo = campQualities.get(ck) || { terminalReturn: 0.0, isEliteWinner: false };
+                const isHardCamp = diff === 'hard';
+                const rTerminal = qInfo.terminalReturn;
                 const round = Number(item.round || 1);
                 const discount = Math.max(0.35, Math.pow(0.94, Math.max(0, totalRounds - round)));
-                const outcomeValue = Number((rTerminal * discount).toFixed(4));
+                const td = localReturnsByCamp.get(ck)?.get(item.sequence) || { stepReward: 0, localReturn: 0 };
+                const outcomeValue = Number(Math.max(-1.0, Math.min(1.0,
+                    0.62 * rTerminal * discount + 0.45 * td.localReturn)).toFixed(4));
                 const isRare = RARE_TYPES.has(matched.actionType);
-                const keepCommon = (rTerminal > 0.15 && (item.sequence % 2 === 0)) || (rTerminal < -0.25 && (item.sequence % 4 === 0));
+                const isDecisive = td.stepReward >= 0.12 || ['tacticalCard', 'recruit'].includes(matched.actionType);
+                const keepCommon = (isHardCamp && qInfo.isEliteWinner && isDecisive)
+                    || (rTerminal > 0.15 && (item.sequence % 3 === 0))
+                    || (rTerminal < -0.25 && (item.sequence % 3 === 0));
                 if (isRare || keepCommon) {
-                    const policyWeight = isRare
-                        ? (rTerminal >= 0 ? 0.85 : 0.12)
-                        : (rTerminal > 0.15 ? 0.30 : 0.0);
-                    const valueWeight = 1.0;
+                    // Stage 1 策略主干严格锚定人类高质量 BC，自对局仅用于 Stage 2 Q-Value 强化学习精调
+                    const policyWeight = 0.0;
+                    const valueWeight = (isHardCamp && qInfo.isEliteWinner) ? 1.35 : (isHardCamp ? 1.15 : 0.9);
                     const doctrine = item.decisionContext?.strategicIntent?.doctrine || 'grandmaster';
                     const rec = {
                         matchId: log.matchId,

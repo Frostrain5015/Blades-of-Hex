@@ -58,7 +58,7 @@ export const AI_DIFFICULTY_PROFILES = Object.freeze({
         terminalPlanning: true,
         advancedCards: true,
         activeSkillPlanning: true,
-        // Hybrid（新困难档）继承完整规则情报并在决策层融合人类行为模仿策略模型。
+        // Hybrid 3.0（新困难档）继承完整规则情报并在决策层融合人类行为模仿策略+价值双头模型。
         campaignPlanningDepth: 2,
         assetValuation: true,
         emergencyBudget: true,
@@ -75,7 +75,7 @@ export function normalizeAiDifficulty(value) {
         const normalized = value.trim().toLowerCase();
         if (normalized === '简单' || normalized === 'optio') return 'easy';
         if (normalized === '中等' || normalized === 'legatus' || normalized === 'imperator') return 'medium';
-        if (normalized === '困难' || normalized === 'hybrid') return 'hard';
+        if (normalized === '困难' || normalized === 'hybrid' || normalized === 'hybrid 3.0' || normalized === 'hybrid3.0') return 'hard';
         if (AI_DIFFICULTY_PROFILES[normalized]) return normalized;
         const numeric = Number(normalized);
         if (Number.isFinite(numeric)) value = numeric;

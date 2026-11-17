@@ -548,11 +548,18 @@ class DualHeadMLPScorer:
             logits, vals, (X_in, z1, a1, mask1, z2, a2) = self.forward(X, train=True)
             d_a2 = np.zeros_like(a2)
             if pw > 0:
+                eff_pw = pw
+                if target_v is not None:
+                    # AWR (Advantage-Weighted Regression): 以当前局面平均价值基线 V(s) 计算优势 A = G_t - V(s)，
+                    # 动态放大高优势胜势决策的梯度权重、抑制低效平庸动作。
+                    v_baseline = float(np.mean(vals))
+                    adv = max(-0.8, min(1.0, float(target_v) - v_baseline))
+                    eff_pw = pw * float(np.clip(math.exp(adv / 0.55), 0.25, 2.25))
                 probs = softmax_logits(logits)
-                total_pol += pw * float(-np.log(max(1e-9, probs[y])))
+                total_pol += eff_pw * float(-np.log(max(1e-9, probs[y])))
                 d_logits = probs
                 d_logits[y] -= 1.0
-                d_logits = d_logits * pw
+                d_logits = d_logits * eff_pw
                 grads["W3"] += a2.T @ d_logits
                 grads["b3"] += np.sum(d_logits)
                 d_a2 += np.outer(d_logits, self.W3)
@@ -562,20 +569,21 @@ class DualHeadMLPScorer:
                 err = pred_v - float(target_v)
                 total_val += vw * err * err
                 val_n += 1
-                dv_raw = vw * 0.45 * 2.0 * err * (1.0 - pred_v * pred_v)
+                dv_raw = vw * 0.18 * 2.0 * err * (1.0 - pred_v * pred_v)
                 grads["Wv"] += a2[y] * dv_raw
                 grads["bv"] += dv_raw
                 d_a2[y] += self.Wv * dv_raw
 
-            d_z2 = d_a2 * self.gelu_grad(z2)
-            grads["W2"] += a1.T @ d_z2
-            grads["b2"] += np.sum(d_z2, axis=0)
-            d_a1 = d_z2 @ self.W2.T
-            if mask1 is not None:
-                d_a1 = d_a1 * mask1
-            d_z1 = d_a1 * self.gelu_grad(z1)
-            grads["W1"] += X_in.T @ d_z1
-            grads["b1"] += np.sum(d_z1, axis=0)
+            if pw > 0 or vw > 0:
+                d_z2 = d_a2 * self.gelu_grad(z2)
+                grads["W2"] += a1.T @ d_z2
+                grads["b2"] += np.sum(d_z2, axis=0)
+                d_a1 = d_z2 @ self.W2.T
+                if mask1 is not None:
+                    d_a1 = d_a1 * mask1
+                d_z1 = d_a1 * self.gelu_grad(z1)
+                grads["W1"] += X_in.T @ d_z1
+                grads["b1"] += np.sum(d_z1, axis=0)
 
         n = max(1, len(batch_items))
         self.t += 1
@@ -591,6 +599,49 @@ class DualHeadMLPScorer:
             vh = self.v[p] / (1.0 - 0.999 ** self.t)
             setattr(self, p, w - cur_lr * mh / (np.sqrt(vh) + 1e-8))
         return total_pol / n, (total_val / max(1, val_n))
+
+    def refine_value_head(self, value_items, epochs=12, batch_size=64, lr=8e-3, l2=1e-4):
+        """Stage 2: 冻结策略主干 (W1, W2, W3)，纯以自对局 TD 回报精调 Q-Value Head (Wv, bv)。"""
+        cached = []
+        for X_in, y, _, target_v, vw in value_items:
+            if vw <= 0 or target_v is None:
+                continue
+            z1 = X_in @ self.W1 + self.b1
+            a1 = self.gelu(z1)
+            z2 = a1 @ self.W2 + self.b2
+            a2 = self.gelu(z2)
+            cached.append((a2[y].copy(), float(target_v), float(vw)))
+        if not cached:
+            return
+        m_w = np.zeros_like(self.Wv)
+        v_w = np.zeros_like(self.Wv)
+        m_b = np.float32(0.0)
+        v_b = np.float32(0.0)
+        t = 0
+        for ep in range(1, epochs + 1):
+            perm = self.rng.permutation(len(cached))
+            lr_cur = lr * max(0.2, 0.5 * (1.0 + math.cos(math.pi * (ep - 1) / max(1, epochs))))
+            for start in range(0, len(perm), batch_size):
+                idxs = perm[start:start + batch_size]
+                gw = np.zeros_like(self.Wv)
+                gb = np.float32(0.0)
+                for k in idxs:
+                    feat, tv, vw = cached[k]
+                    pv = float(np.tanh(float(feat @ self.Wv + self.bv)))
+                    err = pv - tv
+                    dv = vw * 2.0 * err * (1.0 - pv * pv)
+                    gw += feat * dv
+                    gb += dv
+                nb = max(1, len(idxs))
+                gw = gw / nb + l2 * self.Wv
+                gb = gb / nb
+                t += 1
+                m_w = 0.9 * m_w + 0.1 * gw
+                v_w = 0.999 * v_w + 0.001 * (gw * gw)
+                m_b = 0.9 * m_b + 0.1 * gb
+                v_b = 0.999 * v_b + 0.001 * (gb * gb)
+                self.Wv -= lr_cur * (m_w / (1.0 - 0.9 ** t)) / (np.sqrt(v_w / (1.0 - 0.999 ** t)) + 1e-8)
+                self.bv -= lr_cur * (m_b / (1.0 - 0.9 ** t)) / (math.sqrt(v_b / (1.0 - 0.999 ** t)) + 1e-8)
 
     def state_dict(self):
         return {p: getattr(self, p).copy() for p in self.params}
@@ -715,7 +766,8 @@ def main():
         else:
             train_items_raw.append(item)
 
-    train_X_cat = np.concatenate([it[0] for it in train_items_raw], axis=0)
+    stage1_raw = [it for it in train_items_raw if it[3] > 0]
+    train_X_cat = np.concatenate([it[0] for it in (stage1_raw or train_items_raw)], axis=0)
     mean = np.mean(train_X_cat, axis=0)
     std = np.maximum(1e-3, np.std(train_X_cat, axis=0))
 
@@ -725,20 +777,22 @@ def main():
     ]
     dim = int(train_X_cat.shape[1])
 
-    mlp = DualHeadMLPScorer(dim, h1=112, h2=56, l2=3e-4, lr=2.8e-3, seed=42)
-    best_ce = float("inf")
+    # Stage 1: 纯正策略梯度样本（人类高质量 BC）更新策略主干，绝不被自对局空样本/分布漂移污染
+    stage1_data = [it for it in train_data if it[2] > 0]
+    mlp = DualHeadMLPScorer(dim, h1=112, h2=56, l2=3.2e-4, lr=2.8e-3, seed=42)
+    best_obj = float("inf")
     best_state = mlp.state_dict()
     best_epoch = 0
     history = []
     rng = np.random.default_rng(42)
 
     for ep in range(1, args.epochs + 1):
-        perm = rng.permutation(len(train_data))
+        perm = rng.permutation(len(stage1_data))
         lr_scale = max(0.15, 0.5 * (1.0 + math.cos(math.pi * (ep - 1) / max(1, args.epochs))))
         tr_pol = tr_val = 0.0
         nb = 0
         for start in range(0, len(perm), args.batch_size):
-            batch = [train_data[k] for k in perm[start:start + args.batch_size]]
+            batch = [stage1_data[k] for k in perm[start:start + args.batch_size]]
             p_loss, v_loss = mlp.step(batch, lr_scale=lr_scale)
             tr_pol += p_loss
             tr_val += v_loss
@@ -754,12 +808,16 @@ def main():
             "valTop3Pct": val_metrics["modelTop3Pct"],
             "valTypeTop1Pct": val_metrics["modelActionTypeTop1Pct"],
         })
-        if val_metrics["crossEntropy"] < best_ce:
-            best_ce = val_metrics["crossEntropy"]
+        pol_obj = val_metrics["crossEntropy"] - 0.012 * val_metrics["modelTop1Pct"]
+        if ep >= min(5, args.epochs) and pol_obj < best_obj:
+            best_obj = pol_obj
             best_state = mlp.state_dict()
             best_epoch = ep
 
     mlp.load_state_dict(best_state)
+    # Stage 2: 冻结最佳策略主干，使用全部自对局 TD 回报精调 Q-Value Head (Wv, bv)
+    mlp.refine_value_head(train_data, epochs=16, batch_size=64, lr=8e-3)
+    best_state = mlp.state_dict()
     mlp_val = evaluate_split(human_val_items_raw, human_val_recs, mlp, mean, std)
     sp_val = evaluate_split(sp_val_items_raw, sp_val_recs, mlp, mean, std) if sp_val_items_raw else None
 

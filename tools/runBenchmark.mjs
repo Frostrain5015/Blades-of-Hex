@@ -14,9 +14,51 @@ const args = Object.fromEntries(process.argv.slice(2)
     }));
 const label = String(args.label || `bench-${Date.now().toString(36)}`);
 const concurrency = Math.max(1, Number(args.concurrency) || 3);
+const requestedGames = Math.max(1, Number(args.games) || 10);
 const only = typeof args.only === 'string' ? new Set(args.only.split(',').map(Number)) : null;
 // 固定种子前缀：迭代间用同一批种子才能对比改动效果；产出目录仍按 label 区分。
 const seedPrefix = typeof args['seed-prefix'] === 'string' ? args['seed-prefix'] : label;
+
+const CULTURE_IDS = ['us', 'gb', 'fr', 'ru', 'kmt', 'cpc', 'de', 'jp'];
+
+function buildMatrix(targetCount) {
+    if (targetCount <= MATRIX.length) return MATRIX.slice(0, targetCount);
+    const list = [...MATRIX];
+    const mapPool = [
+        { map: 'crown-ring', players: 2 },
+        { map: 'uncharted-passage', players: 2 },
+        { map: 'river-valley', players: 2 },
+        { map: 'crown-ring', players: 3 },
+        { map: 'uncharted-passage', players: 3 }
+    ];
+    for (let idx = MATRIX.length; idx < targetCount; idx++) {
+        const slot = mapPool[(idx - MATRIX.length) % mapPool.length];
+        const cycle = Math.floor((idx - MATRIX.length) / mapPool.length);
+        const fog = (idx % 2) === 1;
+        const doubleCommander = (Math.floor(idx / 2) % 2) === 1;
+        const hardSeat = idx % slot.players;
+        const difficulties = Array.from({ length: slot.players }, (_, seat) => {
+            if (seat === hardSeat) return 'hard';
+            if (slot.players === 3 && ((seat - hardSeat + 3) % 3) === 2) return 'easy';
+            return 'medium';
+        });
+        const useCulture = (cycle % 2) === 1;
+        const cultures = useCulture
+            ? Array.from({ length: slot.players }, (_, seat) => CULTURE_IDS[(idx * 3 + seat * 2) % CULTURE_IDS.length])
+            : null;
+        list.push({
+            id: `g${idx + 1}`,
+            map: slot.map,
+            players: slot.players,
+            fog,
+            doubleCommander,
+            difficulties,
+            hardCamp: `player${hardSeat + 1}`,
+            cultures
+        });
+    }
+    return list;
+}
 
 // 矩阵对齐迭代笔记的风格：地图/模式/将领数/人数全部打散，困难档轮换座位以抵消先手与岛位偏差。
 // hardCamp 记录本局困难档所在阵营键，胜率按它统计。
@@ -46,6 +88,7 @@ function runGame(game) {
             `--fog=${game.fog}`,
             `--double-commander=${game.doubleCommander}`,
             `--difficulties=${game.difficulties.join(',')}`,
+            ...(game.cultures?.length ? [`--cultures=${game.cultures.join(',')}`] : []),
             `--output=${base}.match-full.json`,
             `--review-output=${base}.match-review.json`
         ];
@@ -100,16 +143,27 @@ async function summarize(results) {
         totals.attacks += hard.attacks || 0;
         rows.push({
             game: game.id, map: game.map, players: game.players, fog: game.fog,
+            doubleCommander: game.doubleCommander,
+            cultures: game.cultures || null,
+            hardCamp: game.hardCamp,
             winner, hardWon, rounds: review.overview?.rounds,
+            reason: review.result?.reason || null,
             hardKills: hard.kills, hardLosses: hard.losses,
             hardDamage: hard.damageDealt, hardCaptures: hard.captures,
-            hardFinalCities: hard.finalCities
+            hardFinalCities: hard.finalCities,
+            hardRating: hard.rating?.score ?? null,
+            hardGrade: hard.rating?.grade ?? null
         });
     }
     const games = rows.length;
+    const rated = rows.filter(r => Number.isFinite(r.hardRating));
+    const avgRating = rated.length ? rated.reduce((s, r) => s + r.hardRating, 0) / rated.length : null;
+    const avgDamage = games ? totals.damage / games : 0;
     const summary = {
         label, games, wins, draws, losses,
         winRate: games ? wins / games : 0,
+        avgDamage,
+        avgRating,
         hardTotals: totals,
         rows
     };
@@ -126,6 +180,6 @@ async function summarize(results) {
 }
 
 await mkdir(outDir, { recursive: true });
-const games = MATRIX.filter(game => !only || only.has(Number(game.id.slice(1))));
+const games = buildMatrix(requestedGames).filter(game => !only || only.has(Number(game.id.slice(1))));
 const results = await runPool(games);
 await summarize(results);

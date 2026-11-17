@@ -1,6 +1,6 @@
-// Hybrid（困难档）—— Imperator 完整规则推理 × 91 维人类模仿 MLP 混合架构。
+// Hybrid 3.0（困难档）—— Imperator 完整规则推理 × 112 维人类模仿双头策略+价值网络。
 //
-// 继承完整规则情报与四学说推演，决策时在合法候选中对 Imperator 规则效用与人类策略网络做 Z-score 融合。
+// 继承完整规则情报与四学说推演，决策时在合法候选中对 Imperator 规则效用、Beam/MiniMax 与策略价值网络做 Z-score 融合。
 
 import { planTurn } from './core/planner.js';
 import { selectHybridAction } from './core/hybridScorer.js';
@@ -8,10 +8,10 @@ import { TIER_CAPABILITIES } from './core/weights.js';
 import { selectCommander, selectCommanderPair } from './doctrine.js';
 
 export const meta = {
-    name: 'Hybrid',
+    name: 'Hybrid 3.0',
     tier: 'Max',
     difficultyId: 'hard',
-    description: '最强混合架构 AI：Imperator 全图规则推演 + 人类行为模仿策略模型联合决策。'
+    description: '最强混合架构 AI：Imperator 全图规则推演 + MiniMax/Beam 前瞻 + 双头策略价值网络联合决策。'
 };
 
 export function selectNextAction(gameState, helpers, myCamp, options = {}) {

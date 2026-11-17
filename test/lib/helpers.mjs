@@ -225,13 +225,26 @@ export function fxRegistryStats(page) {
     return page.evaluate(async () => (await import('/js/fxRegistry.js')).getFxRegistryStats());
 }
 
-// 页面已请求的 fx 模块文件
+const FX_MODULE_IDS = new Set([
+    'ironGuard', 'astrologer', 'staller', 'necromancer', 'fallenAngel',
+    'berserker', 'paladin', 'priest', 'diplomat', 'vampire', 'advisor', 'minister'
+]);
+
+// 页面已请求的 fx 模块文件（兼容源码目录与 Vite 打包 chunk）
 export function fetchedFxModules(page) {
-    return page.evaluate(() =>
-        performance.getEntriesByType('resource')
-            .map(r => r.name).filter(n => n.includes('/commander/fx/'))
-            .map(n => n.split('/').pop().replace('.js', ''))
-    );
+    return page.evaluate((ids) => {
+        const allow = new Set(ids);
+        return performance.getEntriesByType('resource')
+            .map(r => r.name)
+            .filter(n => n.includes('/commander/fx/') || n.includes('/assets/'))
+            .map(n => {
+                const file = n.split('/').pop().split('?')[0];
+                if (n.includes('/commander/fx/')) return file.replace(/\.js$/, '');
+                const m = file.match(/^([a-zA-Z]+)-[A-Za-z0-9_-]+\.js$/);
+                return m && allow.has(m[1]) ? m[1] : null;
+            })
+            .filter(Boolean);
+    }, [...FX_MODULE_IDS]);
 }
 
 // ── 断言与报告 ──────────────────────────────────────────

@@ -1196,7 +1196,15 @@ function scoreCandidatesImperator(state, helpers, camp, world, strategy, imperat
                 utility = 18;
             }
         } else if (c.actionType === 'reinforce') {
-            if (rank === undefined) utility = 26;
+            if (rank === undefined) {
+                const ru = world.myUnits.find(x => x.id === c.unitId);
+                const hpRatio = ru ? Number(ru.hp || 0) / Math.max(1, Number(ru.maxHp || 100)) : 1;
+                if (ru && ru.commander && hpRatio < 0.55 && world.gold >= 10) {
+                    utility = 74;
+                } else {
+                    utility = 26;
+                }
+            }
         } else if (c.actionType === 'buildFortification') {
             if (rank === undefined) {
                 utility = -65;
