@@ -13,7 +13,7 @@ export const CONSTRUCTION_CONFIG = Object.freeze({
     trench: Object.freeze({ name: '战壕', cost: 2, engineerCost: 1, range: 0, buildTurns: 0 }),
     flak: Object.freeze({ name: '高射机枪', cost: 2, engineerCost: 1, range: 0, buildTurns: 0 }),
     bunker: Object.freeze({ name: '碉堡', cost: 10, engineerCost: 7, range: 1, buildTurns: 1 }),
-    shoreBattery: Object.freeze({ name: '岸防炮', cost: 10, range: 0, buildTurns: 0 }),
+    shoreBattery: Object.freeze({ name: '要塞炮', cost: 10, range: 0, buildTurns: 0 }),
     airfield: Object.freeze({ name: '机场', cost: 10, engineerCost: 7, range: 0, buildTurns: 1 }),
     fieldRepair: Object.freeze({ name: '战地抢修', cost: 3, range: 1, healPct: 0.50, cooldown: 2 })
 });

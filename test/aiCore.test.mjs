@@ -699,7 +699,7 @@ test('南城回归：困难骑兵放弃反击后会被步炮收掉的冲城，�
     const me = { id: 'player1' }, foe = { id: 'player2' }, neutral = { id: 'neutral' };
     const from = makeTile(-1, 4), city = makeTile(-2, 5, { isCity: true, camp: neutral, hp: 250 });
     const flank = makeTile(-2, 4), artillery = makeTile(-3, 5);
-    const cavalry = makeUnit(1, 'cavalry', me, from);
+    const cavalry = makeUnit(1, 'cavalry', me, from, { hp: 145 });
     const garrison = makeUnit(2, 'infantry', neutral, city);
     makeUnit(3, 'infantry', neutral, flank);
     makeUnit(4, 'archer', neutral, artillery);

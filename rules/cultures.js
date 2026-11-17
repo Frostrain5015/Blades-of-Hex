@@ -1,6 +1,8 @@
 import { campToKey } from './camps.js';
 import { deepFreeze } from './freeze.js';
 import { getRoundIndex } from './turns.js';
+import { percent } from './format.js';
+import { UNIT_CONFIG } from './units.js';
 
 export const FACTION_RULE_MODES = Object.freeze({
     NONE: 'none',
@@ -146,7 +148,7 @@ export const CULTURE_CONFIG = deepFreeze({
         tier1: {
             title: '海军陆战队',
             abilityName: '两栖登陆',
-            summary: '在海上保持原有攻击力/防御力属性，从水上攻击陆地单位、或在陆地与水上攻击舰船单位均不受陆海交战50%减伤影响。主动攻击沿海城市驻军、港口内敌军、岸防炮或舰船时，伤害提高20%。可在己方港口补员。'
+            summary: '在海上保持原有攻击力/防御力属性，从水上攻击陆地单位、或在陆地与水上攻击舰船单位均不受陆海交战40%减伤影响。主动攻击沿海城市驻军、港口内敌军、要塞炮或舰船时，伤害提高20%。可在己方港口补员。'
         },
         tier2: {
             title: '工业海权',
@@ -200,7 +202,7 @@ export const CULTURE_CONFIG = deepFreeze({
         tier1: {
             title: '喀秋莎火箭炮',
             abilityName: '火力覆盖',
-            summary: '每次攻击分三轮发射火箭，平分本次伤害并附带相当于原来35%的溅射伤害；每轮火箭有20%/10%概率使主目标/溅射目标士气下降1级，持续1回合。'
+            summary: `每次攻击分三轮发射火箭，平分本次伤害并附带相当于原来${percent(UNIT_CONFIG.ru_katyusha.splashPct)}的溅射伤害；每轮火箭有20%/10%概率使主目标/溅射目标士气下降1级，持续1回合。`
         },
         tier2: {
             title: '严冬铁卫',

@@ -609,7 +609,7 @@ function unitMvpEmblemLabel(unit) {
         case 'jp_samurai': return '武士';
         case 'de_stuka': return '斯图卡';
         case 'mgNest': return '碉堡';
-        case 'shoreBattery': return '岸防';
+        case 'shoreBattery': return '要塞';
         case 'drone': return '天眼';
         case 'airfield': return '空军';
         default: return '精锐';

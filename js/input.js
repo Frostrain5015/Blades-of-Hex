@@ -13,7 +13,7 @@ import { campaignValidateCanvasClick, campaignValidateCardClick, campaignValidat
 import { getFaction, getRelation, getRoleCamp, getViewingCampKey, RELATION_META } from '../rules/diplomacy.js';
 import { getKmtLinkedUnits, getKmtLinkDefenseBonus, getKmtReinforceDeficit, getKmtSharedHealth } from '../rules/kmtStronghold.js';
 import { isMechanicEnabled } from '../rules/mechanics.js';
-import { getCityDefenseBonus, getCityPoolTile, isCityDisabled, isSiegeableCityTile } from '../rules/citySiege.js';
+import { getCityDefenseBonus, getCityPoolTile, getCannonSiegeDamageBonus, isCityDisabled, isSiegeableCityTile } from '../rules/citySiege.js';
 import {
     getMovableTiles, getAttackableTiles, refreshChainAttackPlans,
     moveUnit, attackUnit, attackCityTile, recruitUnit, endTurn,
@@ -1220,7 +1220,7 @@ const UNIT_TYPE_NAMES = {
     archer: '炮兵',
     mgNest: '碉堡',
     drone: '天眼哨机',
-    shoreBattery: '岸防炮',
+    shoreBattery: '要塞炮',
     destroyer: '驱逐舰',
     warship: '巡洋舰',
     submarine: '潜艇',
@@ -1640,6 +1640,18 @@ function _buildPassiveItems(unit) {
             kind: 'passive'
         });
         }
+    }
+    if (getCannonSiegeDamageBonus(unit) > 0) {
+        items.push({
+            key: 'unit:passive:cannonSiege',
+            icon: '🎯',
+            label: FRONTEND_TEXT.unitPassives.cannonSiege.name,
+            desc: FRONTEND_TEXT.unitPassives.cannonSiege.desc,
+            color: '#f2b866',
+            kicker: '兵种被动',
+            active: true,
+            kind: 'passive'
+        });
     }
     if (unit._constructionScaffold) {
         const remain = Number.isFinite(unit._constructionScaffold.readyRound)

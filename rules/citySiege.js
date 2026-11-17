@@ -14,11 +14,9 @@ export const CITY_SIEGE_CONFIG = deepFreeze({
     maxHpPerRadius: 200,
     regenPctPerRound: 0.10,
     maxDefensePct: 0.20,
-    // 炮兵/巡洋舰/岸防炮的火炮攻城修正：规则系数，与海陆互攻修正（naval.js 的
-    // getCrossDomainDamageBonus）同层相加，不是相乘。军舰基础型号两者相加抵消，
-    // 回到基准攻城效率；支援型巡洋舰的专精攻陆加成再叠加后可超出基准（见
-    // getCannonSiegeDamageBonus 的调用方 _resolveGroundNavalSiegeDamage）。
-    cannonSiegeDamageBonus: 0.50
+    // 炮兵/巡洋舰/要塞炮的火炮攻城修正：规则系数，与海陆互攻修正（naval.js 的
+    // getCrossDomainDamageBonus）同层相加，不是相乘；仅对 HP > 0 的城市及城郭生效。
+    cannonSiegeDamageBonus: 0.40
 });
 
 /** 城市血池上限：半径0=250，每向外扩大一圈 +200（半径1=450、半径2=650）；计入文化加成。 */
@@ -28,7 +26,7 @@ export function getCityMaxHp(radius = 0, state = null, camp = null) {
     return state && camp ? getCulturalCityMaxHp(base, state, camp) : base;
 }
 
-/** 攻城时享受 cannonSiegeDamageBonus 的火炮类攻击者，与 FIRE_CANNON 表现分类保持一致。 */
+/** 攻城时享受 cannonSiegeDamageBonus 的火炮/重舰攻击者，对应兵种被动【攻城火力】。 */
 export const CANNON_SIEGE_ATTACKER_TYPES = Object.freeze(new Set([
     'archer',
     'fr_heavy_cannon',
@@ -41,6 +39,13 @@ export const CANNON_SIEGE_ATTACKER_TYPES = Object.freeze(new Set([
 /** 火炮攻城修正：与 getCrossDomainDamageBonus 同为可加算的规则系数，由调用方相加后统一乘算。 */
 export function getCannonSiegeDamageBonus(attacker) {
     return CANNON_SIEGE_ATTACKER_TYPES.has(attacker?.type) ? CITY_SIEGE_CONFIG.cannonSiegeDamageBonus : 0;
+}
+
+/** 【攻城火力】目标判定：仅对仍有生命值（HP > 0）的城市或城郭（无论是否有驻军）生效。 */
+export function isCannonSiegeTargetTile(tile, tileMap = null) {
+    if (!tile?.isCity && !tile?.isUrban) return false;
+    const pool = getCityPoolTile(tile, tileMap) || tile;
+    return (Number(pool.hp) || 0) > 0;
 }
 
 /** 由城市总格数反推正六边形圈数（旧档随意涂抹的 footprint → 最近似半径）。 */

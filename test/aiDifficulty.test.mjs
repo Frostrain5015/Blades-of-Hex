@@ -616,12 +616,15 @@ test('只有突击类单位能通过战斗进驻城市', () => {
 test('跨域伤害修正对齐 rules/naval', () => {
     const land = { surface: 'land' };
     const sea = { surface: 'deepWater' };
-    // 岸防炮对舰 +30%、对陆 −60%
-    assert.equal(crossDomainDamageBonus({ type: 'shoreBattery' }, sea, { type: 'destroyer' }), 0.30);
-    assert.equal(crossDomainDamageBonus({ type: 'shoreBattery' }, land, { type: 'infantry' }), -0.60);
-    // 舰船打陆、陆军打舰各 −50%
-    assert.equal(crossDomainDamageBonus({ type: 'warship' }, land, { type: 'infantry' }), -0.50);
-    assert.equal(crossDomainDamageBonus({ type: 'archer' }, sea, { type: 'warship' }), -0.50);
+    // 要塞炮对舰/火炮/水上陆军 +15%、其余目标 −35%（海军陆战队豁免）
+    assert.equal(crossDomainDamageBonus({ type: 'shoreBattery' }, sea, { type: 'destroyer' }), 0.15);
+    assert.equal(crossDomainDamageBonus({ type: 'shoreBattery' }, land, { type: 'archer' }), 0.15);
+    assert.equal(crossDomainDamageBonus({ type: 'shoreBattery' }, sea, { type: 'infantry' }), 0.15);
+    assert.equal(crossDomainDamageBonus({ type: 'shoreBattery' }, sea, { type: 'us_marine' }), -0.35);
+    assert.equal(crossDomainDamageBonus({ type: 'shoreBattery' }, land, { type: 'infantry' }), -0.35);
+    // 舰船打陆、陆军打舰各 −40%
+    assert.equal(crossDomainDamageBonus({ type: 'warship' }, land, { type: 'infantry' }), -0.40);
+    assert.equal(crossDomainDamageBonus({ type: 'archer' }, sea, { type: 'warship' }), -0.40);
     assert.equal(crossDomainDamageBonus({ type: 'fr_heavy_cannon' }, sea, { type: 'gb_battleship' }), 0);
     assert.equal(crossDomainDamageBonus({ type: 'us_marine', tile: sea }, land, { type: 'infantry' }), 0);
     assert.equal(crossDomainDamageBonus({ type: 'us_marine', tile: land }, sea, { type: 'warship' }), 0);
@@ -640,23 +643,23 @@ test('碉堡【机枪】对步兵增伤为约定值（改动需刻意）', () =>
 });
 
 test('克制不再给固定增减伤，改为浮动区间平移（改动需刻意）', () => {
-    assert.equal(COMBAT_BALANCE.counter.advantageCrit, 0.40);
-    assert.equal(COMBAT_BALANCE.counter.disadvantageFloatPenalty, -0.40);
+    assert.equal(COMBAT_BALANCE.counter.advantageCrit, 0.35);
+    assert.equal(COMBAT_BALANCE.counter.disadvantageFloatPenalty, -0.35);
     assert.equal(COMBAT_BALANCE.counter.advantageDamage, undefined);
     assert.equal(COMBAT_BALANCE.counter.disadvantageDamage, undefined);
-    // 估算层的 ±0.20 是浮动平移的期望值：±0.40 × (1.35 − 0.85) 宽度 = ±0.20
-    assert.equal(counterDamageBonus('mgNest', 'infantry'), 0.20);
-    assert.equal(counterDamageBonus('infantry', 'mgNest'), -0.20);
-    assert.equal(counterDamageBonus('infantry', 'cavalry'), 0.20);
+    // 估算层的 ±0.1575 是浮动平移的期望值：±0.35 × (1.30 − 0.85) 宽度 = ±0.1575
+    assert.equal(counterDamageBonus('mgNest', 'infantry'), 0.1575);
+    assert.equal(counterDamageBonus('infantry', 'mgNest'), -0.1575);
+    assert.equal(counterDamageBonus('infantry', 'cavalry'), 0.1575);
     assert.equal(counterDamageBonus('infantry', 'infantry'), 0);
 });
 
-test('攻城估伤含火炮 +50% 与跨域修正', () => {
+test('攻城估伤含火炮 +40% 与跨域修正', () => {
     const cityTile = { surface: 'land' };
     const archer = { type: 'archer', config: { attack: 100 } };
     const infantry = { type: 'infantry', config: { attack: 100 } };
-    // 炮兵攻城 ×1.5；巡洋舰 +50% 与打陆 −50% 抵消回基准
-    assert.equal(estimateSiegeDamage(archer, cityTile), 150);
+    // 炮兵攻城 ×1.4；巡洋舰 +40% 与打陆 −40% 抵消回基准
+    assert.equal(estimateSiegeDamage(archer, cityTile), 140);
     assert.equal(estimateSiegeDamage(infantry, cityTile), 100);
     assert.equal(estimateSiegeDamage({ type: 'warship', config: { attack: 100 } }, cityTile), 100);
 });

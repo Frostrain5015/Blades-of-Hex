@@ -12,7 +12,7 @@ export const UNIT_CONFIG = deepFreeze({
     cavalry: { name: '骑兵', hp: 160, attack: 50, defense: 0, speed: 8, range: 1, cost: 10, color: '#0a0a0a', movementDomain: 'land' },
     archer: { name: '炮兵', hp: 85, attack: 55, defense: 0, speed: 3, range: 2, cost: 12, color: '#0a0a0a', movementDomain: 'land' },
     mgNest: { name: '碉堡', hp: 200, attack: 40, defense: 0.05, speed: 0, range: 2, cost: 0, color: '#8B7355', movementDomain: 'land', rankLocked: true, building: true },
-    shoreBattery: { name: '岸防炮', hp: 150, attack: 50, defense: 0, speed: 0, range: 2, cost: 10, color: '#6f6657', movementDomain: 'land', rankLocked: true, building: true },
+    shoreBattery: { name: '要塞炮', hp: 150, attack: 50, defense: 0, speed: 0, range: 2, cost: 10, color: '#6f6657', movementDomain: 'land', rankLocked: true, building: true },
     drone: { name: '无人机', hp: 75, attack: 30, defense: 0, speed: 8, range: 2, cost: 0, color: '#6bbcff', movementDomain: 'land', rankLocked: true, building: true },
     destroyer: { name: '驱逐舰', hp: 160, attack: 45, defense: 0, speed: 6, range: 1, cost: 10, color: '#477b8c', movementDomain: 'naval' },
     // 保留 warship 内部 ID 兼容旧存档与战役，显示及数值为 0 阶巡洋舰。
@@ -236,15 +236,15 @@ export function isStaticBattleStructure(unitOrType) {
 }
 
 /**
- * “要塞单位”：城市驻军、碉堡、岸防炮，以及攻坚/对岸类技能的重点针对目标。
- * 无人机虽然共享 building 标记（用于禁止军衔/专精），但不算要塞，显式排除。
+ * “要塞单位”：仅包括城市（中心城市/城郭及城内驻军）、碉堡与要塞炮。
+ * 无人机与野战工事（战壕/高射机枪）不算要塞，显式排除。
  * 接受真实 Unit（走 building/isCity 分支）或只带 tile 的裸壳（供空城攻城复用）。
  */
 export function isStrongpointTarget(target) {
     if (!target) return false;
     if (isBuildingUnit(target) && target.type !== 'drone') return true;
     // 城郭（isUrban）驻军与中心城市驻军同属要塞目标，共享城市血池庇护。
-    return !!(target.tile?.isCity || target.tile?.isUrban || target.tile?.fortification);
+    return !!(target.tile?.isCity || target.tile?.isUrban);
 }
 
 export function getSpecializationOptions(unitOrType) {

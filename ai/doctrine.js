@@ -10,7 +10,7 @@
 
 import { COUNTER_RELATION, getAttackRangeCap, getMinimumAttackRange, getMachineGunDamageBonus, getUnitBaseType, isStrongpointTarget } from '../rules/units.js';
 import { getCrossDomainDamageBonus, getMarineAssaultDamageBonus } from '../rules/naval.js';
-import { getCannonSiegeDamageBonus, getCityDefenseBonus } from '../rules/citySiege.js';
+import { CITY_SIEGE_CONFIG, getCannonSiegeDamageBonus, getCityDefenseBonus, isCannonSiegeTargetTile } from '../rules/citySiege.js';
 import { getKmtLinkDamageBonus, getKmtLinkDefenseBonus } from '../rules/kmtStronghold.js';
 import { GUERRILLA_CONCEALMENT_CONFIG, getFireSeaDefenseReduction, getGuerrillaConcealmentReason, getNeverSurrenderAttackBonus, getNeverSurrenderStatBonus, hasNegativeWeatherImmunity, isCampCulture } from '../rules/cultures.js';
 import {
@@ -63,11 +63,13 @@ export const COMMANDER_STRATEGY = {
     engineer:     { aggression: 0.55, carrierPref: ['infantry', 'archer', 'cavalry'], pushWeight: 0.45, killBonus: 0.75, recruitPref: ['infantry', 'archer', 'cavalry'], holdCity: true }
 };
 
-// 克制关系直接取规则源（含海军与岸防炮行列）；旧版只有步/骑/炮三行，
-// 海图上一切交换都按“无克制”估算，才会出现驱逐舰硬啃岸防炮这类亏本攻击。
-// 引擎的克制不再给固定增减伤：顺克把浮动区间上移 40%（暴击率提升）、逆克下移 40%。
-// 区间平移不改变宽度，期望倍率变化恰好 ±0.40 × 0.5（攻击浮动宽度）= ±0.20，与本估算值一致。
-const COUNTER_DAMAGE_BONUS = 0.20;
+// 克制关系直接取规则源（含海军与要塞炮行列）；旧版只有步/骑/炮三行，
+// 海图上一切交换都按“无克制”估算，才会出现驱逐舰硬啃要塞炮这类亏本攻击。
+// 引擎的克制不再给固定增减伤：顺克把浮动区间上移（暴击率提升）、逆克下移，
+// 期望倍率变化为 ±advantageCrit × (float.max − float.min)。
+const COUNTER_DAMAGE_BONUS = Math.round(
+    COMBAT_BALANCE.counter.advantageCrit * (COMBAT_BALANCE.float.attack.max - COMBAT_BALANCE.float.attack.min) * 10000
+) / 10000;
 export function counterCoefficient(attackerType, defenderType) {
     return COUNTER_RELATION[attackerType]?.[defenderType] ?? 1;
 }
@@ -94,9 +96,9 @@ export function canCaptureCityByCombat(unit) {
     return !NON_ASSAULT_TYPES.has(getUnitBaseType(unit));
 }
 
-// 火炮类攻城 +50%（对齐 rules/citySiege.CANNON_SIEGE_ATTACKER_TYPES）。
+// 火炮类攻城修正（对齐 rules/citySiege.CITY_SIEGE_CONFIG.cannonSiegeDamageBonus）。
 const CANNON_SIEGE_TYPES = new Set(['archer', 'warship', 'shoreBattery']);
-const CANNON_SIEGE_BONUS = 0.50;
+const CANNON_SIEGE_BONUS = CITY_SIEGE_CONFIG.cannonSiegeDamageBonus;
 
 // 对齐 TERRAIN_CONFIG（config.js）
 export const TERRAIN_DEF = { plains: 0, forest: 0.05, mountain: 0.05 };
@@ -469,8 +471,8 @@ export function createCombatModel({ state = null, weather = 'clear', hexDistance
             + getMachineGunDamageBonus(attacker.type, defender?.type)
             + getKmtLinkDamageBonus(attacker, state)
             + (!isCounter && !transportedAttacker && attacker._berserkerQixue ? BERSERKER_BALANCE.qixueDamageBonus : 0)
-            // 火炮攻城修正已并入引擎②增伤乘区：对要塞单位（城市驻军/碉堡/岸防炮/工事格）+50%
-            + (isStrongpointTarget({ ...defender, tile: tileObj }) ? getCannonSiegeDamageBonus(attacker) : 0);
+            // 火炮/重舰攻城修正已并入引擎②增伤乘区：仅对非 0 HP 的城市或城郭生效
+            + (isCannonSiegeTargetTile(tileObj, state?.tileMap) ? getCannonSiegeDamageBonus(attacker) : 0);
         const baseDefense = transportDefense != null ? 1 - transportDefense : 1
             - positionDefense
             - cityDefense(defenderBase, tileObj)

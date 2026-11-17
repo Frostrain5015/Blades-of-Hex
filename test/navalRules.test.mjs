@@ -36,17 +36,23 @@ test('cross-domain damage bonuses share the additive damage-up bucket', () => {
     const land = tile(0, 0);
     const sea = tile(1, 0, 'deepWater');
     const infantry = { type: 'infantry', tile: land };
+    const archer = { type: 'archer', tile: land };
+    const katyusha = { type: 'ru_katyusha', tile: land };
     const battery = { type: 'shoreBattery', tile: land };
     const destroyer = { type: 'destroyer', tile: sea };
     const cruiser = { type: 'warship', tile: sea };
     const transport = { type: 'infantry', tile: sea, isEmbarked: true };
+    const marineAtSea = { type: 'us_marine', tile: sea };
 
-    assert.equal(getCrossDomainDamageBonus(destroyer, infantry), -0.5);
-    assert.equal(getCrossDomainDamageBonus(cruiser, infantry), -0.5);
-    assert.equal(getCrossDomainDamageBonus(infantry, destroyer), -0.5);
-    assert.equal(getCrossDomainDamageBonus(battery, destroyer), 0.3);
-    assert.equal(getCrossDomainDamageBonus(battery, transport), 0.3);
-    assert.equal(getCrossDomainDamageBonus(battery, infantry), -0.6);
+    assert.equal(getCrossDomainDamageBonus(destroyer, infantry), -0.4);
+    assert.equal(getCrossDomainDamageBonus(cruiser, infantry), -0.4);
+    assert.equal(getCrossDomainDamageBonus(infantry, destroyer), -0.4);
+    assert.equal(getCrossDomainDamageBonus(battery, destroyer), 0.15);
+    assert.equal(getCrossDomainDamageBonus(battery, transport), 0.15);
+    assert.equal(getCrossDomainDamageBonus(battery, archer), 0.15);
+    assert.equal(getCrossDomainDamageBonus(battery, katyusha), 0.15);
+    assert.equal(getCrossDomainDamageBonus(battery, marineAtSea), -0.35);
+    assert.equal(getCrossDomainDamageBonus(battery, infantry), -0.35);
 });
 
 test('submarines stay visible but cannot be primary targets until exposed or detected', () => {

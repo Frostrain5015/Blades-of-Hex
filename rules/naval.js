@@ -4,6 +4,7 @@ import { getRoundIndex } from './turns.js';
 import { isLandTile, isWaterTile } from './surfaces.js';
 import { isFriendly } from './diplomacy.js';
 import { isCampCulture } from './cultures.js';
+import { getUnitBaseType } from './units.js';
 import {
     isSubmarineDetector,
     hasSubmarineDetectorInRange,
@@ -14,10 +15,10 @@ import {
 export { isSubmarineDetector, hasSubmarineDetectorInRange, isSubmarineTargetableBy };
 
 export const NAVAL_RULES = Object.freeze({
-    shipVsLandDamage: -0.50,
-    landVsShipDamage: -0.50,
-    shoreBatteryVsShipDamage: 0.30,
-    shoreBatteryVsLandDamage: -0.60,
+    shipVsLandDamage: -0.40,
+    landVsShipDamage: -0.40,
+    shoreBatteryVsTargetDamage: 0.15,
+    shoreBatteryVsOtherDamage: -0.35,
     detectorRadius: 2,
     portGuardRounds: 1,
     submarinePortRevealRounds: 2,
@@ -74,12 +75,22 @@ export function getMarineAssaultDamageBonus(attacker, defender, state) {
         ? MARINE_ASSAULT_DAMAGE_BONUS : 0;
 }
 
+export function isShoreBatteryBoostedTarget(defender) {
+    if (!defender) return false;
+    if (isRegularNavalUnit(defender)) return true;
+    if (getUnitBaseType(defender) === 'archer') return true;
+    return isWaterTile(defender.tile)
+        && !isRegularNavalUnit(defender)
+        && defender.type !== 'us_marine'
+        && defender.type !== 'drone';
+}
+
 export function getCrossDomainDamageBonus(attacker, defender) {
     if (!attacker || !defender) return 0;
     if (attacker.type === 'shoreBattery') {
-        return isWaterborneUnit(defender)
-            ? NAVAL_RULES.shoreBatteryVsShipDamage
-            : NAVAL_RULES.shoreBatteryVsLandDamage;
+        return isShoreBatteryBoostedTarget(defender)
+            ? NAVAL_RULES.shoreBatteryVsTargetDamage
+            : NAVAL_RULES.shoreBatteryVsOtherDamage;
     }
     if (attacker.type === 'us_marine') return 0;
     if (isRegularNavalUnit(attacker) && isLandTile(defender.tile)) {

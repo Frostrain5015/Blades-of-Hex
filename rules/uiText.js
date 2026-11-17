@@ -6,12 +6,21 @@ import { percent } from './format.js';
 import { EMOJI } from './symbols.js';
 import { COMMANDER_CONFIG } from './commanders.js';
 import { CULTURE_CONFIG, GUERRILLA_PASSIVE_DESCRIPTION, SAMURAI_PASSIVE_DESCRIPTION } from './cultures.js';
+import { NAVAL_RULES } from './naval.js';
+import { CITY_SIEGE_CONFIG } from './citySiege.js';
 
 export const FRONTEND_TEXT = deepFreeze({
     // v2 起常规兵种的 0 阶不再有兵种被动；专精被动文案由 rules/units.js 的
-    // UNIT_SPECIALIZATION_CONFIG 派生。这里只保留建筑单位的结构性说明。
+    // UNIT_SPECIALIZATION_CONFIG 派生。这里保留建筑单位及通用攻城特性说明。
     unitPassives: {
-        shoreBattery: { name: '制海', desc: '对舰船伤害提高30%，对陆军伤害降低60%，可侦测2格内的潜艇' },
+        shoreBattery: {
+            name: '要塞炮',
+            desc: `对舰船、火炮及处于水上的陆军单位（海军陆战队除外）伤害提高${percent(NAVAL_RULES.shoreBatteryVsTargetDamage)}，对其他单位伤害降低${percent(Math.abs(NAVAL_RULES.shoreBatteryVsOtherDamage))}，可侦测${NAVAL_RULES.detectorRadius}格内的潜艇`
+        },
+        cannonSiege: {
+            name: '攻城火力',
+            desc: `对仍有生命值的城市（含城内驻军与城郭）伤害提高${percent(CITY_SIEGE_CONFIG.cannonSiegeDamageBonus)}`
+        },
         mgNest: { name: '机枪', desc: '对步兵造成的伤害提高30%' },
         carrier: { name: '舰载机', desc: '目标生命每损失5%，攻击力提高1点（至多15点）' },
         us_marine: { name: '两栖登陆', desc: CULTURE_CONFIG.us.tier1.summary },

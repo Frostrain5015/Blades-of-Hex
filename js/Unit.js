@@ -29,7 +29,7 @@ import { canAttack, isFriendly, isHostile } from '../rules/diplomacy.js';
 import { isMechanicEnabled } from '../rules/mechanics.js';
 import { isRangedCombatAttack } from '../rules/attackPresentation.js';
 import { getAntiAirReduction } from '../rules/antiAir.js';
-import { getCityDefenseBonus, getCannonSiegeDamageBonus } from '../rules/citySiege.js';
+import { getCityDefenseBonus, getCannonSiegeDamageBonus, isCannonSiegeTargetTile } from '../rules/citySiege.js';
 import { FREE_RESISTANCE_EFFECT, getFreeResistanceTurnDeadline, getCulturalWaterMovementBonus, getCulturalXpMultiplier, getNeverSurrenderStatBonus, getNeverSurrenderAttackBonus, getFireSeaDefenseReduction, isHeavyCannonDeployed, hasNegativeWeatherImmunity, isCampCulture } from '../rules/cultures.js';
 import { markSubmarineDamagedWhileExposed } from '../rules/visibility.js';
 import {
@@ -924,8 +924,8 @@ export class Unit {
             ? Math.min(this.moveDistance, COMBAT_BALANCE.cavalry.maxChargeSteps) * (baseChargeRate + fogChargeDelta)
             : 0;
         const assaultBonus = isStrongpointTarget(targetUnit) ? (this.getSpecializationAbility('fortificationDamage') || 0) : 0;
-        // 火炮攻城修正并入②增伤乘区：炮兵/巡洋舰/岸防炮对要塞单位（城市驻军、碉堡、岸防炮、工事格）同样 +50%
-        const cannonSiegeBonus = isStrongpointTarget(targetUnit) ? getCannonSiegeDamageBonus(this) : 0;
+        // 火炮攻城修正并入②增伤乘区：仅对非 0 HP 的城市或城郭（不论是否有驻军）生效
+        const cannonSiegeBonus = isCannonSiegeTargetTile(targetUnit.tile, gs?.tileMap) ? getCannonSiegeDamageBonus(this) : 0;
         const antiSubBonus = targetUnit.type === 'submarine' ? (this.getSpecializationAbility('submarineDamage') || 0) : 0;
         const fleetBonus = targetUnit.config?.movementDomain === 'naval' && !targetUnit.isEmbarked
             ? (this.getSpecializationAbility('shipDamage') || 0) : 0;

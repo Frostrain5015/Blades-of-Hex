@@ -9,6 +9,7 @@ import {
     getCityMaxHp,
     getCityPoolTile,
     getCityRegenAmount,
+    isCannonSiegeTargetTile,
     isCityDisabled,
     isCitySiegeBlocked,
     isSiegeableCityTile,
@@ -3587,11 +3588,11 @@ export function updateDistrictColor(cityTile, camp, attackerUnit = null) {
         logMessage(`【中央航母】随中央港口行政区向${camp.name}易帜`);
         notify(`中央航母已归属${camp.name}`, 'info');
     }
-    // 城防联动：绑定该城的驻防单位（如离岛岸防炮）随城易主
+    // 城防联动：绑定该城的驻防单位（如离岛要塞炮）随城易主
     const linkedGarrisons = syncCityLinkedGarrisons(gameState, cityTile, camp);
     if (linkedGarrisons.length > 0) {
-        logMessage(`【城防易帜】${linkedGarrisons.length}门岸防炮随(${cityTile.q},${cityTile.r})城市易主，归属${camp.name}`);
-        notify(`岸防炮已归属${camp.name}`, 'info');
+        logMessage(`【城防易帜】${linkedGarrisons.length}门要塞炮随(${cityTile.q},${cityTile.r})城市易主，归属${camp.name}`);
+        notify(`要塞炮已归属${camp.name}`, 'info');
     }
     if (attackerUnit) attackerUnit.addXP(5);
     invalidateBoard();
@@ -4386,7 +4387,8 @@ export function estimateAirCommandDamage(kind, launcher, target, multiplier, air
  */
 function _resolveGroundNavalSiegeDamage(attacker, targetTile) {
     const crossDomainBonus = getCrossDomainDamageBonus(attacker, { tile: targetTile });
-    const cannonSiegeBonus = getCannonSiegeDamageBonus(attacker);
+    const cannonSiegeBonus = isCannonSiegeTargetTile(targetTile, gameState.tileMap)
+        ? getCannonSiegeDamageBonus(attacker) : 0;
     const fortificationBonus = isStrongpointTarget({ tile: targetTile })
         ? (attacker.getSpecializationAbility('fortificationDamage') || 0) : 0;
     const landDamageBonus = attacker.getSpecializationAbility('landDamage') || 0;

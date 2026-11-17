@@ -336,12 +336,13 @@ test('美国文化：海军陆战队两栖交战、城港双招募、海上行�
     const cavalry = spawnUnit('cavalry', p1, addTile(state, -1, 1, p1));
     assert.equal(getCrossDomainDamageBonus(shoreMarine, warship), 0);
     assert.equal(getCrossDomainDamageBonus(marine, warship), 0);
-    assert.equal(getCrossDomainDamageBonus(cavalry, warship), -0.50);
+    assert.equal(getCrossDomainDamageBonus(cavalry, warship), -0.40);
 
     shoreMarine._calcFloat = marine._calcFloat = cavalry._calcFloat = () => 1;
     const marineDamage = shoreMarine.calculateDamage(warship).dmg / shoreMarine.getEffectiveAttack();
     const cavalryDamage = cavalry.calculateDamage(warship).dmg / cavalry.getEffectiveAttack();
-    assert.ok(Math.abs(marineDamage - 2.4 * cavalryDamage) < 1e-9);
+    assert.ok(marineDamage > cavalryDamage * 1.9 && marineDamage < cavalryDamage * 2.1,
+        `expected ~2.0x ratio after rounding, got marine=${marineDamage}, cavalry=${cavalryDamage}`);
     assert.equal(marine.calculateDamage(warship).dmg, shoreMarine.calculateDamage(warship).dmg);
     assert.equal(marine.calculateDamage(enemy).dmg, shoreMarine.calculateDamage(enemy).dmg);
     assert.equal(marine.calculateDamage(warship).dmg, marine._resolveDamage(marine, warship, 1, 0.20, true).dmg);

@@ -10,6 +10,7 @@ import {
     getCityMaxHp,
     getCityRadiusFromTileCount,
     getCityRegenAmount,
+    isCannonSiegeTargetTile,
     isCityDisabled,
     isCitySiegeBlocked,
     isSiegeableCityTile,
@@ -69,10 +70,13 @@ test('city structure damage has an independent undefended attack pipeline', () =
         '攻击乘区最低为0且伤害最低为1');
 });
 
-test('getCannonSiegeDamageBonus grants +50% only to cannon-presentation attackers', () => {
-    assert.equal(getCannonSiegeDamageBonus({ type: 'archer' }), 0.5, '炮兵');
-    assert.equal(getCannonSiegeDamageBonus({ type: 'warship' }), 0.5, '军舰');
-    assert.equal(getCannonSiegeDamageBonus({ type: 'shoreBattery' }), 0.5, '岸防炮');
+test('getCannonSiegeDamageBonus grants +40% to artillery, heavy ships, and fortress battery', () => {
+    assert.equal(getCannonSiegeDamageBonus({ type: 'archer' }), 0.4, '炮兵');
+    assert.equal(getCannonSiegeDamageBonus({ type: 'fr_heavy_cannon' }), 0.4, '法国巨炮');
+    assert.equal(getCannonSiegeDamageBonus({ type: 'ru_katyusha' }), 0.4, '喀秋莎火箭炮');
+    assert.equal(getCannonSiegeDamageBonus({ type: 'warship' }), 0.4, '巡洋舰');
+    assert.equal(getCannonSiegeDamageBonus({ type: 'gb_battleship' }), 0.4, '皇家战列舰');
+    assert.equal(getCannonSiegeDamageBonus({ type: 'shoreBattery' }), 0.4, '要塞炮');
     assert.equal(getCannonSiegeDamageBonus({ type: 'destroyer' }), 0);
     assert.equal(getCannonSiegeDamageBonus({ type: 'submarine' }), 0);
     assert.equal(getCannonSiegeDamageBonus({ type: 'carrier' }), 0);
@@ -80,30 +84,43 @@ test('getCannonSiegeDamageBonus grants +50% only to cannon-presentation attacker
     assert.equal(getCannonSiegeDamageBonus(null), 0);
 });
 
+test('isCannonSiegeTargetTile matches only non-0HP city/urban tiles regardless of garrison', () => {
+    const { centre, footprint, tileMap } = largeCity(600);
+    assert.equal(isCannonSiegeTargetTile(cityTile(250)), true);
+    assert.equal(isCannonSiegeTargetTile(cityTile(250, { unit: { type: 'infantry' } })), true);
+    assert.equal(isCannonSiegeTargetTile(footprint, tileMap), true);
+    assert.equal(isCannonSiegeTargetTile(cityTile(0)), false);
+    assert.equal(isCannonSiegeTargetTile(cityTile(0, { unit: { type: 'infantry' } })), false);
+    assert.equal(isCannonSiegeTargetTile({ isCity: false, isUrban: false, hp: 0, fortification: 'trench' }), false);
+    centre.hp = 0;
+    footprint.hp = 0;
+    assert.equal(isCannonSiegeTargetTile(footprint, tileMap), false);
+});
+
 test('cannon siege bonus is a rule coefficient that adds with the naval cross-domain penalty', () => {
-    const cityTarget = { tile: { isCity: true } };
-    // 基础巡洋舰：海陆互攻减半(-0.5) 与火炮攻城修正(+0.5) 相加抵消，回到基准攻城效率(1.0倍)
+    const cityTarget = { tile: { isCity: true, hp: 250 } };
+    // 基础巡洋舰：海陆互攻(-0.4) 与攻城火力(+0.4) 相加抵消，回到基准攻城效率(1.0倍)
     const plainWarship = { type: 'warship' };
     const plainBonus = getCrossDomainDamageBonus(plainWarship, cityTarget) + getCannonSiegeDamageBonus(plainWarship);
-    assert.equal(plainBonus, 0);
+    assert.ok(Math.abs(plainBonus) < 1e-9, `expected ~0, got ${plainBonus}`);
     assert.equal(calculateCityStructureDamage(100, plainBonus, 1), 100);
 
-    // 支援型巡洋舰：专精攻陆加成(+0.5，UNIT_SPECIALIZATION.warship.supportCruiser.landDamage)
-    // 再叠加，由基准 1.0 倍升到 1.5 倍
-    const supportCruiserLandDamage = 0.50;
+    // 支援型巡洋舰：专精攻陆加成(+0.4，UNIT_SPECIALIZATION.warship.supportCruiser.landDamage)
+    // 再叠加，由基准 1.0 倍升到 1.4 倍
+    const supportCruiserLandDamage = 0.40;
     const supportBonus = plainBonus + supportCruiserLandDamage;
-    assert.equal(supportBonus, 0.5);
-    assert.equal(calculateCityStructureDamage(100, supportBonus, 1), 150);
+    assert.ok(Math.abs(supportBonus - 0.4) < 1e-9, `expected ~0.4, got ${supportBonus}`);
+    assert.equal(calculateCityStructureDamage(100, supportBonus, 1), 140);
 
-    // 炮兵没有海陆互攻乘区，火炮攻城修正直接生效
+    // 炮兵没有海陆互攻乘区，攻城火力直接生效
     const archer = { type: 'archer' };
     const archerBonus = getCrossDomainDamageBonus(archer, cityTarget) + getCannonSiegeDamageBonus(archer);
-    assert.equal(archerBonus, 0.5);
+    assert.equal(archerBonus, 0.4);
 
-    // 岸防炮对陆地目标本身减伤60%，火炮攻城修正只能部分对冲（浮点误差用近似比较）
+    // 要塞炮对陆地城市本体减伤35%，攻城火力(+40%)抵消后略高 5%
     const shoreBattery = { type: 'shoreBattery' };
     const shoreBatteryBonus = getCrossDomainDamageBonus(shoreBattery, cityTarget) + getCannonSiegeDamageBonus(shoreBattery);
-    assert.ok(Math.abs(shoreBatteryBonus - (-0.1)) < 1e-9, `expected ~-0.1, got ${shoreBatteryBonus}`);
+    assert.ok(Math.abs(shoreBatteryBonus - 0.05) < 1e-9, `expected ~0.05, got ${shoreBatteryBonus}`);
 });
 
 test('getCityRegenAmount is 10% of maxHp regardless of current HP', () => {
@@ -137,9 +154,11 @@ test('isSiegeableCityTile excludes only submarine; carrier sieges via its own ai
         '航母应能指定无驻军但HP>0的空城市（削减城市HP）');
 });
 
-test('isStrongpointTarget covers city/fortification tiles and building-type units, excluding drone', () => {
+test('isStrongpointTarget covers only city/urban tiles, bunker, and fortress battery (excluding trench/flak/drone)', () => {
     assert.equal(isStrongpointTarget({ tile: { isCity: true } }), true);
-    assert.equal(isStrongpointTarget({ tile: { fortification: 'trench' } }), true);
+    assert.equal(isStrongpointTarget({ tile: { isUrban: true } }), true);
+    assert.equal(isStrongpointTarget({ tile: { fortification: 'trench' } }), false);
+    assert.equal(isStrongpointTarget({ tile: { fortification: 'flak' } }), false);
     assert.equal(isStrongpointTarget({ tile: { isCity: false, fortification: null } }), false);
     assert.equal(isStrongpointTarget({ type: 'mgNest', tile: {} }), true);
     assert.equal(isStrongpointTarget({ type: 'shoreBattery', tile: {} }), true);

@@ -266,3 +266,73 @@ test('战壕覆盖炮击减伤，且补员与修船费用统一下调25%并四�
     const trenchHit = archer.calculateDamage(trenchDefender, 0, { showDamageText: false });
     assert.ok(trenchHit.dmg < flakHit.dmg * 0.80, '同为工事要塞格时，战壕应有效削减炮兵炮击伤害 (+25% 防御)');
 });
+
+test('要塞炮与攻城火力规则、文案及真实 Unit 伤害结算口径一致', async () => {
+    const { FRONTEND_TEXT } = await import('../rules/uiText.js');
+    const { CULTURE_CONFIG } = await import('../rules/cultures.js');
+    const { CANNON_SIEGE_ATTACKER_TYPES, getCannonSiegeDamageBonus } = await import('../rules/citySiege.js');
+    const { wireHeadlessEngine } = await import('../core/headless.js');
+    wireHeadlessEngine();
+    const { gameState } = await import('../js/state.js');
+    const { HexTile } = await import('../js/HexTile.js');
+    const { Unit } = await import('../js/Unit.js');
+
+    assert.equal(UNIT_CONFIG.shoreBattery.name, '要塞炮');
+    assert.equal(CONSTRUCTION_CONFIG.shoreBattery.name, '要塞炮');
+    assert.equal(FRONTEND_TEXT.unitPassives.shoreBattery.name, '要塞炮');
+    assert.match(FRONTEND_TEXT.unitPassives.shoreBattery.desc, /15%/);
+    assert.match(FRONTEND_TEXT.unitPassives.shoreBattery.desc, /35%/);
+    assert.equal(FRONTEND_TEXT.unitPassives.cannonSiege.name, '攻城火力');
+    assert.match(FRONTEND_TEXT.unitPassives.cannonSiege.desc, /40%/);
+    assert.match(CULTURE_CONFIG.ru.tier1.summary, /30%/);
+    assert.match(CULTURE_CONFIG.us.tier1.summary, /40%/);
+    assert.match(CULTURE_CONFIG.us.tier1.summary, /要塞炮/);
+    for (const type of ['archer', 'fr_heavy_cannon', 'ru_katyusha', 'warship', 'gb_battleship', 'shoreBattery']) {
+        assert.equal(CANNON_SIEGE_ATTACKER_TYPES.has(type), true);
+        assert.equal(getCannonSiegeDamageBonus({ type }), 0.40);
+    }
+
+    const P1 = { id: 'player1', name: '红军' };
+    const P2 = { id: 'player2', name: '蓝军' };
+    const cityHp1 = new HexTile(0, 0);
+    cityHp1.isCity = true;
+    cityHp1.maxHp = 250;
+    cityHp1.hp = 1;
+    const cityHp0 = new HexTile(1, 0);
+    cityHp0.isCity = true;
+    cityHp0.maxHp = 250;
+    cityHp0.hp = 0;
+    const trenchTile = new HexTile(2, 0);
+    trenchTile.fortification = 'trench';
+    const shooterTile = new HexTile(3, 0);
+    const seaTile = new HexTile(4, 0, 'deepWater');
+    const batteryTile = new HexTile(5, 0);
+    gameState.tiles = [cityHp1, cityHp0, trenchTile, shooterTile, seaTile, batteryTile];
+    gameState.tileMap = new Map(gameState.tiles.map(t => [`${t.q},${t.r}`, t]));
+    gameState.factions = { player1: P1, player2: P2 };
+    gameState.turnOrder = ['player1', 'player2'];
+    gameState.currentCamp = P1;
+    gameState.mechanics = { fortifications: true };
+    gameState.diplomacy = { player1: { player2: 'enemy' }, player2: { player1: 'enemy' } };
+    gameState.rng = { next: () => 0.5, range: (a, b) => (a + b) / 2, chance: () => false, between: a => a };
+
+    const archer = new Unit('archer', P1, shooterTile, false);
+    archer._calcFloat = () => 1;
+    const activeCityGarrison = new Unit('cavalry', P2, cityHp1, false);
+    const brokenCityGarrison = new Unit('cavalry', P2, cityHp0, false);
+    const trenchGarrison = new Unit('cavalry', P2, trenchTile, false);
+    const hitActiveCity = archer.calculateDamage(activeCityGarrison, 0, { showDamageText: false }).dmg;
+    const hitBrokenCity = archer.calculateDamage(brokenCityGarrison, 0, { showDamageText: false }).dmg;
+    const hitTrench = archer.calculateDamage(trenchGarrison, 0, { showDamageText: false }).dmg;
+    assert.ok(hitActiveCity > hitBrokenCity * 1.35, '非0HP城市内驻军受攻城火力+40%增伤');
+    assert.ok(hitBrokenCity > hitTrench, '0HP城市驻军不再触发攻城火力，战壕反而还有防御');
+
+    const battery = new Unit('shoreBattery', P1, batteryTile, false);
+    battery._calcFloat = () => 1;
+    const enemyMarineSea = new Unit('us_marine', P2, seaTile, false);
+    const enemyArcher = new Unit('archer', P2, shooterTile, false);
+    const archerHit = battery.calculateDamage(enemyArcher, 0, { showDamageText: false }).dmg;
+    const marineHit = battery.calculateDamage(enemyMarineSea, 0, { showDamageText: false }).dmg;
+    assert.ok(Math.abs(archerHit - 57.5) < 1e-6, `要塞炮打火炮+15% (expected ~57.5, got ${archerHit})`);
+    assert.ok(Math.abs(marineHit - 30.875) < 1e-6, `水上陆战队豁免+15%，吃-35%并计5%甲 (expected ~30.875, got ${marineHit})`);
+});

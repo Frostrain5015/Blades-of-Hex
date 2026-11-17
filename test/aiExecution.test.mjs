@@ -1173,7 +1173,7 @@ test('困难海战旗舰遭双岸防炮交叉火力覆盖时优先撤离火网�
 
     const trapTile = state.tileMap.get('4,0');
     const flagship = place('warship', me, trapTile, 'ironGuard');
-    flagship.hp = 155;
+    flagship.hp = 120;
     flagship._shield = 10;
 
     await processOpponentTurn(me);
