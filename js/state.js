@@ -434,9 +434,11 @@ export function updateUI() {
     // 联机/中立/AI对手回合：禁用操作按钮、显示提示条
     const opponentTurn = isNetworkGame() && !isMyTurn(gameState.currentCamp);
     const isNeutralTurn = campToKey(gameState.currentCamp) === 'neutral';
-    const isCampaignAiTurn = gameState.campaignMode
-        && gameState.factions?.[campToKey(gameState.currentCamp)]?.controller !== 'human';
-    const isAIOpponentTurn = isCampaignAiTurn || (gameState.gameMode === 'pve' && gameState.currentCamp === gameState.aiOpponentCamp);
+    const currentController = gameState.factions?.[campToKey(gameState.currentCamp)]?.controller;
+    const isCampaignAiTurn = gameState.campaignMode && currentController !== 'human';
+    const isLocalControllerAiTurn = !isNetworkGame() && currentController === 'ai';
+    const isAIOpponentTurn = isCampaignAiTurn || isLocalControllerAiTurn
+        || (gameState.gameMode === 'pve' && gameState.currentCamp === gameState.aiOpponentCamp);
     const inCommanderSetup = gameState.commanderPhase === 'selection';
     const disableBtns = opponentTurn || isNeutralTurn || isAIOpponentTurn || gameState.gameOver || inCommanderSetup;
     ['endTurnBtn', ...RECRUITMENT_OPTIONS.map(option => option.buttonId)].forEach(id => {

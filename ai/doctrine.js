@@ -13,6 +13,19 @@ import { getCrossDomainDamageBonus, getMarineAssaultDamageBonus } from '../rules
 import { getCannonSiegeDamageBonus, getCityDefenseBonus } from '../rules/citySiege.js';
 import { getKmtLinkDamageBonus, getKmtLinkDefenseBonus } from '../rules/kmtStronghold.js';
 import { GUERRILLA_CONCEALMENT_CONFIG, getFireSeaDefenseReduction, getGuerrillaConcealmentReason, getNeverSurrenderAttackBonus, getNeverSurrenderStatBonus, hasNegativeWeatherImmunity, isCampCulture } from '../rules/cultures.js';
+import {
+    AIR_COMMAND_CONFIG,
+    AIRFIELD_BASE_POWER,
+    COLONEL_AIR_DAMAGE_BONUS,
+    COLONEL_AIR_MAX_STACKS,
+    COLONEL_AIR_STACK_BONUS,
+    COLONEL_ANTI_AIR_PIERCE,
+    getAirfieldColonel,
+    getMountedCommanderAirAttackBonus
+} from '../rules/airCommands.js';
+import { getAntiAirReduction } from '../rules/antiAir.js';
+import { COMBAT_BALANCE } from '../rules/constants.js';
+import { MORALE_CONFIG, TERRAIN_CONFIG } from '../rules/terrain.js';
 import { isStealthGuerrilla } from '../rules/visibility.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
 import { getCommanderFactionSynergy } from '../rules/factionSynergies.js';
@@ -533,4 +546,67 @@ export function estimateUnitVisionRadius(unit, weather = 'clear') {
     range += unit.getSpecializationAbility?.('skirmishVisionBonus') || 0;
     if (unit.commander === 'tianyan') range += 1;
     return Math.max(1, Math.min(5, range));
+}
+
+/** 估算敌方就绪机场对指定格/单位单次空军指令的期望伤害（对齐引擎 _resolveAirCommandDamage）。 */
+export function estimateAirStrikeThreatDamage({
+    attackerCamp,
+    launcherTile = null,
+    assumingColonel = false,
+    kind = 'strafe',
+    unit,
+    targetTile,
+    state,
+    projectedHp = null
+} = {}) {
+    const config = AIR_COMMAND_CONFIG[kind];
+    if (!config || !unit || !targetTile || !attackerCamp) return 0;
+    const basePower = AIRFIELD_BASE_POWER;
+    const maxHp = Math.max(1, Number(unit.maxHp ?? unit.config?.hp ?? unit.hp ?? 1));
+    const currentHp = Math.max(0, Math.min(maxHp, Number(projectedHp ?? unit.hp ?? maxHp)));
+    const missingBonus = kind === 'strafe'
+        ? Math.min(15, Math.floor(((maxHp - currentHp) / maxHp) * 20))
+        : 0;
+    const mountedColonel = launcherTile ? getAirfieldColonel(launcherTile) : null;
+    const hasColonel = Boolean(mountedColonel) || assumingColonel;
+    const commanderAtkBonus = launcherTile?.unit
+        ? getMountedCommanderAirAttackBonus(launcherTile.unit, basePower)
+        : (assumingColonel
+            ? Math.round(basePower * (Number(COMMANDER_CONFIG.colonel?.definition?.atkBonusPct) || 0))
+            : 0);
+    const campKey = campToKey(attackerCamp);
+    const stacks = Math.min(COLONEL_AIR_MAX_STACKS, Number(state?._colonelAirStacks?.[campKey]) || 0);
+    const airBonus = hasColonel ? COLONEL_AIR_DAMAGE_BONUS + stacks * COLONEL_AIR_STACK_BONUS : 0;
+    const neverSurrenderAtk = state ? getNeverSurrenderAttackBonus(state, attackerCamp) : 0;
+    const kmtLinkAtk = launcherTile?.unit && state ? getKmtLinkDamageBonus(launcherTile.unit, state) : 0;
+    const power = basePower + commanderAtkBonus + missingBonus;
+
+    const positionDefense = (TERRAIN_CONFIG[targetTile.terrain]?.defenseBonus || 0)
+        + (targetTile.terrain === 'forest' ? COMBAT_BALANCE.defense.forestVsRangedBonus : 0)
+        + ((targetTile.isCity || targetTile.isUrban) ? getCityDefenseBonus(targetTile) : 0);
+    const kmtDef = state ? getKmtLinkDefenseBonus(unit, state, positionDefense) : 0;
+    const moraleDef = state?.mechanics?.morale !== false
+        ? (MORALE_CONFIG[unit.morale]?.defBonus || 0)
+        : 0;
+    let ordinaryDefense = positionDefense
+        + kmtDef
+        + (Number(unit.config?.defense) || 0)
+        + (Number(unit._rankPanelDefenseBonus) || 0)
+        + moraleDef
+        + (state ? getNeverSurrenderStatBonus(state, unit.camp) : 0)
+        - getFireSeaDefenseReduction(unit);
+    if (kind === 'bombing' && isStrongpointTarget({ ...unit, tile: targetTile })) {
+        ordinaryDefense = Math.max(0, ordinaryDefense - 0.25);
+    }
+    const simulatedTargetTile = targetTile.unit === unit ? targetTile : { ...targetTile, camp: unit.camp, unit };
+    let antiAir = state?.tileMap instanceof Map
+        ? getAntiAirReduction(simulatedTargetTile, attackerCamp, state.tileMap, { state })
+        : 0;
+    if (hasColonel && kind !== 'stukaDiveBomb') {
+        antiAir = Math.max(0, antiAir - COLONEL_ANTI_AIR_PIERCE);
+    }
+    const reduction = Math.min(COMBAT_BALANCE.defense.maximumReduction, ordinaryDefense + antiAir);
+    return Math.max(1, Math.round(
+        power * config.multiplier * (1 + airBonus + neverSurrenderAtk + kmtLinkAtk) * (1 - reduction)
+    ));
 }

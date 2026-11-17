@@ -1221,3 +1221,194 @@ test('狂战士识别先开【泣血】再机动斩首将领，【禁锢】优�
     assert.ok(actions.some(a => a.type === 'activateSkill' && a.unitId === berserker.id),
         '机动后可切入射程重创/斩杀将领时，应在移动前先激活【泣血】');
 });
+
+test('全回合反机场斩杀线：残血或拼反伤后的将领避开敌方就绪机场扫射区，防空Aura可折减空袭威胁', async () => {
+    const { buildWorld, decideStrategy, assignMissions, planTactics } = await loadCore();
+    const me = { id: 'player1' }, foe = { id: 'player2' }, neutral = { id: 'neutral' };
+    const home = makeTile(0, 0, { isCity: true, camp: me, districtId: 1 });
+    const front = makeTile(1, 0, { terrain: 'plains' });
+    const safeRear = makeTile(-1, 0, { terrain: 'forest' });
+    const aaTile = makeTile(0, 1, { terrain: 'plains' });
+    // 中盘第6回合，敌方主城机场距离front恰好9格（受敌方空军上校+2射程=10覆盖），距离safeRear=10或有森林+防空保护
+    const foeAirport = makeTile(10, 0, {
+        isCity: true, isUrban: true, camp: foe, districtId: 2, hp: 250,
+        installation: { type: 'airfield', status: 'ready', airCommandReadyRound: { strafe: 5 } }
+    });
+    const farAir = makeTile(11, 0, {
+        isCity: true, isUrban: true, camp: foe, districtId: 3, hp: 250,
+        installation: { type: 'airfield', status: 'ready' }
+    });
+
+    const centurion = makeUnit(1, 'cavalry', me, front, { commander: 'centurion', hp: 82, maxHp: 150 });
+    const foeColonel = makeUnit(10, 'archer', foe, foeAirport, { commander: 'colonel', hp: 100 });
+    const outerTarget = makeUnit(11, 'infantry', foe, makeTile(2, 0), { hp: 180, maxHp: 180 });
+    const tiles = [home, front, safeRear, aaTile, outerTarget.tile, foeAirport, farAir];
+    const tileMap = new Map(tiles.map(t => [`${t.q},${t.r}`, t]));
+    const helpers = {
+        ...makeHelpers(tiles),
+        getMovableTiles: unit => unit === centurion ? [safeRear, home] : [],
+        getAttackableTiles: unit => unit === centurion ? [outerTarget.tile] : []
+    };
+    const state = makeState(tiles, { player1: me, player2: foe, neutral }, {
+        currentCamp: me,
+        turnCounter: 10, // Round 6
+        tileMap,
+        mechanics: { airCommands: true, morale: true },
+        playerGold: { player1: 8, player2: 10, neutral: 0 }
+    });
+
+    const worldNoAa = buildWorld(state, helpers, me, TIER_CAPABILITIES.hard);
+    const bareAir = worldNoAa.airThreatAt(front, centurion, 0);
+    assert.ok(bareAir >= 75, `敌方上校就绪机场在9格处应对82血骑兵将领形成致命扫射威胁，实际=${bareAir}`);
+
+    const strategy = decideStrategy(worldNoAa);
+    const actions = planTactics(worldNoAa, strategy, assignMissions(worldNoAa, strategy));
+    assert.equal(actions.some(a => a.type === 'attack' && a.unitId === centurion.id && a.targetId === outerTarget.id), false,
+        '处在敌方机场扫射斩杀线内的残血百夫长禁止继续原地硬换');
+    assert.ok(actions.some(a => a.type === 'move' && a.unitId === centurion.id && a.tileQ === safeRear.q),
+        '残血将领应优先撤入后方森林安全区脱离机场斩杀线');
+
+    // 部署防空炮（真实专精必为1阶以上）后，防空半径内及待走空地上的空袭预期威胁明显下降
+    makeUnit(2, 'archer', me, aaTile, {
+        _rank: 1,
+        specializationKey: 'antiAirArtillery',
+        getSpecializationAbility: name => name === 'antiAir' ? 0.35 : 0
+    });
+    const worldWithAa = buildWorld(state, helpers, me, TIER_CAPABILITIES.hard);
+    const protectedAir = worldWithAa.airThreatAt(front, centurion, 0);
+    assert.ok(protectedAir < bareAir, `己方防空炮覆盖下空袭威胁应降低：${protectedAir} < ${bareAir}`);
+});
+
+test('进攻型骑兵将领不为收割外围低价值单位而裸停在敌军地面+机场致死集火格内', async () => {
+    const { buildWorld, decideStrategy, assignMissions, planTactics } = await loadCore();
+    const me = { id: 'player1' }, foe = { id: 'player2' }, neutral = { id: 'neutral' };
+    const home = makeTile(-2, 0, { isCity: true, camp: me, districtId: 1 });
+    const startTile = makeTile(0, 0);
+    const baitTile = makeTile(1, 0);
+    const pawnTile = makeTile(2, 0);
+    const guard1Tile = makeTile(3, -1);
+    const guard2Tile = makeTile(3, 0);
+    const foeAirport = makeTile(7, 0, {
+        isCity: true, isUrban: true, camp: foe, districtId: 2, hp: 250,
+        installation: { type: 'airfield', status: 'ready' }
+    });
+
+    const paladin = makeUnit(1, 'cavalry', me, startTile, { commander: 'paladin', hp: 150, maxHp: 150 });
+    const pawn = makeUnit(10, 'cavalry', foe, pawnTile, { hp: 55, maxHp: 150 });
+    makeUnit(11, 'archer', foe, guard1Tile, { hp: 100 });
+    makeUnit(12, 'infantry', foe, guard2Tile, { hp: 180 });
+    const tiles = [home, startTile, baitTile, pawnTile, guard1Tile, guard2Tile, foeAirport];
+    const tileMap = new Map(tiles.map(t => [`${t.q},${t.r}`, t]));
+    const helpers = {
+        ...makeHelpers(tiles),
+        getMovableTiles: unit => unit === paladin ? [baitTile, home] : [],
+        getAttackableTiles: unit => unit === paladin && unit.tile === baitTile ? [pawnTile] : []
+    };
+    const state = makeState(tiles, { player1: me, player2: foe, neutral }, {
+        currentCamp: me,
+        tileMap,
+        mechanics: { airCommands: true, morale: true },
+        playerGold: { player1: 8, player2: 12, neutral: 0 }
+    });
+
+    const world = buildWorld(state, helpers, me, TIER_CAPABILITIES.hard);
+    const strategy = decideStrategy(world);
+    const actions = planTactics(world, strategy, assignMissions(world, strategy));
+    const moveToBait = actions.find(a => a.type === 'move' && a.unitId === paladin.id && a.tileQ === baitTile.q);
+    assert.equal(moveToBait, undefined, '击杀一名残血散兵会导致下回合被地面集火+机场收掉时，将领不应前冲送头');
+});
+
+test('非谋士陆战将领与残血陆军绝不逃海漂流，已误入水面时主动重返安全陆地', async () => {
+    const { buildWorld, decideStrategy, assignMissions, planTactics } = await loadCore();
+    const me = { id: 'player1' }, foe = { id: 'player2' }, neutral = { id: 'neutral' };
+    const home = makeTile(-5, 0, { isCity: true, camp: me, districtId: 1 });
+    const shore = makeTile(0, 0, { camp: me });
+    const shallowPort = makeTile(0, 1, { surface: 'shallowWater', terrain: 'water', isPort: true, camp: me, districtId: 1 });
+    const deepSea = makeTile(1, 1, { surface: 'deepWater', terrain: 'water' });
+    const landRetreat = makeTile(-1, 0);
+    const enemyArtillery = makeTile(2, 0);
+    const enemyCity = makeTile(8, 0, { isCity: true, camp: foe, districtId: 2 });
+
+    const magician = makeUnit(1, 'cavalry', me, shore, { commander: 'magician', hp: 52, maxHp: 150 });
+    makeUnit(10, 'archer', foe, enemyArtillery, { hp: 90 });
+    makeUnit(11, 'infantry', foe, enemyCity);
+    const tiles = [home, shore, shallowPort, deepSea, landRetreat, enemyArtillery, enemyCity];
+    const helpers = {
+        ...makeHelpers(tiles),
+        getMovableTiles: unit => unit === magician
+            ? (magician.isEmbarked ? [shore, deepSea] : [shallowPort, landRetreat])
+            : []
+    };
+    const state = makeState(tiles, { player1: me, player2: foe, neutral });
+
+    const actions = planTactics(buildWorld(state, helpers, me, TIER_CAPABILITIES.hard), decideStrategy(buildWorld(state, helpers, me, TIER_CAPABILITIES.hard)), { missions: [], assignment: new Map() });
+    assert.ok(!actions.some(a => a.type === 'move' && a.tileQ === shallowPort.q && a.tileR === shallowPort.r),
+        '濒危陆战将领撤退时绝不能跳进港口/海面逃避，只能留在或退向陆地');
+
+    // 若已身处水面且非海图跨海登陆任务，即使陆上有安全落点或须强返陆岸，也应立刻上岸，禁止向深海漂流
+    shore.unit = null;
+    shallowPort.unit = magician;
+    magician.tile = shallowPort;
+    magician.isEmbarked = true;
+    const disembarkActions = planTactics(buildWorld(state, helpers, me, TIER_CAPABILITIES.hard), { posture: 'contest' }, { missions: [], assignment: new Map() });
+    assert.deepEqual(disembarkActions, [{ type: 'move', unitId: magician.id, tileQ: shore.q, tileR: shore.r }],
+        '已落水的非两栖陆战将领应优先回到安全陆地，不得继续向深海漂流');
+});
+
+test('残血三段优先：先城内补员再向野战分配治疗卡，退无可退的必死单位原地破罐破摔打满输出', async () => {
+    const { buildWorld, decideStrategy, assignMissions, planTactics } = await loadCore();
+    const me = { id: 'player1' }, foe = { id: 'player2' }, neutral = { id: 'neutral' };
+    const cityTile = makeTile(0, 0, { isCity: true, camp: me, districtId: 1 });
+    const safeRear = makeTile(-2, 0);
+    const fieldTile = makeTile(2, 0);
+    const foeTile = makeTile(4, 0);
+    const foeCity = makeTile(9, 0, { isCity: true, camp: foe, districtId: 2 });
+
+    // 城内残血单位可直接补员；野战残血单位无法补员，手牌仅有1张【疗愈】
+    const garrison = makeUnit(1, 'infantry', me, cityTile, { hp: 50, maxHp: 180 });
+    const fieldUnit = makeUnit(2, 'cavalry', me, fieldTile, { hp: 50, maxHp: 150 });
+    makeUnit(10, 'archer', foe, foeTile, { hp: 90 });
+    makeUnit(11, 'infantry', foe, foeCity);
+
+    const tiles = [cityTile, safeRear, fieldTile, foeTile, foeCity];
+    const helpers = {
+        ...makeHelpers(tiles),
+        getMovableTiles: unit => unit === fieldUnit ? [safeRear] : []
+    };
+    const state = makeState(tiles, { player1: me, player2: foe, neutral }, {
+        currentCamp: me,
+        playerGold: { player1: 12, player2: 10, neutral: 0 },
+        playerHands: { player1: ['heal'], player2: [] }
+    });
+
+    const plan = planTurn(state, helpers, me, TIER_CAPABILITIES.hard);
+    const reinforceIndex = plan.findIndex(a => a.type === 'reinforce' && a.unitId === garrison.id);
+    const healIndex = plan.findIndex(a => a.type === 'tacticalCard' && a.cardId === 'heal');
+    assert.ok(reinforceIndex >= 0 && healIndex > reinforceIndex,
+        `能补员应优先于出治疗卡：${JSON.stringify(plan.map(a => [a.type, a.unitId || a.targetId || a.cardId]))}`);
+    assert.equal(plan[healIndex].targetId, fieldUnit.id, '城内单位补员后，治疗卡应自动省给野战残血单位而非重复浪费');
+
+    // 必死破罐破摔测试：45HP步兵四周陆地落点均处致命火力网内且旁边虽有看似安全的水面也禁止跳海，应直接爆掉打出最后一击
+    const cornerTile = makeTile(0, 0);
+    const waterTrap = makeTile(-1, 0, { surface: 'shallowWater', terrain: 'water' });
+    const deadEndLand = makeTile(0, -1);
+    const adjacentArcherTile = makeTile(1, 0);
+    const coverArcherTile = makeTile(2, 0);
+    const doomed = makeUnit(21, 'infantry', me, cornerTile, { hp: 50, maxHp: 180 });
+    const targetArcher = makeUnit(30, 'archer', foe, adjacentArcherTile, { hp: 90, maxHp: 90 });
+    makeUnit(31, 'archer', foe, coverArcherTile, { hp: 90, maxHp: 90 });
+    makeUnit(32, 'infantry', foe, foeCity);
+    const doomedTiles = [cornerTile, waterTrap, deadEndLand, adjacentArcherTile, coverArcherTile, foeCity];
+    const doomedHelpers = {
+        ...makeHelpers(doomedTiles),
+        getMovableTiles: unit => unit === doomed ? [waterTrap, deadEndLand] : [],
+        getAttackableTiles: unit => unit === doomed && unit.tile === cornerTile ? [adjacentArcherTile] : []
+    };
+    const doomedState = makeState(doomedTiles, { player1: me, player2: foe, neutral });
+    const doomedWorld = buildWorld(doomedState, doomedHelpers, me, TIER_CAPABILITIES.hard);
+    const doomedStrategy = decideStrategy(doomedWorld);
+    const doomedActions = planTactics(doomedWorld, doomedStrategy, assignMissions(doomedWorld, doomedStrategy));
+    assert.ok(!doomedActions.some(a => a.type === 'move' && a.tileQ === waterTrap.q), '必死单位绝不逃到水上');
+    assert.deepEqual(doomedActions[0], { type: 'attack', unitId: doomed.id, targetId: targetArcher.id },
+        '退无可退的必死单位应取消无意义后撤，直接打满最后一轮输出价值');
+});

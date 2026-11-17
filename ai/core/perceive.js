@@ -3,7 +3,7 @@
 // 输出是纯数据（含少量函数），不做任何决策；战略/任务/战术层只读它。
 // 迷雾限制普通档位的情报。困难遭遇战直接读取模拟状态，不修改显示视野。
 
-import { getRound } from '../../rules/turns.js';
+import { getActiveTurnFactionKeys, getRound, getRoundIndex } from '../../rules/turns.js';
 import { campToKey } from '../../rules/camps.js';
 import { getStandardMap } from '../../rules/standardMaps.js';
 import { isWaterTile } from '../../rules/surfaces.js';
@@ -11,11 +11,23 @@ import { canNeutralAttackTile, isNeutralAi } from '../../rules/neutralDefense.js
 import { resolveRiverMovement } from '../../rules/movement.js';
 import { AI_DIFFICULTY_PROFILES, hasFullAiIntelligence } from '../difficulty.js';
 import { getUnitBaseType, UNIT_CONFIG } from '../../rules/units.js';
-import { isUnitVisibleToCamp } from '../../rules/visibility.js';
+import { isSubmarineTargetableBy, isUnitVisibleToCamp } from '../../rules/visibility.js';
 import { COMMANDER_CONFIG } from '../../rules/commanders.js';
+import { isMechanicEnabled } from '../../rules/mechanics.js';
+import { isCityDisabled } from '../../rules/citySiege.js';
+import { isCampCulture } from '../../rules/cultures.js';
+import {
+    AIRFIELD_BASE_RANGE,
+    COLONEL_AIR_RANGE_BONUS,
+    getAirCommandCost,
+    getAirCommandRange,
+    getAirfieldColonel,
+    isAirfieldGrounded
+} from '../../rules/airCommands.js';
 import {
     canCaptureCityByCombat,
     createCombatModel,
+    estimateAirStrikeThreatDamage,
     estimateSiegeDamage
 } from '../doctrine.js';
 import {
@@ -187,6 +199,108 @@ export function buildWorld(gameState, helpers, myCamp, caps) {
         return (damages[0] || 0) + (damages[1] || 0);
     }
 
+    const roundIndex = getRoundIndex(gameState);
+    const turnOrder = getActiveTurnFactionKeys(gameState, { includeNeutral: false });
+    const myTurnPos = turnOrder.indexOf(myCampKey);
+    const airMechanicsEnabled = isMechanicEnabled(gameState, 'airCommands');
+    const campHasUndeployedColonel = campKey => {
+        const prefix = campKey === 'player1' ? 'commanderP1'
+            : campKey === 'player2' ? 'commanderP2'
+            : campKey === 'player3' ? 'commanderP3' : null;
+        if (!prefix) return false;
+        const primary = gameState[prefix] === 'colonel' && !gameState[`${prefix}Deployed`];
+        const secondary = gameState[`${prefix}Secondary`] === 'colonel' && !gameState[`${prefix}SecondaryDeployed`];
+        return primary || secondary;
+    };
+    const hostileAirfields = (caps.threatForecast && airMechanicsEnabled)
+        ? tiles.filter(tile => tile.isCity
+            && rivalFactions.includes(tile.camp)
+            && tile.installation?.type === 'airfield'
+            && tile.installation.status === 'ready'
+            && !isCityDisabled(tile)
+            && (fullIntelligence || visible(tile) || explored(tile))
+            && !isAirfieldGrounded(tile, gameState))
+        : [];
+    const estimateAirBurstOn = (airfield, tile, targetUnit, projectedHp) => {
+        const campKey = campToKey(airfield.camp);
+        const enemyPos = turnOrder.indexOf(campKey);
+        // 敌方若在本大回合轮次位于我方之后，它在本轮就会紧接着行动；否则等下一大回合
+        const enemyNextTurnIndex = (myTurnPos >= 0 && enemyPos > myTurnPos) ? roundIndex : roundIndex + 1;
+        const readyAt = (kind) => {
+            const readyRound = airfield.installation?.airCommandReadyRound?.[kind];
+            return !Number.isFinite(readyRound) || readyRound <= enemyNextTurnIndex;
+        };
+        const assumingColonel = !getAirfieldColonel(airfield)
+            && !fog
+            && !airfield.unit
+            && campHasUndeployedColonel(campKey);
+        const range = assumingColonel
+            ? AIRFIELD_BASE_RANGE + COLONEL_AIR_RANGE_BONUS
+            : getAirCommandRange(airfield);
+        if (helpers.hexDistance(airfield, tile) > range) return 0;
+        const knownGold = fullIntelligence
+            ? (Number(gameState.playerGold?.[campKey]) || 0)
+            : 4;
+        const nextTurnGold = knownGold + (rivalEconomyByKey?.get(campKey)?.projectedIncome || 0);
+        const strafeCost = getAirCommandCost('strafe', airfield, gameState);
+        const bombingCost = getAirCommandCost('bombing', airfield, gameState);
+        const stukaCost = getAirCommandCost('stukaDiveBomb', airfield, gameState);
+        const canStrafe = readyAt('strafe') && nextTurnGold >= strafeCost;
+        const canBomb = readyAt('bombing') && nextTurnGold >= bombingCost;
+        const isGerman = isCampCulture(gameState, airfield.camp, 'de');
+        const stukaSorties = isGerman && readyAt('stukaDiveBomb')
+            ? Math.min(2, Math.floor(nextTurnGold / Math.max(1, stukaCost)))
+            : 0;
+        const strafeDmg = canStrafe
+            ? estimateAirStrikeThreatDamage({
+                attackerCamp: airfield.camp, launcherTile: airfield, assumingColonel,
+                kind: 'strafe', unit: targetUnit, targetTile: tile, state: gameState, projectedHp
+            })
+            : 0;
+        const bombDmg = canBomb
+            ? estimateAirStrikeThreatDamage({
+                attackerCamp: airfield.camp, launcherTile: airfield, assumingColonel,
+                kind: 'bombing', unit: targetUnit, targetTile: tile, state: gameState, projectedHp
+            })
+            : 0;
+        let deCombo = 0;
+        if (stukaSorties > 0) {
+            const oneStuka = estimateAirStrikeThreatDamage({
+                attackerCamp: airfield.camp, launcherTile: airfield, assumingColonel,
+                kind: 'stukaDiveBomb', unit: targetUnit, targetTile: tile, state: gameState, projectedHp
+            });
+            deCombo = oneStuka * stukaSorties;
+            const remainingGold = nextTurnGold - stukaCost * stukaSorties;
+            if (canStrafe && remainingGold >= strafeCost) {
+                deCombo += estimateAirStrikeThreatDamage({
+                    attackerCamp: airfield.camp, launcherTile: airfield, assumingColonel,
+                    kind: 'strafe', unit: targetUnit, targetTile: tile, state: gameState,
+                    projectedHp: Math.max(1, projectedHp - oneStuka * stukaSorties)
+                });
+            }
+        }
+        return Math.max(strafeDmg, bombDmg, deCombo);
+    };
+
+    /** 预测在格内遭受既定战损后，敌方就绪机场在下一动可能打出的最高单回合空袭爆发（全回合生效）。 */
+    function airThreatAt(tile, unit, extraDamageTaken = 0) {
+        if (!tile || !unit || hostileAirfields.length === 0) return 0;
+        const baseType = getUnitBaseType(unit);
+        if (baseType === 'submarine') {
+            const visibleSub = rivalFactions.some(camp => isSubmarineTargetableBy(unit, camp, gameState));
+            if (!visibleSub) return 0;
+        }
+        const maxHp = Math.max(1, Number(unit.maxHp ?? unit.config?.hp ?? unit.hp ?? 1));
+        const projectedHp = Math.max(0, Math.min(maxHp, Number(unit.hp ?? maxHp) - Math.max(0, Number(extraDamageTaken) || 0)));
+        const maxByCamp = new Map();
+        for (const airfield of hostileAirfields) {
+            const key = campToKey(airfield.camp);
+            const burst = estimateAirBurstOn(airfield, tile, unit, projectedHp);
+            if (burst > (maxByCamp.get(key) || 0)) maxByCamp.set(key, burst);
+        }
+        return Math.max(0, ...maxByCamp.values());
+    }
+
     // ── 经济与战力 ───────────────────────────────────────────
     function economyFor(faction) {
         const campKey = campToKey(faction);
@@ -300,6 +414,7 @@ export function buildWorld(gameState, helpers, myCamp, caps) {
         ownForceValue, observedRivalForce, rivalForceEstimate,
         intel, stalestRivalAge,
         threatAt,
+        airThreatAt,
         visible, isUnitVisible, explored,
         hand, gold, cardConfig,
         cardUsesLeft: Math.max(0, (cardConfig.maxUsesPerTurn || 2) - (gameState.playerUsesThisTurn?.[myCampKey] || 0)),

@@ -15,7 +15,7 @@ const { getRound } = await import('../rules/turns.js');
 const { isTileVisible, updateFogOfWar } = await import('../js/fogOfWar.js');
 const { isUnitVisibleToCamp } = await import('../rules/visibility.js');
 const { getUndergroundIntelligenceStatus } = await import('../rules/undergroundIntelligence.js');
-const { BURN_MS, attackCityTile, executeAirCommand, executeBanzaiCharge, executeGuerrillaConcealment, executeHeavyCannonStance, resolvePoisonAtTurnStart } = await import('../js/gameLogic.js');
+const { BURN_MS, attackCityTile, endTurn, executeAirCommand, executeBanzaiCharge, executeGuerrillaConcealment, executeHeavyCannonStance, resolvePoisonAtTurnStart } = await import('../js/gameLogic.js');
 const { getAirCommandAvailability } = await import('../rules/airCommands.js');
 const { droneProjectiles, HEAVY_CANNON_IMPACT_MS, heavyCannonShells, ringWaves, spawnHeavyCannonShell, updateHeavyCannonShells } = await import('../js/effects.js');
 const { KATYUSHA_IMPACT_TIMES, getKatyushaDamageShares, getKatyushaPresentedHealth, katyushaRockets } = await import('../js/effects.js');
@@ -1172,4 +1172,73 @@ test('困难 AI 在原机场射程不足时增建前进机场，并支持侧翼�
     assert.ok(events.some(e => e.action.type === 'buildAirfield'
         && e.action.tileQ === forwardCity.q && e.action.tileR === forwardCity.r && e.status === 'executed'),
         '主城机场够不着远处敌城且资金充裕时，应在前线已占城补建前进机场');
+});
+
+test('困难 AI 开局不把资金砸光在非致命空袭上，保留步兵预算并通过安全后方兵营腾位征兵', async () => {
+    const { me, foe, home, enemyCity } = setupMatch();
+    state.aiDifficultyByCamp.player1 = 'hard';
+    home.installation = { type: 'airfield', status: 'ready' };
+    state.playerGold.player1 = 12;
+    const guard = place('infantry', me, home);
+    const foeScout = place('infantry', foe, state.tileMap.get('6,0'));
+    foeScout.hp = 180;
+    place('infantry', foe, enemyCity);
+    startMatchRecording(state);
+
+    await processOpponentTurn(me);
+
+    const log = getCurrentMatchLog();
+    const openingNonUrgentBurn = log.timeline.filter(e =>
+        e.actionType === 'airCommand' && e.payload.aiPhase === 'opening' && !e.payload.results?.some(r => r.killed)
+    );
+    assert.ok(log.timeline.some(e => e.actionType === 'recruit'),
+        `安全后方主城在资金足够时应腾出产格完成募兵，实际事件：${JSON.stringify(log.timeline.filter(e => e.kind === 'action').map(e => [e.actionType, e.payload?.kind || e.payload?.type]))}`);
+    assert.equal(openingNonUrgentBurn.length, 0, '开局资金刚好足够买兵时不应先用非致命空袭把兵费耗干');
+});
+
+test('首回合敌军在首都附近高密度聚集时，AI 允许穿透步兵保底预算执行高收益开局洗地轰炸', async () => {
+    const { me, foe, home, enemyCity } = setupMatch();
+    state.aiDifficultyByCamp.player1 = 'hard';
+    home.installation = { type: 'airfield', status: 'ready' };
+    state.playerGold.player1 = 10;
+    place('infantry', me, home);
+    // 敌首都 (6,0) 及周围聚集 5 支含巨炮/将领的核心集群，正好处于开局机场洗地射程内
+    const clusterCoords = ['6,0', '5,0', '6,-1', '7,-1', '5,1'];
+    place('fr_heavy_cannon', foe, state.tileMap.get(clusterCoords[0]), 'centurion');
+    for (const key of clusterCoords.slice(1)) {
+        place('infantry', foe, state.tileMap.get(key));
+    }
+    startMatchRecording(state);
+
+    await processOpponentTurn(me);
+
+    const log = getCurrentMatchLog();
+    const openingBomb = log.timeline.find(e =>
+        e.actionType === 'airCommand' && e.payload?.aiPhase === 'opening' && e.payload?.kind === 'bombing'
+    );
+    assert.ok(openingBomb, '开局敌军高密度聚集且含高价值重炮/将领时，应果断消耗5金执行集群洗地轰炸');
+    assert.ok((openingBomb.payload.results?.length || 0) >= 4, '开局洗地轰炸应覆盖密集集群多支单位');
+});
+
+test('非网络对局（或联机断线回落本地后），controller=ai 的对手席位仍由本地 AI 自动托管而非切给人类手点', async () => {
+    const { me, foe, home, enemyCity } = setupMatch();
+    Object.assign(state, {
+        gameMode: 'local',
+        aiOpponentCamp: null,
+        factions: { ...state.factions },
+        currentCamp: me
+    });
+    me.controller = 'human';
+    foe.controller = 'ai';
+    place('infantry', me, home).canAct = false;
+    const aiUnit = place('infantry', foe, enemyCity);
+    aiUnit.hp = 180;
+    state.playerGold.player2 = 12;
+
+    await endTurn({ skipConfirmation: true });
+
+    // endTurn 自动链式执行完 AI (player2) + neutral 并轮回 player1
+    assert.ok(events.length > 0, '断线/本地模式下 controller=ai 席位应自动触发 AI 动作');
+    assert.equal(state.currentCamp, me, '断线/本地模式下 controller=ai 席位应自动执行完回合而非停在敌方回合等待手点');
+    assert.ok(state.playerGold.player2 !== 12 || aiUnit.tile !== enemyCity, 'player2 AI 必须实际执行过生产或机动动作');
 });

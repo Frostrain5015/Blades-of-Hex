@@ -2450,6 +2450,12 @@ body {
     font-size: 9px;
     white-space: nowrap;
 }
+.match-battle-matchup-stack {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 3px;
+}
 .match-battle-matchup {
     display: inline-flex;
     align-items: center;

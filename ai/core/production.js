@@ -133,20 +133,118 @@ export function planProduction(world, strategy, missionsCtx) {
     const reservedForMinister = city => returnPlan && returnPlan.vacatedRound < world.round
         && returnPlan.cityQ === city.q && returnPlan.cityR === city.r;
 
-    // ── 0. 产能腾位：突击缺口 + 无空城 → 安全后方城市的普通守军出城 ──
-    //    唯一的城缺突击兵时，筹够第一支步兵即可安排尚书离城，之后由任务层安排返城。
-    let vacatedCity = null;
+    const isCanVacateOffCityExit = (tile, unit) => isLandTile(tile) || (unit.type === 'us_marine' && tile.isPort);
+    const reinforceLedger = (memory.reinforceLedger ||= {});
+    const reinforceRatio = strategy.posture === 'hold' ? 0.85 : W.reinforceHpRatio;
+    const planWoundedRecovery = (reserveFloor, { onlyUrgent = false } = {}) => {
+        const candidates = world.tiles
+            .filter(t => t.unit && t.unit.camp === world.myCamp && !t._reinforcedThisTurn
+                && !actions.some(a => a.type === 'reinforce' && a.unitId === t.unit.id)
+                && canReinforceAtTile(t.unit, world.gameState))
+            .map(tile => {
+                const linked = getKmtLinkedUnits(tile.unit, world.gameState);
+                const shared = linked.length > 0 ? getKmtSharedHealth(linked) : null;
+                const effectiveRatio = shared ? shared.hp / Math.max(1, shared.maxHp) : tile.unit.hp / tile.unit.maxHp;
+                const deficit = linked.length > 0
+                    ? getKmtReinforceDeficit(tile.unit, world.gameState)
+                    : Math.max(0, tile.unit.maxHp - tile.unit.hp);
+                const isSafeRearStation = linked.length > 0 && tile.isCity && world.threatAt(tile, tile.unit) === 0;
+                const onThreatenedCity = tile.isCity && tile.camp === world.myCamp && world.threatAt(tile, tile.unit) > 0;
+                const urgentNeed = (onThreatenedCity && effectiveRatio < 0.65)
+                    || (Boolean(tile.unit.commander) && effectiveRatio < 0.60)
+                    || effectiveRatio < 0.45;
+                return { tile, effectiveRatio, deficit, isSafeRearStation, onThreatenedCity, urgentNeed };
+            })
+            .filter(entry => entry.deficit > 0 && entry.effectiveRatio < reinforceRatio)
+            .filter(entry => !onlyUrgent || entry.urgentNeed || entry.isSafeRearStation)
+            .filter(entry => {
+                const cap = entry.isSafeRearStation ? 4
+                    : (entry.onThreatenedCity || entry.tile.unit.commander || (entry.tile.unit._rank || 0) >= 2 ? 3 : 2);
+                return (reinforceLedger[entry.tile.unit.id] || 0) < cap;
+            })
+            .sort((a, b) => Number(b.isSafeRearStation) - Number(a.isSafeRearStation)
+                || Number(b.urgentNeed) - Number(a.urgentNeed)
+                || a.effectiveRatio - b.effectiveRatio);
+        let reinforced = actions.filter(a => a.type === 'reinforce').length;
+        const cap = strategy.posture === 'hold' ? 3 : 2;
+        for (const { tile, deficit, onThreatenedCity, effectiveRatio } of candidates) {
+            if (reinforced >= cap) break;
+            if (savingForUnique && !(onThreatenedCity && effectiveRatio < 0.60)) continue;
+            const heal = Math.min(Math.floor(tile.unit.maxHp * 0.50), deficit);
+            const base = Math.ceil(tile.unit.config.cost * (heal / tile.unit.maxHp) * getCulturalReinforceCostScale(world.gameState, tile, world.myCamp));
+            const cost = getHistoricalCost(Math.max(1, base), world.gameState, world.myCamp);
+            if (heal <= 0 || gold - cost < tianyanProtectedFund(reserveFloor)) continue;
+            actions.push({ type: 'reinforce', unitId: tile.unit.id });
+            reinforceLedger[tile.unit.id] = (reinforceLedger[tile.unit.id] || 0) + 1;
+            gold -= cost;
+            earlySpend += cost;
+            reinforced++;
+        }
+
+        // 停靠港口的受损舰先维修再开火/离港，不要求单位尚有行动力。
+        for (const unit of world.myUnits) {
+            if (savingForUnique) break;
+            if (setup.some(a => a.type === 'repairShip' && a.unitId === unit.id)) continue;
+            if (!canRepairShipAtPort(unit, world.gameState) || unit.tile._reinforcedThisTurn) continue;
+            const urgentShip = unit.commander || unit.hp / unit.maxHp < 0.55 || world.threatAt(unit.tile, unit) > 0;
+            if (onlyUrgent && !urgentShip) continue;
+            const heal = Math.min(Math.floor(unit.maxHp * 0.5), unit.maxHp - unit.hp);
+            if (heal < unit.maxHp * 0.2) continue;
+            const cost = getHistoricalCost(Math.max(1, Math.ceil(unit.config.cost * heal / unit.maxHp)), world.gameState, world.myCamp);
+            if (gold - cost < reserveFloor) continue;
+            setup.unshift({ type: 'repairShip', unitId: unit.id });
+            gold -= cost;
+            earlySpend += cost;
+        }
+    };
+
+    // ── 0. 产能腾位与紧急招募准备 ────────────────────────────
+    let earlySpend = 0;
+    let emergencyRecruitFund = strategy.reserve;
+    const emptyCitiesAll = world.myCities.filter(city => !city.unit && !reservedForMinister(city))
+        .sort((a, b) => Number(b === strategy.emergencyDefenseCity) - Number(a === strategy.emergencyDefenseCity));
+    const urgentCities = new Set();
+    let recruits = 0;
+    const maxRecruits = world.caps.id === 'easy' ? 1 : 2;
     const landOrder = landRecruitOrder(world, missionsCtx, assaultCount > 0);
     const cityOrder = (site, order, urgent) => uniqueSlots > 0 && cityUnique
         && (uniqueCanCapture || (!urgent && assaultCount > 0)) && canRecruit(uniqueType, site)
         ? [uniqueType, ...order] : order;
+    // 最紧急的空城保卫战先行拨款，避免前线补员花光保命买步兵的钱。
+    for (const city of emptyCitiesAll) {
+        if (recruits >= maxRecruits) break;
+        const urgentLandRecruit = emergencyRecruitFund > 0
+            && (world.myUnits.length <= 2 || city === strategy.emergencyDefenseCity);
+        if (!urgentLandRecruit) continue;
+        const types = cityOrder(city, LAND_ORDER, true);
+        for (const type of types) {
+            const cost = unitCost(world, type);
+            if (cost > gold || !canRecruit(type, city)) continue;
+            emergencyRecruits.push({ type: 'recruit', unitType: type, tileQ: city.q, tileR: city.r });
+            emergencyRecruitFund = Math.max(0, emergencyRecruitFund - cost);
+            gold -= cost;
+            earlySpend += cost;
+            if (isCapturerType(type)) currentAssaultCount++;
+            if (type === uniqueType) uniqueSlots--;
+            urgentCities.add(city);
+            recruits++;
+            break;
+        }
+    }
+
+    // 在非紧急扩编之前先执行"能补员就补员"：重伤守军与将领优先保命回复。
+    planWoundedRecovery(emergencyRecruitFund, { onlyUrgent: true });
+
+    let vacatedCity = null;
     const hasEmptyCity = world.myCities.some(city => !city.unit);
     const hasMinisterCity = world.myCities.some(city => city.unit?.commander === 'minister');
     const ministerMayVacate = !hasEmptyCity && hasMinisterCity
         && shouldTemporarilyVacateMinister(world, strategy, memory);
     const needsUniqueSlot = cityUnique && uniqueCount === 0 && (assaultCount > 0 || uniqueCanCapture)
         && canAfford(gold, unitCost(world, uniqueType), strategy);
-    if (!hasEmptyCity && (strategy.assaultCapacity.needsProductionSlot || ministerMayVacate || needsUniqueSlot)) {
+    const surplusRecruitSlot = world.caps.duelModel
+        && gold - unitCost(world, 'infantry') - strategy.reserve >= 2;
+    if (!hasEmptyCity && (strategy.assaultCapacity.needsProductionSlot || ministerMayVacate || needsUniqueSlot || surplusRecruitSlot)) {
         const candidates = world.myCities
             .filter(city => !reservedForMinister(city))
             .filter(city => city.unit && city.unit.camp === world.myCamp && city.unit.canAct)
@@ -173,7 +271,7 @@ export function planProduction(world, strategy, missionsCtx) {
             if (!mobile) continue;
             const exits = helpers.getMovableTiles(mobile)
                 .filter(tile => (!tile.unit || (world.isUnitVisible && !world.isUnitVisible(tile.unit)))
-                    && !tile.isCity && (!minister || isLandTile(tile)) && world.threatAt(tile, city.unit) <= 20);
+                    && !tile.isCity && isCanVacateOffCityExit(tile, city.unit) && world.threatAt(tile, city.unit) <= 20);
             if (exits.length === 0) continue;
             exits.sort((a, b) => world.threatAt(a, city.unit) - world.threatAt(b, city.unit));
             const move = {
@@ -187,21 +285,20 @@ export function planProduction(world, strategy, missionsCtx) {
             if (mobile !== city.unit) setup.push({ type: 'heavyCannonStance', unitId: city.unit.id });
             setup.push(move, { type: 'recruit', unitType: type, tileQ: city.q, tileR: city.r });
             gold -= unitCost(world, type);
+            earlySpend += unitCost(world, type);
             if (isCapturerType(type)) currentAssaultCount++;
             if (type === uniqueType) uniqueSlots--;
+            recruits++;
             break;
         }
     }
 
-    // ── 1. 城市招募（含腾出来的格子）──────────────────────────
-    const emptyCities = world.myCities.filter(city => !city.unit && city !== vacatedCity
-        && !reservedForMinister(city))
-        .sort((a, b) => Number(b === strategy.emergencyDefenseCity) - Number(a === strategy.emergencyDefenseCity));
+    // ── 1. 常规城市招募 ──────────────────────────────────────
+    const emptyCities = emptyCitiesAll.filter(city => city !== vacatedCity && !urgentCities.has(city));
     const emptyPorts = world.tiles.filter(t => t.isPort && t.camp === world.myCamp && !t.unit);
-    let emergencyRecruitFund = strategy.reserve;
     const earlyUniquePort = uniqueSlots > 0 && !cityUnique && assaultCount > 0 && !savingForUnique
         && canUnitBeRecruitedAtSite(uniqueType, 'port')
-        && gold - unitCost(world, uniqueType) >= tianyanProtectedFund(strategy.reserve)
+        && gold - unitCost(world, uniqueType) >= tianyanProtectedFund(emergencyRecruitFund)
         && emptyPorts.find(port => canRecruit(uniqueType, port));
     if (earlyUniquePort) {
         actions.push({ type: 'recruit', unitType: uniqueType, tileQ: earlyUniquePort.q, tileR: earlyUniquePort.r });
@@ -209,28 +306,19 @@ export function planProduction(world, strategy, missionsCtx) {
         if (isCapturerType(uniqueType)) currentAssaultCount++;
         uniqueSlots--;
     }
-    let recruits = vacatedCity ? 1 : 0;
-    const maxRecruits = world.caps.id === 'easy' ? 1 : 2;
     for (const city of emptyCities) {
         if (recruits >= maxRecruits) break;
-        const urgentLandRecruit = emergencyRecruitFund > 0
-            && (world.myUnits.length <= 2 || city === strategy.emergencyDefenseCity);
-        if (savingForUnique && !urgentLandRecruit) continue;
-        const standard = urgentLandRecruit ? LAND_ORDER : helpers.recruitTypesForCity
+        if (savingForUnique) continue;
+        const standard = helpers.recruitTypesForCity
             ? helpers.recruitTypesForCity(city, landOrder)
             : landOrder;
-        const types = cityOrder(city, standard, urgentLandRecruit);
+        const types = cityOrder(city, standard, false);
         for (const type of types) {
             const cost = unitCost(world, type);
-            const emergencyRecruit = urgentLandRecruit && cost <= gold;
-            const minFundAfterRecruit = urgentLandRecruit
-                ? 0
-                : tianyanProtectedFund(emergencyRecruitFund, false);
-            if (!emergencyRecruit && gold - cost < minFundAfterRecruit) continue;
+            const minFundAfterRecruit = tianyanProtectedFund(emergencyRecruitFund, false);
+            if (gold - cost < minFundAfterRecruit) continue;
             if (!canRecruit(type, city)) continue;
-            const recruit = { type: 'recruit', unitType: type, tileQ: city.q, tileR: city.r };
-            (emergencyRecruit ? emergencyRecruits : actions).push(recruit);
-            if (emergencyRecruit) emergencyRecruitFund = Math.max(0, emergencyRecruitFund - cost);
+            actions.push({ type: 'recruit', unitType: type, tileQ: city.q, tileR: city.r });
             gold -= cost;
             if (isCapturerType(type)) currentAssaultCount++;
             if (type === uniqueType) uniqueSlots--;
@@ -280,55 +368,13 @@ export function planProduction(world, strategy, missionsCtx) {
         }
     }
 
-    // ── 3. 补员：守军是固定资产，残血补员远便宜于重招；
-    //    国军【同心同德】可通过安全后方主城补员远程输血前线教导旅；
-    //    常规单位最多补 2 次，安全后方同心同德站可作为前线补血枢纽复用。
-    const reinforceLedger = (memory.reinforceLedger ||= {});
-    const reinforceRatio = strategy.posture === 'hold' ? 0.85 : W.reinforceHpRatio;
-    const candidates = world.tiles
-        .filter(t => t.unit && t.unit.camp === world.myCamp && !t._reinforcedThisTurn && canReinforceAtTile(t.unit, world.gameState))
-        .map(tile => {
-            const linked = getKmtLinkedUnits(tile.unit, world.gameState);
-            const shared = linked.length > 0 ? getKmtSharedHealth(linked) : null;
-            const effectiveRatio = shared ? shared.hp / Math.max(1, shared.maxHp) : tile.unit.hp / tile.unit.maxHp;
-            const deficit = linked.length > 0
-                ? getKmtReinforceDeficit(tile.unit, world.gameState)
-                : Math.max(0, tile.unit.maxHp - tile.unit.hp);
-            const isSafeRearStation = linked.length > 0 && tile.isCity && world.threatAt(tile, tile.unit) === 0;
-            return { tile, effectiveRatio, deficit, isSafeRearStation };
-        })
-        .filter(entry => entry.deficit > 0 && entry.effectiveRatio < reinforceRatio)
-        .filter(entry => (reinforceLedger[entry.tile.unit.id] || 0) < (entry.isSafeRearStation ? 4 : 2))
-        .sort((a, b) => Number(b.isSafeRearStation) - Number(a.isSafeRearStation)
-            || a.effectiveRatio - b.effectiveRatio);
-    let reinforced = 0;
-    for (const { tile, deficit } of candidates) {
-        if (savingForUnique || reinforced >= (strategy.posture === 'hold' ? 3 : 2)) break;
-        const heal = Math.min(Math.floor(tile.unit.maxHp * 0.50), deficit);
-        const base = Math.ceil(tile.unit.config.cost * (heal / tile.unit.maxHp) * getCulturalReinforceCostScale(world.gameState, tile, world.myCamp));
-        const cost = getHistoricalCost(Math.max(1, base), world.gameState, world.myCamp);
-        if (heal <= 0 || gold - cost < tianyanProtectedFund(emergencyRecruitFund)) break;
-        actions.push({ type: 'reinforce', unitId: tile.unit.id });
-        reinforceLedger[tile.unit.id] = (reinforceLedger[tile.unit.id] || 0) + 1;
-        gold -= cost;
-        reinforced++;
-    }
-
-    // 停靠港口的受损舰先维修再开火/离港，不要求单位尚有行动力。
-    for (const unit of world.myUnits) {
-        if (savingForUnique) break;
-        if (!canRepairShipAtPort(unit, world.gameState) || unit.tile._reinforcedThisTurn) continue;
-        const heal = Math.min(Math.floor(unit.maxHp * 0.5), unit.maxHp - unit.hp);
-        if (heal < unit.maxHp * 0.2) continue;
-        const cost = getHistoricalCost(Math.max(1, Math.ceil(unit.config.cost * heal / unit.maxHp)), world.gameState, world.myCamp);
-        if (gold - cost < emergencyRecruitFund) continue;
-        setup.unshift({ type: 'repairShip', unitId: unit.id });
-        gold -= cost;
-    }
+    // ── 3. 常规补员（轻中伤单位在有盈余时补满）──────────────────
+    planWoundedRecovery(emergencyRecruitFund, { onlyUrgent: false });
     return {
         emergencyRecruits,
         setup,
         actions,
+        earlySpend,
         recruitSpend: savingForUnique ? world.gold : world.gold - gold,
         remainingReserve: emergencyRecruitFund
     };

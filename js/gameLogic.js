@@ -1762,6 +1762,7 @@ export async function endTurn(options = {}) {
         const currentFaction = gameState.factions?.[_campKey(gameState.currentCamp)];
         const isAITurn = _campKey(gameState.currentCamp) === 'neutral' ||
             (gameState.gameMode === 'pve' && gameState.currentCamp === gameState.aiOpponentCamp) ||
+            (!isNetworkGame() && currentFaction?.controller === 'ai') ||
             (gameState.campaignMode && currentFaction?.controller !== 'human');
         const hasActionable = gameState.tiles.some(t =>
             t.unit && t.unit.camp === gameState.currentCamp && t.unit.canAct && !t.unit.isNewRecruit
@@ -1794,6 +1795,7 @@ export async function endTurn(options = {}) {
                 (gameState.gameMode === 'pve' && gameState.currentCamp === gameState.aiOpponentCamp)
                 || (gameState.campaignMode && currentFaction?.controller === 'ai')
                 || (isNetworkGame() && currentFaction?.controller === 'ai' && _isNetworkAiDriver())
+                || (!isNetworkGame() && currentFaction?.controller === 'ai')
             );
             const isNeutral = currentKey === 'neutral' &&
                 !gameState.aiActing && !_neutralAiLock;

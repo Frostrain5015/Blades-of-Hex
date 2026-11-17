@@ -378,7 +378,13 @@ async function runAiAirCommands(aiCamp, difficultyProfile, stukaSorties, afterGr
     const emergencyReserve = resolveEmergencyRecruitReserve(aiCamp, difficultyProfile);
     const culturalReserve = reserveForMissingCulturalUnit(aiCamp);
     const tianyanReserve = resolveAiTianyanReserve(aiCamp, emergencyReserve);
-    const reserve = Math.max(emergencyReserve + tianyanReserve, culturalReserve);
+    const ownedCitiesAll = gameState.tiles.filter(tile => tile.isCity && tile.camp === aiCamp);
+    // 地面未展开前（!afterGround）避免开局把兵力招募资金提前烧光在非致命零星骚扰上
+    const hasRecruitableCity = !afterGround && difficultyProfile.emergencyBudget
+        && ownedCitiesAll.some(city => !isCityDisabled(city));
+    const openingRecruitReserve = hasRecruitableCity ? UNIT_CONFIG.infantry.cost : 0;
+    const baseReserve = Math.max(emergencyReserve + tianyanReserve, culturalReserve);
+    const reserve = Math.max(baseReserve, openingRecruitReserve);
     const knownTile = tile => isKnownToAi(tile, aiCamp);
     const ownedCities = gameState.tiles.filter(tile => tile.isCity && tile.camp === aiCamp);
     const standardMap = getStandardMap(gameState.isThreePlayer ? 3 : 2, gameState.standardMapId);
@@ -390,10 +396,10 @@ async function runAiAirCommands(aiCamp, difficultyProfile, stukaSorties, afterGr
     let fired = false;
     for (const city of ownedCities.filter(tile => tile.installation?.status === 'ready')) {
         if (gameState.gameOver || gameState.currentCamp !== aiCamp || !gameState.aiActing) break;
-        const available = (kind, urgentDefense = false) => {
+        const available = (kind, urgentDefense = false, { allowClusterOpening = false } = {}) => {
             const gold = gameState.playerGold[campKey] || 0;
             const cost = getAirCommandCost(kind, city, gameState);
-            const nonUrgentReserve = reserve;
+            const nonUrgentReserve = allowClusterOpening ? baseReserve : reserve;
             const urgentFloor = gold < emergencyReserve && culturalReserve === 0 ? 0 : emergencyReserve;
             const effectiveReserve = urgentDefense ? urgentFloor : nonUrgentReserve;
             return getAirCommandAvailability(kind, city, gameState).available && gold - cost >= effectiveReserve;
@@ -487,14 +493,27 @@ async function runAiAirCommands(aiCamp, difficultyProfile, stukaSorties, afterGr
                 || a.tile.unit.hp - b.tile.unit.hp)[0]
             : null;
         let bombing = null;
-        if (available('bombing') || available('bombing', true)) {
+        if (available('bombing', false, { allowClusterOpening: !afterGround }) || available('bombing', true)) {
             for (const tile of gameState.tiles) {
                 if (hexDistance(city, tile) > range || !knownTile(tile)) continue;
                 const area = [tile, ...HEX_NEIGHBORS.map(([dq, dr]) => resolveTile(tile.q + dq, tile.r + dr))]
                     .filter(Boolean);
                 const targets = area.filter(candidate => enemySet.has(candidate) && canHit(candidate));
                 const urgentTargets = targets.filter(threatensCity).length;
-                if (!available('bombing', urgentTargets > 0)) continue;
+                const totalClusterDamage = targets.reduce((sum, target) =>
+                    sum + estimateAirCommandDamage('bombing', city, target.unit, target === tile ? 1 : 0.5, knownAirDefenses), 0);
+                const hasHighValueClusterUnit = targets.some(candidate =>
+                    candidate.unit?.commander
+                    || ['fr_heavy_cannon', 'ru_katyusha'].includes(candidate.unit?.type)
+                    || (candidate.unit?._rank || 0) >= 2);
+                // 首回合敌军尚在首都周边聚集时，命中4+目标或重伤核心重器/将领的大规模洗地允许穿透步兵保底，
+                // 但零星 1-2 目标低伤试探仍让位给首轮补兵。
+                const denseOpeningCarpet = !afterGround && (
+                    targets.length >= 4
+                    || (targets.length >= 3 && hasHighValueClusterUnit && totalClusterDamage >= 115)
+                    || totalClusterDamage >= 150
+                );
+                if (!available('bombing', urgentTargets > 0, { allowClusterOpening: denseOpeningCarpet })) continue;
                 const kills = targets.filter(target => lethal('bombing', target, target === tile ? 1 : 0.5)).length;
                 const siegeCities = area.filter(candidate => (candidate.isCity || candidate.isUrban)
                     && candidate.hp > 0 && canAttack(gameState, aiCamp, candidate.camp)
@@ -502,6 +521,7 @@ async function runAiAirCommands(aiCamp, difficultyProfile, stukaSorties, afterGr
                 const areaScore = targets.length
                     + siegeCities * 1.5
                     + (targets.length >= 2 ? urgentTargets * 0.75 : 0)
+                    + (denseOpeningCarpet ? 1.5 : 0)
                     + Number(tile.isCity && tile.camp !== aiCamp);
                 if (kills === 0 && targets.length + siegeCities < 2 && areaScore < 3) continue;
                 const score = kills * 3 + areaScore;

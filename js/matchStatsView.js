@@ -575,7 +575,21 @@ function resolveCommanderPennantPortrait(commanderId) {
     };
 }
 
-function unitMvpEmblemLabel(type) {
+function unitMvpEmblemLabel(unit) {
+    const specKey = typeof unit === 'string' ? null : unit?.specializationKey;
+    switch (specKey) {
+        case 'assaultInfantry': return '突击';
+        case 'garrisonInfantry': return '卫戍';
+        case 'lightCavalry': return '轻骑';
+        case 'heavyCavalry': return '重骑';
+        case 'fieldGun': return '野战';
+        case 'antiAirArtillery': return '防空';
+        case 'antiAirDestroyer': return '护空';
+        case 'antiSubDestroyer': return '反潜';
+        case 'fleetCruiser': return '制海';
+        case 'supportCruiser': return '支援';
+    }
+    const type = typeof unit === 'string' ? unit : unit?.type;
     switch (type) {
         case 'carrier': return '航母';
         case 'gb_battleship': return '战列';
@@ -585,11 +599,14 @@ function unitMvpEmblemLabel(type) {
         case 'fr_heavy_cannon': return '巨炮';
         case 'ru_katyusha': return '火箭';
         case 'archer': return '炮兵';
+        case 'infantry': return '步兵';
         case 'us_marine': return '陆战';
         case 'cavalry': return '骑兵';
-        case 'kmt_training_brigade': return '教导';
+        case 'kmt_training_brigade':
+        case 'cn_training_brigade': return '教导';
         case 'cpc_guerrilla': return '游击';
         case 'jp_samurai': return '武士';
+        case 'de_stuka': return '斯图卡';
         case 'mgNest': return '碉堡';
         case 'shoreBattery': return '岸防';
         case 'drone': return '天眼';
@@ -625,7 +642,7 @@ function renderUnitMvp(stats, container) {
         const statusClass = unit.survived === true ? 'is-alive' : 'is-dead';
         const foregroundHtml = portrait
             ? `<img class="match-mvp-commander-portrait${portrait.isIronGuard ? ' is-iron-guard' : ''}" src="${escapeHtml(portrait.src)}" alt="${escapeHtml(portrait.name)}立绘">`
-            : `<span class="match-mvp-unit-watermark">${escapeHtml(unitMvpEmblemLabel(unit.type))}</span>`;
+            : `<span class="match-mvp-unit-watermark">${escapeHtml(unitMvpEmblemLabel(unit))}</span>`;
         return `
             <article class="match-mvp-card is-rank-${index + 1}" style="--camp-color:${color}">
                 <div class="match-mvp-stage${portrait ? ' has-commander' : ''}">
@@ -819,20 +836,31 @@ function renderEventSideBadge(stats, event) {
     };
 
     if (type === 'factionEliminated' && event.eliminations?.length) {
-        const first = event.eliminations[0];
-        if (first.finisherCampKey) {
-            return `<div class="match-battle-matchup">${flagOnly(first.finisherCampKey)}<b class="match-battle-op">⚔</b>${flagOnly(first.victimCampKey)}</div><small>势力覆灭</small>`;
+        const elims = event.eliminations.slice(0, 3);
+        const finishers = [...new Set(elims.map(e => e.finisherCampKey).filter(Boolean))];
+        const tag = event.eliminations.length > 1 ? `覆灭 ${event.eliminations.length} 家` : '势力覆灭';
+        if (elims.length > 1 && finishers.length === 1) {
+            return `<div class="match-battle-matchup">${flagOnly(finishers[0])}<b class="match-battle-op">⚔</b>${elims.map(e => flagOnly(e.victimCampKey)).join('')}</div><small>${tag}</small>`;
         }
-        return `<div class="match-battle-matchup">${flagOnly(first.victimCampKey)}</div><small>全军覆没</small>`;
+        const rows = elims.map(elim => elim.finisherCampKey
+            ? `<div class="match-battle-matchup">${flagOnly(elim.finisherCampKey)}<b class="match-battle-op">⚔</b>${flagOnly(elim.victimCampKey)}</div>`
+            : `<div class="match-battle-matchup">${flagOnly(elim.victimCampKey)}</div>`
+        );
+        return rows.length > 1
+            ? `<div class="match-battle-matchup-stack">${rows.join('')}</div><small>${tag}</small>`
+            : `${rows[0]}<small>${elims[0].finisherCampKey ? tag : '全军覆没'}</small>`;
     }
 
     if (type === 'commanderFall' && event.commanderDeaths?.length) {
-        const first = event.commanderDeaths[0];
+        const deaths = event.commanderDeaths.slice(0, 3);
         const tag = event.commanderDeaths.length > 1 ? `斩将 ${event.commanderDeaths.length} 名` : '斩将';
-        if (first.killerCampKey) {
-            return `<div class="match-battle-matchup">${flagOnly(first.killerCampKey)}<b class="match-battle-op">⚔</b>${flagOnly(first.campKey)}</div><small>${tag}</small>`;
-        }
-        return `<div class="match-battle-matchup">☠${flagOnly(first.campKey)}</div><small>${tag}</small>`;
+        const rows = deaths.map(death => death.killerCampKey
+            ? `<div class="match-battle-matchup">${flagOnly(death.killerCampKey)}<b class="match-battle-op">⚔</b>${flagOnly(death.campKey)}</div>`
+            : `<div class="match-battle-matchup">☠${flagOnly(death.campKey)}</div>`
+        );
+        return rows.length > 1
+            ? `<div class="match-battle-matchup-stack">${rows.join('')}</div><small>${tag}</small>`
+            : `${rows[0]}<small>${tag}</small>`;
     }
 
     if (type === 'breakthrough') {
@@ -888,10 +916,15 @@ function renderBattleEvents(stats, container) {
         const subNotes = [];
 
         if (type === 'factionEliminated' && elims.length) {
-            headlineHtml = elims.map(elim => elim.finisherCampKey
-                ? `${campInlineHtml(stats, elim.finisherCampKey)} 消灭 ${campInlineHtml(stats, elim.victimCampKey)}（兵力与据点归零）`
-                : `${campInlineHtml(stats, elim.victimCampKey)} 兵力与据点归零 退出战局`
-            ).join(' ');
+            const finishers = [...new Set(elims.map(elim => elim.finisherCampKey).filter(Boolean))];
+            if (elims.length > 1 && finishers.length === 1) {
+                headlineHtml = `${campInlineHtml(stats, finishers[0])} 消灭 ${elims.map(elim => campInlineHtml(stats, elim.victimCampKey)).join(' ')}（兵力与据点归零）`;
+            } else {
+                headlineHtml = elims.map(elim => elim.finisherCampKey
+                    ? `${campInlineHtml(stats, elim.finisherCampKey)} 消灭 ${campInlineHtml(stats, elim.victimCampKey)}`
+                    : `${campInlineHtml(stats, elim.victimCampKey)} 退出战局`
+                ).join(' ') + '（兵力与据点归零）';
+            }
             if (deaths.length) subNotes.push(...deaths.map(death => renderDeathLineHtml(stats, death)));
             if (captures.length) subNotes.push(renderCaptureGroupsHtml(stats, captures));
             if (event.turningPoint) subNotes.push(renderTurningLineHtml(stats, event.turningPoint, true));

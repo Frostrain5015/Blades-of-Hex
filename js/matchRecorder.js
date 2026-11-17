@@ -26,6 +26,29 @@ function nowIso() {
     return new Date().toISOString();
 }
 
+export function formatMatchMapAcronym(mapName) {
+    const cleaned = String(mapName || 'standard')
+        .trim()
+        .replace(/-(?:2|3)p$/i, '')
+        .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
+        .toLowerCase();
+    const tokens = cleaned.split(/[^a-z0-9]+/).filter(Boolean);
+    return tokens.length > 0 ? tokens.map(token => token[0]).join('') : 's';
+}
+
+export function formatMatchTimestamp(date = new Date()) {
+    const d = date instanceof Date && !Number.isNaN(date.getTime()) ? date : new Date();
+    const pad2 = (value) => String(value).padStart(2, '0');
+    return [
+        d.getFullYear(),
+        pad2(d.getMonth() + 1),
+        pad2(d.getDate()),
+        pad2(d.getHours()),
+        pad2(d.getMinutes()),
+        pad2(d.getSeconds())
+    ].join('');
+}
+
 function elapsedMs() {
     return active ? Math.max(0, Math.round(performance.now() - active.startedAtMonotonic)) : 0;
 }
@@ -423,11 +446,12 @@ export function startMatchRecording(state, metadata = {}) {
         : (state.aiDifficulty != null || state.aiDifficultyId != null
             ? resolveAiDifficultyProfile(state).id
             : null);
-    const matchId = metadata.matchId || [
-        state.campaignMode ? (state.scenarioId || state.campaignId || 'campaign') : (state.standardMapId || 'standard'),
-        Date.now().toString(36),
-        Math.random().toString(36).slice(2, 8)
-    ].join('-');
+    const startedAtDate = new Date();
+    const mapIdentifier = state.campaignMode
+        ? (state.scenarioId || state.campaignId || 'campaign')
+        : (state.standardMapId || 'standard');
+    const matchId = metadata.matchId
+        || `${formatMatchMapAcronym(mapIdentifier)}-${formatMatchTimestamp(startedAtDate)}`;
     active = {
         startedAtMonotonic: performance.now(),
         lastSnapshot: snapshot,
@@ -443,7 +467,7 @@ export function startMatchRecording(state, metadata = {}) {
                 sequenceLookup: 'review sequence ranges refer to fullLog.timeline[].sequence',
                 actionLookup: 'review action references refer to fullLog.timeline[].actionId'
             },
-            startedAt: nowIso(),
+            startedAt: startedAtDate.toISOString(),
             endedAt: null,
             durationMs: null,
             complete: false,

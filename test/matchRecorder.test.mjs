@@ -9,6 +9,8 @@ import {
     buildMatchReview,
     clearMatchRecording,
     finalizeMatchRecording,
+    formatMatchMapAcronym,
+    formatMatchTimestamp,
     getCurrentMatchLog,
     recordCommittedAction,
     resolvePendingLocalAction,
@@ -249,5 +251,31 @@ test('Hero-bound faction skills are logged once with the faction logo and includ
     const review = buildMatchReview(getCurrentMatchLog());
     assert.equal(review.factionSkillEvents.length, 1);
     assert.equal(review.factionSkillEvents[0].presentationEventId, 'sunMoon:player1:4');
+    clearMatchRecording();
+});
+
+test('default matchId uses map acronym and exact-to-second timestamp', () => {
+    clearMatchRecording();
+    assert.equal(formatMatchMapAcronym('crown-ring'), 'cr');
+    assert.equal(formatMatchMapAcronym('uncharted-passage'), 'up');
+    assert.equal(formatMatchMapAcronym('river-valley'), 'rv');
+    assert.equal(formatMatchMapAcronym('grand-island-3p'), 'gi');
+    assert.equal(formatMatchMapAcronym('bi-t1-sheath'), 'bts');
+    assert.equal(formatMatchMapAcronym('standard'), 's');
+    assert.equal(formatMatchTimestamp(new Date(2026, 10, 17, 8, 45, 15)), '20261117084515');
+
+    const state = makeState();
+    state.standardMapId = 'crown-ring';
+    const started = startMatchRecording(state);
+    const expectedTs = formatMatchTimestamp(new Date(started.startedAt));
+    assert.match(started.matchId, /^cr-\d{14}$/);
+    assert.equal(started.matchId, `cr-${expectedTs}`);
+    assert.equal(started.layers.reviewIndexFile, `${started.matchId}.match-review.json`);
+    assert.equal(started.layers.fullLogFile, `${started.matchId}.match-full.json`);
+
+    clearMatchRecording();
+    const campaignState = { ...makeState(), campaignMode: true, scenarioId: 'bi-02-flag' };
+    const campaignStarted = startMatchRecording(campaignState);
+    assert.match(campaignStarted.matchId, /^b0f-\d{14}$/);
     clearMatchRecording();
 });

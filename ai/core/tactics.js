@@ -34,8 +34,66 @@ import { isEmbarkableLandUnit } from '../../rules/movement.js';
 import { isStealthGuerrilla, STEALTH_VISIBILITY_RULES } from '../../rules/visibility.js';
 import { COMMANDER_CONFIG } from '../../rules/commanders.js';
 
-const FRAGILE_COMMANDERS = new Set(['advisor', 'diplomat', 'engineer', 'priest', 'staller', 'astrologer']);
+const FRAGILE_COMMANDERS = new Set(['advisor', 'diplomat', 'engineer', 'priest', 'staller', 'astrologer', 'necromancer']);
 const REAR_COMMANDERS = new Set(['minister', 'astrologer']);
+
+// 陆战主体单位（排除真正两栖的美国海军陆战队与海军舰船）下海即沦为无输出运输船且无法占城守城。
+function isLandBoundUnit(world, unit) {
+    return !!unit && !world.isNaval(unit) && isEmbarkableLandUnit(unit) && unit.type !== 'us_marine';
+}
+
+function canRetreatOntoTile(world, unit, tile) {
+    if (!tile || (tile.unit && (!world.isUnitVisible || world.isUnitVisible(tile.unit)))) return false;
+    if (isLandBoundUnit(world, unit)) return !world.onWater(tile);
+    if (unit.type === 'us_marine') {
+        return !world.onWater(tile) || (tile.isPort && isPortOperationalFor(tile, world.myCamp, world.gameState));
+    }
+    return true;
+}
+
+function nearestLandDistance(world, tile) {
+    let best = Infinity;
+    for (const candidate of world.tiles) {
+        if (world.onWater(candidate)) continue;
+        const d = world.helpers.hexDistance(tile, candidate);
+        if (d < best) best = d;
+    }
+    return best;
+}
+
+function hasSurvivableRetreat(world, unit) {
+    if (!unit?.tile) return false;
+    const pool = unit.hp + (unit.activeShield ?? unit._shield ?? 0);
+    if (!world.onWater(unit.tile) || !isLandBoundUnit(world, unit)) {
+        if (combinedThreatAt(world, unit.tile, unit, null, 0).total * W.lethalThreatMargin < pool) return true;
+    }
+    if (unit.isNewRecruit || world.isImmobile(unit)) return false;
+    for (const tile of world.helpers.getMovableTiles(unit)) {
+        if (!canRetreatOntoTile(world, unit, tile)) continue;
+        const { total } = combinedThreatAt(world, tile, unit, null, 0);
+        if (total * W.lethalThreatMargin < pool) return true;
+        if (!world.isNaval(unit) && tile.isCity && tile.camp === world.myCamp
+            && !isReservedForMinisterReturn(world, tile) && total < pool) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function computeDoomedUnitIds(world, missionsCtx) {
+    const doomed = new Set();
+    for (const unit of world.myUnits) {
+        if (!unit.canAct || !unit.tile || unit.isNewRecruit) continue;
+        if (shouldHoldCityPosition(world, unit, missionsCtx?.assignment?.get(unit.id))) continue;
+        const pool = unit.hp + (unit.activeShield ?? unit._shield ?? 0);
+        const { total } = combinedThreatAt(world, unit.tile, unit, null, 0);
+        if (total * W.lethalThreatMargin < pool) continue;
+        if (world.isImmobile(unit) || (shouldRetreat(world, unit, missionsCtx) && !hasSurvivableRetreat(world, unit))) {
+            doomed.add(unit.id);
+        }
+    }
+    return doomed;
+}
 
 function historicalAttackValue(world, attacker, target, damage, kills) {
     const distance = world.helpers.hexDistance;
@@ -202,12 +260,21 @@ function isRiskyNeutralAssault(world, attacker, target, counter, incoming = null
 }
 
 /** 威胁定价：按比例损失折算残余价值，而不是按 HP 单价——快死的单位每一步都更贵。 */
+function combinedThreatAt(world, tile, unit, excludedEnemy = null, extraDamageTaken = 0) {
+    const ground = world.threatAt(tile, unit, excludedEnemy);
+    const air = world.airThreatAt ? world.airThreatAt(tile, unit, extraDamageTaken) : 0;
+    return { ground, air, total: ground + air };
+}
+
 function threatCost(world, unit, tile, riskWeight = 1) {
-    const incoming = world.threatAt(tile, unit);
-    if (incoming <= 0) return 0;
+    const { ground, air, total } = combinedThreatAt(world, tile, unit, null, 0);
     const pool = Math.max(1, unit.hp + (unit._shield || 0));
+    const onKillLine = air > 0 && total * W.lethalThreatMargin >= pool;
+    const incoming = ground + (onKillLine ? air : air * W.airThreatBackgroundWeight);
+    if (incoming <= 0) return 0;
     const lossRatio = Math.min(1, incoming / pool);
-    return lossRatio * residualGold(unit) * riskWeight;
+    return lossRatio * residualGold(unit) * riskWeight
+        + (onKillLine ? residualGold(unit) * (unit.commander ? 0.85 : 0.30) : 0);
 }
 
 /**
@@ -253,11 +320,14 @@ export function evaluateAttack(world, missionsCtx, attacker, target) {
     const damage = combat.estimateDamage(attacker, target, target.tile);
     const kills = damage >= target.hp + (target._shield || 0);
     const counter = kills ? 0 : combat.estimateCounterDamage(attacker, target);
-    const trade = tradeNetValue({ damageDealt: damage, target, kills, counterDamage: counter, attacker });
-    // 近战贴脸 = 缠斗承诺：困难档按整段决斗定价；低中档只按单回合账面算，
-    // 看不到缠斗结局——这是档差最锋利的地方（决定每一次近战交换的质量）。
+    const isDoomed = Boolean(world._doomedUnitIds?.has(attacker.id));
+    const fatalCounter = !kills && counter >= attacker.hp + (attacker.activeShield ?? attacker._shield ?? 0);
+    const trade = isDoomed && !fatalCounter
+        ? tradeNetValue({ damageDealt: damage, target, kills, counterDamage: counter * 0.15, attacker })
+        : tradeNetValue({ damageDealt: damage, target, kills, counterDamage: counter, attacker });
+    // 近战贴脸 = 缠斗承诺：困难档按整段决斗定价；但己方已确认本轮必死时只看当轮爆掉的价值。
     const meleeCommit = Math.max(1, Number(attacker.config?.range) || 1) <= 1;
-    const net = meleeCommit && world.caps.duelModel
+    const net = meleeCommit && world.caps.duelModel && !isDoomed
         ? duelExpectation(world, attacker, target)
         : trade;
     const strategic = missionTargetBonus(world, missionsCtx, target, kills)
@@ -270,35 +340,64 @@ export function evaluateAttack(world, missionsCtx, attacker, target) {
         + ((target._rank || 0) >= 3 ? 40 : 0); // 高 rank 王牌：放任不管会被它一个个点名
     // 攻击位置暴露成本：攻击完单位留在原地，敌方回合按当前位置的威胁预扣。
     // 这是"潜艇排队送岸防炮"的根因——单看交换不亏，但打完走不了。
-    const incoming = world.threatAt(attacker.tile, attacker, kills ? target : null);
-    const exposure = incoming * hpGold(attacker) * 0.4;
-    // 净交换否决：换血明显亏本、形不成击杀、且脱得了身时不打。
+    const { ground: incoming, air: airIncoming, total: totalIncoming } = combinedThreatAt(
+        world, attacker.tile, attacker, kills ? target : null, counter
+    );
+    const hpPool = attacker.hp + (attacker.activeShield ?? attacker._shield ?? 0);
+    const postCombatPool = Math.max(0, hpPool - counter);
+    const airportKillzoneExposure = !isDoomed && !kills && airIncoming > 0 && postCombatPool <= airIncoming * W.airportExecuteMargin
+        ? residualGold(attacker) * W.airportKillzoneRiskRatio
+        : 0;
+    const exposure = ((incoming + airIncoming * W.airThreatExposureWeight) * hpGold(attacker) * 0.4
+        + airportKillzoneExposure) * (isDoomed ? 0.15 : 1);
+    // 净交换否决：换血明显亏本、形不成击杀、且脱得了身时不打；必死破罐破摔局保留最后一轮输出机会。
     const canDisengage = Math.max(1, Number(attacker.config?.range) || 1) >= 2
         || Number(target.config?.speed) <= 0
         || Math.max(1, Number(target.config?.range) || 1) < world.helpers.hexDistance(attacker.tile, target.tile);
     const rearCommanderExposed = world.caps.rearCommanderSafety
         && REAR_COMMANDERS.has(attacker.commander)
         && !kills
-        && incoming >= attacker.hp * 0.35;
-    const hpPool = attacker.hp + (attacker.activeShield ?? attacker._shield ?? 0);
-    const fatalCounter = !kills && counter >= hpPool;
+        && totalIncoming >= attacker.hp * 0.35;
+    const fatalCounterPenalty = isDoomed && fatalCounter
+        ? residualGold(attacker) * W.doomedFatalCounterPenaltyRatio
+        : 0;
     const assignment = missionsCtx.assignment.get(attacker.id);
     const hardToReplace = attacker.commander
         || (assignment?.occupierId === attacker.id
             && (assignment.kind === 'siege' || assignment.kind === 'garrison'));
+    const capturesCityNow = kills && target.tile.isCity
+        && target.camp !== world.myCamp
+        && world.isCapturable(attacker);
+    const holdingOwnCity = attacker.tile.isCity
+        && attacker.tile.camp === world.myCamp
+        && isOwnCityThreatened(world, attacker.tile);
+    const decisiveClockBlow = world.caps.victoryClock
+        && missionsCtx.missions.some(m => m.kind === 'siege' && m.decisive
+            && target.tile.q === m.targetQ && target.tile.r === m.targetR);
+    // 全回合反集火与反机场斩杀线：禁止将领或高星老兵为了击杀一名非关键外围敌军而停在下一动必死（地面+机场）格
+    const criticalAsset = Boolean(attacker.commander) || (attacker._rank || 0) >= 2;
+    const suicidalCriticalExposure = world.caps.duelModel && criticalAsset
+        && !holdingOwnCity
+        && !target.commander
+        && !capturesCityNow
+        && !decisiveClockBlow
+        && postCombatPool <= totalIncoming * W.lethalThreatMargin;
     const losingCriticalUnit = world.caps.duelModel && hardToReplace && !kills
-        && counter > 0 && trade < 0 && (counter + incoming) * W.lethalThreatMargin >= hpPool;
+        && counter > 0 && trade < 0 && (counter + totalIncoming) * W.lethalThreatMargin >= hpPool;
     const capturerDistance = units => units.reduce((best, unit) =>
         isFieldCapturer(world, unit) ? Math.min(best, world.helpers.hexDistance(unit.tile, target.tile)) : best, Infinity);
     const giftsNeutralCity = kills && target.tile.isCity
         && target.camp === world.gameState.factions.neutral && !world.isCapturable(attacker)
         && capturerDistance(world.rivalUnits) <= 3
         && capturerDistance(world.rivalUnits) < capturerDistance(world.myUnits);
-    const veto = fatalCounter || losingCriticalUnit || giftsNeutralCity || rearCommanderExposed
-        || (!kills && isRiskyNeutralAssault(world, attacker, target, counter, incoming))
-        || (!kills && canDisengage && net < -residualGold(attacker) * W.tradeVetoRatio);
+    const veto = (fatalCounter && !isDoomed)
+        || (!isDoomed && (losingCriticalUnit || suicidalCriticalExposure || rearCommanderExposed
+            || (!kills && isRiskyNeutralAssault(world, attacker, target, counter, totalIncoming))
+            || (!kills && canDisengage && net < -residualGold(attacker) * W.tradeVetoRatio)))
+        || giftsNeutralCity
+        || damage <= 0;
     const jitter = noiseJitter(world.caps, `atk:${world.round}:${attacker.id}:${target.id}`);
-    return { target, damage, kills, counter, net, strategic, veto, value: (net + strategic - exposure) * jitter };
+    return { target, damage, kills, counter, net, strategic, veto, value: (net + strategic - exposure - fatalCounterPenalty) * jitter };
 }
 
 export function bestAttackFor(world, missionsCtx, unit) {
@@ -384,19 +483,29 @@ function planActiveSkill(world, missionsCtx, unit, actions) {
             const splash = qixueSplashSummary(world, unit, entry);
             return { ...entry, splashHitCount: splash.hitCount, splashKills: splash.kills, splashValue: splash.value };
         };
+        const qixueSafeAt = (tile, entry) => {
+            if (world._doomedUnitIds?.has(unit.id) || entry.target.commander) return true;
+            const postPool = postQixueHp + (unit.activeShield ?? unit._shield ?? 0) - (entry.counter || 0);
+            const postThreat = combinedThreatAt(world, tile, unit, entry.kills ? entry.target : null, entry.counter || 0).total;
+            return postThreat * W.lethalThreatMargin < postPool;
+        };
         let buffedAttack = !unit._berserkerQixue
             ? withVirtualSkill(unit, { _berserkerQixue: true, hp: postQixueHp }, evaluateQixueFromCurrent)
             : (attack ? { ...attack, ...qixueSplashSummary(world, unit, attack), splashHitCount: qixueSplashSummary(world, unit, attack).hitCount } : null);
+        // 若原地泣血后会把自己压入地面+机场联合斩杀线（非必死局且非高价值斩首将领），放弃原地自损。
+        if (buffedAttack && !qixueSafeAt(unit.tile, buffedAttack)) buffedAttack = null;
         // 支持“先开泣血、再机动贴近收割”：若原地够不着敌军，预查本回合安全机动后能斩杀/砸将领+溅射的目标。
         if (!buffedAttack && !unit._berserkerQixue && !unit.isNewRecruit && !world.isImmobile(unit)) {
             let bestMoved = null;
             for (const tile of world.helpers.getMovableTiles(unit)) {
                 if (!tile || tile === unit.tile || tile.unit || (tile.isCity && tile.camp !== world.myCamp)) continue;
+                if (isLandBoundUnit(world, unit) && world.onWater(tile)) continue;
                 const entry = withVirtualSkill(unit, { _berserkerQixue: true, hp: postQixueHp }, () =>
                     withVirtualTile(unit, tile, () => evaluateQixueFromCurrent()));
                 if (!entry) continue;
-                const safeAfterMove = world.threatAt(tile, unit, entry.kills ? entry.target : null)
-                    < postQixueHp + (unit.activeShield ?? unit._shield ?? 0);
+                const safeAfterMove = qixueSafeAt(tile, entry)
+                    || (entry.target.commander && combinedThreatAt(world, tile, unit, entry.kills ? entry.target : null, entry.counter || 0).total
+                        < postQixueHp + (unit.activeShield ?? unit._shield ?? 0));
                 if (!safeAfterMove) continue;
                 const totalValue = entry.value + entry.splashValue;
                 if (totalValue > 20 && (!bestMoved || totalValue > bestMoved.totalValue)) {
@@ -550,7 +659,7 @@ function captureTileBonus(world, unit, tile) {
         const city = world.cities.find(c => c.tile === tile);
         bonus += (city?.asset.total || 120);
     }
-    if (tile.isPort && tile.camp !== world.myCamp) {
+    if (tile.isPort && tile.camp !== world.myCamp && (!isLandBoundUnit(world, unit) || world.oceanMap)) {
         bonus += world.oceanMap ? W.portValueOcean : W.portValueLand;
     }
     if (tile.isVillage && tile.camp !== world.myCamp) {
@@ -745,7 +854,7 @@ function scoreGuerrillaBlindSpotPosition(world, unit, tile) {
 function attackPotential(world, missionsCtx, unit, tile) {
     const range = Math.max(1, Number(unit.config?.range) || 1);
     if (range <= 1 && !world.isCapturable(unit)) return 0;
-    const evaluateAtTile = () => {
+    const evaluateAtTile = () => withVirtualTile(unit, tile, () => {
         let best = 0;
         for (const enemy of [...world.rivalUnits, ...world.neutralUnits]) {
             if (!enemy.tile) continue;
@@ -754,8 +863,8 @@ function attackPotential(world, missionsCtx, unit, tile) {
             const entry = evaluateAttack(world, missionsCtx, unit, enemy);
             if (!entry.veto) best = Math.max(best, entry.value);
         }
-        return best * 0.55; // 落点潜在收益打折；执行时按实际站位重新评分。
-    };
+        return best * 0.55; // 落点潜在收益打折；以虚拟站位评估真实暴露与反击。
+    });
     if (unit.type === 'cpc_guerrilla') {
         const ambushReady = canGuerrillaConcealForMove(world, unit, tile);
         return withVirtualSkill(unit, ambushReady
@@ -771,16 +880,15 @@ function shouldRetreat(world, unit, missionsCtx = null) {
         return false;
     }
     const pool = unit.hp + (unit.activeShield ?? unit._shield ?? 0);
-    const incoming = world.threatAt(unit.tile, unit);
+    const { ground: incoming, total: totalThreat } = combinedThreatAt(world, unit.tile, unit, null, 0);
     const criticalAsset = !!unit.commander || (unit._rank || 0) >= 2;
-    // 多重岸防/集火死亡陷阱规避：海军或核心王牌即使仍高于 70% 血，只要下回合承伤逼近总血池就必须撤离，
-    // 防止高血量旗舰停在双岸防交叉火力里两回合内活活轰沉。
-    if ((world.isNaval(unit) || criticalAsset) && incoming >= pool * W.lethalCrossfireRetreatRatio) {
+    // 多重岸防/集火及敌方机场斩杀陷阱规避：海军或核心王牌只要地面+空袭预期承伤逼近总血池即提前撤离
+    if ((world.isNaval(unit) || criticalAsset) && totalThreat >= pool * W.lethalCrossfireRetreatRatio) {
         return true;
     }
-    // 必死规避：当前位置下回合预期承伤 ≥ 当前生命（+护盾），无论血量先撤。
-    // 等血量掉到 30% 再跑往往已经来不及了——这是阵亡偏高的主要来源。
-    if (incoming >= pool && pool < unit.maxHp * 0.7) return true;
+    // 必死规避：当前位置下回合预期承伤（含机场执行线）>= 总血池时提前脱险
+    if ((totalThreat >= pool && (pool < unit.maxHp * 0.7 || !!unit.commander))
+        || (incoming >= pool && pool < unit.maxHp * 0.7)) return true;
     const hpRatio = unit.hp / unit.maxHp;
     // 受伤的主力将领/老兵舰船在重压下及时脱离战场回港维修。
     if (world.isNaval(unit) && criticalAsset && hpRatio < 0.58 && incoming >= pool * 0.40) {
@@ -805,18 +913,33 @@ function planMove(world, missionsCtx, unit, posture, actions, { captureObjective
     if (captureObjective && retreating) return false;
     const distance = world.navDistance || world.helpers.hexDistance;
     const distanceToObjective = captureObjective ? distance(unit.tile, captureObjective) : 0;
-    const advisor = unit.commander === 'advisor' && isEmbarkableLandUnit(unit);
-    const safeLand = tile => !world.onWater(tile)
-        && world.threatAt(tile, unit) * W.lethalThreatMargin < unit.hp + (unit._shield || 0);
-    const canStayAshore = advisor && (safeLand(unit.tile) || movable.some(tile =>
-        !tile.unit && safeLand(tile)));
-    const shouldLand = canStayAshore && world.onWater(unit.tile);
+    const landBound = isLandBoundUnit(world, unit);
+    const doomed = Boolean(world._doomedUnitIds?.has(unit.id));
     const seaTarget = world.captureRoute && mission?.kind === 'siege' && mission.occupierId === unit.id
         ? world.tileMap.get(`${mission.targetQ},${mission.targetR}`) : null;
     const seaRoute = seaTarget && world.captureRoute(unit, seaTarget);
-    const protectCommander = world.caps.rearCommanderSafety
-        && (FRAGILE_COMMANDERS.has(unit.commander) || (unit.commander && world.isNaval(unit)));
-    const currentThreat = protectCommander ? world.threatAt(unit.tile, unit) : 0;
+    const missionTargetTile = mission?.kind === 'siege'
+        ? world.tileMap.get(`${mission.targetQ},${mission.targetR}`)
+        : null;
+    const occupier = mission?.kind === 'siege' && mission.occupierId !== unit.id
+        ? world.myUnits.find(u => u.id === mission.occupierId)
+        : null;
+    const activeSeaCrossing = Boolean(
+        world.oceanMap && !retreating && mission?.kind === 'siege'
+        && !REAR_COMMANDERS.has(unit.commander) && unit.commander !== 'advisor'
+        && (seaRoute?.landing || (occupier && missionTargetTile && !FRAGILE_COMMANDERS.has(unit.commander)
+            && world.captureRoute?.(occupier, missionTargetTile)?.landing))
+    );
+    const pool = unit.hp + (unit.activeShield ?? unit._shield ?? 0);
+    const safeLand = tile => !world.onWater(tile)
+        && combinedThreatAt(world, tile, unit, null, 0).total * W.lethalThreatMargin < pool;
+    const canStayAshore = landBound && !activeSeaCrossing
+        && (safeLand(unit.tile) || movable.some(tile => !tile.unit && safeLand(tile)));
+    const mustDisembark = landBound && world.onWater(unit.tile) && !activeSeaCrossing
+        && movable.some(tile => !tile.unit && !world.onWater(tile));
+    const shouldLand = (canStayAshore || mustDisembark) && world.onWater(unit.tile);
+    const protectCommander = world.caps.rearCommanderSafety && Boolean(unit.commander);
+    const currentThreat = protectCommander ? combinedThreatAt(world, unit.tile, unit, null, 0).total : 0;
     const neutralObjective = world.caps.duelModel && mission?.kind === 'siege'
         && mission.occupierId === unit.id
         ? world.cities.find(city => city.ownerKey === 'neutral'
@@ -837,9 +960,6 @@ function planMove(world, missionsCtx, unit, posture, actions, { captureObjective
     const guerrillaBlindSpot = unit.type === 'cpc_guerrilla'
         ? inferGuerrillaBlindSpotTarget(world, unit)
         : null;
-    const missionTargetTile = mission?.kind === 'siege'
-        ? world.tileMap.get(`${mission.targetQ},${mission.targetR}`)
-        : null;
     const applyBlindSpotPull = !!guerrillaBlindSpot && (
         !mission
         || (mission.kind === 'siege' && mission.occupierId !== unit.id && missionTargetTile
@@ -847,7 +967,7 @@ function planMove(world, missionsCtx, unit, posture, actions, { captureObjective
     );
 
     let bestTile = null;
-    let bestScore = retreating || shouldLand ? -Infinity : scoreOfStaying(world, missionsCtx, unit, mission)
+    let bestScore = (retreating && !doomed) || shouldLand ? -Infinity : scoreOfStaying(world, missionsCtx, unit, mission)
         + historicalPositionValue(world, unit, unit.tile);
     for (const tile of movable) {
         if (tile.unit && (!world.isUnitVisible || world.isUnitVisible(tile.unit))) continue;
@@ -857,12 +977,13 @@ function planMove(world, missionsCtx, unit, posture, actions, { captureObjective
             if (!retreating && (!seaRoute?.landing || !next || next.turns >= seaRoute.turns)) continue;
         }
         if (stageOnLand && world.onWater(tile)) continue;
+        if (landBound && !activeSeaCrossing && (!world.onWater(unit.tile) || retreating) && world.onWater(tile)) continue;
         if (canStayAshore && world.onWater(tile)) continue;
-        if (shouldLand && !safeLand(tile)) continue;
+        if (shouldLand && (canStayAshore ? !safeLand(tile) : world.onWater(tile))) continue;
         if (captureObjective && (distance(tile, captureObjective) >= distanceToObjective
             || world.threatAt(tile, unit) >= unit.hp + (unit._shield || 0))) continue;
-        if (protectCommander && !retreating) {
-            const incoming = world.threatAt(tile, unit);
+        if (protectCommander && !retreating && tile !== captureObjective) {
+            const incoming = combinedThreatAt(world, tile, unit, null, 0).total;
             if (incoming > currentThreat
                 && incoming * W.lethalThreatMargin >= unit.hp + (unit._shield || 0)) continue;
         }
@@ -875,6 +996,13 @@ function planMove(world, missionsCtx, unit, posture, actions, { captureObjective
             + captureTileBonus(world, unit, tile)
             + historicalPositionValue(world, unit, tile)
             + potentialAtTile;
+        if (landBound && world.onWater(unit.tile) && world.onWater(tile) && !activeSeaCrossing) {
+            const landDistNow = nearestLandDistance(world, unit.tile);
+            const landDistNext = nearestLandDistance(world, tile);
+            if (Number.isFinite(landDistNow) && Number.isFinite(landDistNext)) {
+                score += (landDistNow - landDistNext) * 28;
+            }
+        }
         // 游击纵队：散兵或战区附近护航时，向推断出的敌方防守盲区/侧翼迂回渗透。
         if (applyBlindSpotPull) {
             const pathDist = !world.isNaval(unit) && world.navDistance
@@ -917,16 +1045,29 @@ function planMove(world, missionsCtx, unit, posture, actions, { captureObjective
             }
         }
         if (retreating) {
-            const threat = world.threatAt(tile, unit);
-            const pool = unit.hp + (unit.activeShield ?? unit._shield ?? 0);
-            const safety = -threat * 3 - world.helpers.hexDistance(tile, unit.tile) * 0.5;
-            const ports = world.isNaval(unit) ? world.tiles.filter(port =>
+            const threat = combinedThreatAt(world, tile, unit, null, 0).total;
+            const ports = (world.isNaval(unit) || unit.type === 'us_marine') ? world.tiles.filter(port =>
                 isPortOperationalFor(port, world.myCamp, world.gameState) && (!port.unit || port.unit === unit)) : [];
-            const homePull = ports.length ? Math.min(...ports.map(port => world.helpers.hexDistance(tile, port)))
-                : nearestOwnCityDistance(world, tile);
-            const canRecover = ports.length ? ports.includes(tile) : tile.isCity && tile.camp === world.myCamp;
-            const safeDockBonus = canRecover && threat * W.lethalThreatMargin < pool ? 80 : 0;
-            score = safety - homePull * 4 + safeDockBonus;
+            const ownsRecoverySite = !world.isNaval(unit) && !isReservedForMinisterReturn(world, tile)
+                && ((tile.isCity && tile.camp === world.myCamp)
+                    || (tile.isVillage && effectiveSiteOwner(world, tile) === world.myCamp));
+            const holdsThreatenedOwnCity = !world.isNaval(unit) && world.isCapturable(unit)
+                && tile.isCity && tile.camp === world.myCamp
+                && !isReservedForMinisterReturn(world, tile)
+                && isOwnCityThreatened(world, tile);
+            if (doomed) {
+                score = (holdsThreatenedOwnCity ? 140 : 0)
+                    + (potentialAtTile > 0 ? potentialAtTile * 2 : 0)
+                    + captureTileBonus(world, unit, tile)
+                    - threat * 0.15;
+            } else {
+                const safety = -threat * 3 - world.helpers.hexDistance(tile, unit.tile) * 0.5;
+                const homePull = ports.length ? Math.min(...ports.map(port => world.helpers.hexDistance(tile, port)))
+                    : nearestOwnCityDistance(world, tile);
+                const canRecover = ports.includes(tile) || ownsRecoverySite;
+                const safeDockBonus = canRecover && threat * W.lethalThreatMargin < pool ? 80 : 0;
+                score = safety - homePull * 4 + safeDockBonus;
+            }
         }
         if (score > 0) score *= noiseJitter(world.caps, `mv:${world.round}:${unit.id}:${tile.q},${tile.r}`);
         if (score > bestScore) { bestScore = score; bestTile = tile; }
@@ -1429,16 +1570,20 @@ function planBanzaiCharges(world, missionsCtx, actions, processed, {
             const kills = banzaiDmg >= lethalHp;
             if (onlyImmediateKills && !kills) continue;
             const isFollowupCharge = unit._banzaiFollowupTurn === world.gameState.turnCounter;
+            const isDoomed = Boolean(world._doomedUnitIds?.has(unit.id));
             if (!kills) {
                 // 万岁冲锋不击杀会白扣 30% 当前生命且无回血/无返还行动：
-                // 仅在非二段追击、目标已处半血以下且友军本轮可补刀收割时才允许非斩杀冲锋。
-                if (isFollowupCharge || hpRatio > 0.55 || unit.hp < 85 || holdingCity) continue;
-                const remainingAfterBanzai = lethalHp - banzaiDmg;
-                const allyCanFinish = world.myUnits.some(ally => ally !== unit && !processed.has(ally.id)
-                    && ally.canAct && ally.tile
-                    && world.helpers.getAttackableTiles(ally).includes(enemy.tile)
-                    && world.combat.estimateDamage(ally, enemy, enemy.tile) >= remainingAfterBanzai);
-                if (!allyCanFinish) continue;
+                // 正常仅在非二段追击、半血以下且友军能补刀时使用；若己方必死且能额外换伤，则放行爆发最后价值。
+                if (!isDoomed && (isFollowupCharge || hpRatio > 0.55 || unit.hp < 85 || holdingCity)) continue;
+                if (isDoomed && (holdingCity || banzaiDmg <= baseDmg)) continue;
+                if (!isDoomed) {
+                    const remainingAfterBanzai = lethalHp - banzaiDmg;
+                    const allyCanFinish = world.myUnits.some(ally => ally !== unit && !processed.has(ally.id)
+                        && ally.canAct && ally.tile
+                        && world.helpers.getAttackableTiles(ally).includes(enemy.tile)
+                        && world.combat.estimateDamage(ally, enemy, enemy.tile) >= remainingAfterBanzai);
+                    if (!allyCanFinish) continue;
+                }
             }
             if (holdingCity && world.rivalUnits.some(other =>
                 other !== enemy && other.hp > 0 && world.isCapturable(other)
@@ -1465,7 +1610,7 @@ function planBanzaiCharges(world, missionsCtx, actions, processed, {
 
                 const hpAfterSelf = Math.max(1, unit.hp - Math.round(unit.hp * BANZAI_CHARGE_CONFIG.selfDamageCurrentHpPct));
                 const incoming = world.threatAt(destTile, unit, kills ? enemy : null);
-                if (!kills && incoming >= hpAfterSelf * 0.95) continue;
+                if (!kills && !isDoomed && incoming >= hpAfterSelf * 0.95) continue;
 
                 let score = Math.min(lethalHp, banzaiDmg) * hpGold(enemy) + enemyCapturerPremium(world, enemy);
                 if (isMidOrLowHp) {
@@ -1533,6 +1678,8 @@ export function planTactics(world, strategy, missionsCtx, availableGold = world.
     const virtualReverts = [];
 
     try {
+        world._doomedUnitIds = computeDoomedUnitIds(world, missionsCtx);
+        virtualReverts.push(() => { delete world._doomedUnitIds; });
         // 已可占领的空城先兑现，避免占领者先做技能或普通交战。
         planCaptureFinishers(world, missionsCtx, actions, processed, true);
 
@@ -1574,17 +1721,24 @@ export function planTactics(world, strategy, missionsCtx, availableGold = world.
         planSiegeAttacks(world, missionsCtx, actions, processed, true);
         planCaptureApproaches(world, strategy, missionsCtx, actions, processed);
 
-        // 1.65 濒死撤离优先：处于重火力陷阱或急需入港修船的非守城单位先撤出致命火网再择机开火，
-        // 避免在步骤 2 原地开炮耗尽行动并留在交叉火力中被直接收掉。
+        // 1.65 濒死撤离优先：有安全/可活路线时先脱离致命火网再择机开火；
+        // 但若已无路可逃（必死局），则放弃徒劳逃命（更不准跳海），留到后续步骤破罐破摔打满输出。
         for (const unit of world.myUnits) {
             if (processed.has(unit.id) || !unit.canAct || unit.isNewRecruit || world.isImmobile(unit)) continue;
             if (!shouldRetreat(world, unit, missionsCtx)) continue;
             const pool = unit.hp + (unit.activeShield ?? unit._shield ?? 0);
             const bestHere = bestAttackFor(world, missionsCtx, unit);
             const clearsLethalThreat = bestHere?.kills
-                && world.threatAt(unit.tile, unit, bestHere.target) < pool * W.lethalCrossfireRetreatRatio
+                && combinedThreatAt(world, unit.tile, unit, bestHere.target, bestHere.counter).total < pool * W.lethalCrossfireRetreatRatio
                 && !(world.isNaval(unit) && (unit.commander || (unit._rank || 0) >= 2) && unit.hp < unit.maxHp * 0.45);
             if (clearsLethalThreat) continue;
+            if (world._doomedUnitIds?.has(unit.id) && !(isLandBoundUnit(world, unit) && world.onWater(unit.tile))) {
+                const canLastStandStrike = Boolean(bestHere)
+                    || world.helpers.getMovableTiles(unit).some(tile =>
+                        !tile.unit && canRetreatOntoTile(world, unit, tile)
+                        && attackPotential(world, missionsCtx, unit, tile) > 0);
+                if (canLastStandStrike) continue;
+            }
             if (planMove(world, missionsCtx, unit, strategy.posture, actions)) {
                 processed.add(unit.id);
             }

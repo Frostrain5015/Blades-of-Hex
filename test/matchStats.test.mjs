@@ -634,3 +634,67 @@ test('5 battle event categories, commander kill attribution and zero middle-dot 
         globalThis.document = prevDoc;
     }
 });
+
+test('matchStatsView displays specialization watermark and stacked badges for multi-kill / multi-elimination rounds', async () => {
+    const { JSDOM } = await import('jsdom');
+    const reviewDoc = {
+        schema: 'blades-of-hex.match-review',
+        matchId: 'multi-events-spec',
+        complete: true,
+        durationMs: 120000,
+        mode: { type: 'local' },
+        result: { winnerCampKey: 'player3' },
+        participants: [
+            { campKey: 'player1', name: '美国', flagPreset: 'img/flags/svg/us.svg', colorId: 'green' },
+            { campKey: 'player2', name: '法国', flagPreset: 'img/flags/svg/fr.svg', colorId: 'blue' },
+            { campKey: 'player3', name: '苏联', flagPreset: 'img/flags/soviet-union.svg', colorId: 'red' }
+        ],
+        overview: {
+            totalActions: 40, totalDamage: 1800, totalLosses: 8,
+            camps: [
+                { campKey: 'player1', name: '美国', kills: 1, losses: 4, damageDealt: 300, damageTaken: 900, initialCities: 1, finalCities: 0, initialForce: { units: 4 }, finalForce: { units: 0 } },
+                { campKey: 'player2', name: '法国', kills: 2, losses: 4, damageDealt: 450, damageTaken: 800, initialCities: 1, finalCities: 0, initialForce: { units: 4 }, finalForce: { units: 0 } },
+                { campKey: 'player3', name: '苏联', kills: 7, losses: 1, damageDealt: 1200, damageTaken: 300, captures: 2, initialCities: 1, finalCities: 3, initialForce: { units: 5 }, finalForce: { units: 5 } }
+            ],
+            leaders: {}
+        },
+        unitHighlights: [
+            { id: 313, type: 'infantry', specializationKey: 'assaultInfantry', displayName: '突击步兵', campKey: 'player3', kills: 5, damageDealt: 600, damageTaken: 200, healingReceived: 120, captures: 2, actions: 10, survived: true }
+        ],
+        commanderDeathEvents: [
+            { round: 2, campKey: 'player3', killerCampKey: 'player2', unitType: 'ru_katyusha', commanderId: 'colonel', commanderName: '空军上校', displayName: '喀秋莎火箭炮 · 空军上校' },
+            { round: 2, campKey: 'player1', killerCampKey: 'player3', unitType: 'infantry', commanderId: 'necromancer', commanderName: '亡灵法师', displayName: '步兵 · 亡灵法师' }
+        ],
+        keyEvents: [
+            { round: 3, type: 'cityCaptured', campKey: 'player3', previousCampKey: 'player1', districtId: 1, label: '苏联攻占行政区1' },
+            { round: 3, type: 'cityCaptured', campKey: 'player3', previousCampKey: 'player2', districtId: 3, label: '苏联攻占行政区3' }
+        ],
+        controlTimeline: [
+            { round: 0, byCamp: { player1: { units: 4, cities: 1, controlShare: 0.33 }, player2: { units: 4, cities: 1, controlShare: 0.33 }, player3: { units: 5, cities: 1, controlShare: 0.34 } } },
+            { round: 1, byCamp: { player1: { units: 4, cities: 1, controlShare: 0.32 }, player2: { units: 4, cities: 1, controlShare: 0.33 }, player3: { units: 5, cities: 1, controlShare: 0.35 } } },
+            { round: 2, byCamp: { player1: { units: 3, cities: 1, controlShare: 0.25 }, player2: { units: 3, cities: 1, controlShare: 0.28 }, player3: { units: 5, cities: 1, controlShare: 0.47 } } },
+            { round: 3, byCamp: { player1: { units: 0, cities: 0, controlShare: 0 }, player2: { units: 0, cities: 0, controlShare: 0 }, player3: { units: 5, cities: 3, controlShare: 1 } } }
+        ],
+        roundIndex: [
+            { round: 1, engagements: 3, byCamp: { player1: { damageDealt: 100, damageTaken: 120, kills: 0, losses: 0, captures: 0 }, player3: { damageDealt: 120, damageTaken: 100, kills: 0, losses: 0, captures: 0 } } },
+            { round: 2, engagements: 8, commanderLosses: 2, byCamp: { player2: { damageDealt: 250, damageTaken: 200, kills: 1, losses: 1, captures: 0 }, player3: { damageDealt: 380, damageTaken: 150, kills: 2, losses: 1, captures: 0 }, player1: { damageDealt: 100, damageTaken: 250, kills: 0, losses: 2, captures: 0 } } },
+            { round: 3, engagements: 7, byCamp: { player3: { damageDealt: 700, damageTaken: 100, kills: 4, losses: 0, captures: 2 }, player1: { damageDealt: 50, damageTaken: 350, kills: 0, losses: 2, captures: 0 }, player2: { damageDealt: 50, damageTaken: 350, kills: 0, losses: 2, captures: 0 } } }
+        ]
+    };
+    const dom = new JSDOM('<!doctype html><body><div id="matchStatsOverlay"><button id="matchStatsCloseBtn"></button><p id="matchStatsSubtitle"></p><div id="matchStatsSummary"></div><button type="button" data-control-metric="controlShare" class="active"></button><button type="button" data-control-metric="unitShare"></button><button type="button" data-control-metric="cityShare"></button><svg id="matchControlChart"></svg><div id="matchControlTooltip" hidden></div><div id="matchControlLegend"></div><p id="matchControlMethod"></p><div id="matchCampCards"></div><div id="matchUnitLeaders"></div><div id="matchUnitMvp"></div><select id="matchUnitMetric"><option value="damageDealt">造成伤害</option></select><select id="matchUnitCamp"></select><div id="matchUnitTable"></div><div id="matchBattleEvents"></div><p id="matchBattleMethod"></p></div></body>');
+    const prevDoc = globalThis.document;
+    globalThis.document = dom.window.document;
+    try {
+        const { initMatchStatsPanel } = await import('../js/matchStatsView.js');
+        const panel = initMatchStatsPanel({ getLog: () => reviewDoc });
+        assert.equal(panel.open(), true);
+        assert.equal(dom.window.document.querySelector('#matchUnitMvp .match-mvp-unit-watermark').textContent.trim(), '突击');
+        const cmdSide = dom.window.document.querySelector('#matchBattleEvents .match-battle-event.is-commander-fall .match-battle-side');
+        assert.equal(cmdSide.querySelectorAll('.match-battle-matchup').length, 2, 'same-round dual commander kill stacks both matchups');
+        const elimSide = dom.window.document.querySelector('#matchBattleEvents .match-battle-event.is-elimination .match-battle-side');
+        assert.equal(elimSide.querySelectorAll('.match-hud-flag').length, 3, 'dual elimination badge shows finisher vs both eliminated camps');
+        assert.ok(!dom.window.document.querySelector('#matchStatsOverlay').textContent.includes('·'));
+    } finally {
+        globalThis.document = prevDoc;
+    }
+});

@@ -148,7 +148,15 @@ export const W = Object.freeze({
     // 决胜城市的驻军即使本回合杀不完，也值得持续压低生命值。
     decisiveGarrisonProgressRatio: 0.16,
     rearCommanderRiskMultiplier: 2.1,
-    rearCommanderCityValue: 180
+    rearCommanderCityValue: 180,
+    // 反机场斩杀线与空袭压力：未逼近斩杀线时保留轻压（优先防空与掩体而不全图畏战）；逼近斩杀线时计入高危惩罚
+    airThreatBackgroundWeight: 0.20,
+    airThreatExposureWeight: 0.55,
+    airportExecuteMargin: 1.05,
+    airportKillzoneRiskRatio: 0.55,
+    // 残血三段优先（补员 -> 治疗卡 -> 必死破罐破摔输出）
+    healThreatRescueBonus: 90,
+    doomedFatalCounterPenaltyRatio: 0.35
 });
 
 /** 单位每 HP 的金币价值。伤害估价的唯一换算器，全管线统一。 */
@@ -164,7 +172,8 @@ export function residualGold(unit) {
     const cost = Math.max(1, Number(unit.config?.cost) || 8);
     const maxHp = Math.max(1, Number(unit.maxHp ?? unit.config?.hp ?? unit.hp));
     const readiness = Math.max(0.25, Math.min(1, Number(unit.hp) / maxHp));
-    const commanderValue = unit.commander ? 8 : 0;
+    // 将领具备光环、主动技能与士气支柱，不可等同于半个普通兵的价格去兑换
+    const commanderValue = unit.commander ? 24 : 0;
     const rankValue = Math.max(0, Number(unit._rank || 0)) * 2;
     return cost * readiness + commanderValue + rankValue;
 }

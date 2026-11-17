@@ -88,11 +88,16 @@ export function planCards(world, strategy, missionsCtx) {
                 : Math.min(missing, Math.round(unit.maxHp * BAL.heal.balance.healMaxHpPct));
             if (!heal && !unit._poison) continue;
             const poisonTick = unit._poison ? Math.round(unit.maxHp * BAL.poison.balance.damageMaxHpPct) : 0;
-            const preventsDeath = poisonTick > 0 && unit.hp <= poisonTick;
+            const preventsPoisonDeath = poisonTick > 0 && unit.hp <= poisonTick;
+            const incoming = (unit.tile ? (world.threatAt?.(unit.tile, unit) || 0) + (world.airThreatAt?.(unit.tile, unit) || 0) : 0);
+            const pool = unit.hp + (unit.activeShield ?? unit._shield ?? 0);
+            const preventsCombatDeath = incoming >= pool && incoming < pool + heal;
             let score = heal * hpGold(unit) + (unit._poison ? 30 : 0);
             if (missionCriticalIds.has(unit.id)) score += 40;
             if (unit.commander) score += 20;
-            if (preventsDeath) score += 100 + residualGold(unit);
+            if (preventsPoisonDeath) score += 100 + residualGold(unit);
+            else if (preventsCombatDeath) score += W.healThreatRescueBonus + residualGold(unit) * 0.7;
+            else if (incoming >= pool * 0.65 && heal > 0) score += 24;
             if (!best || score > best.score) best = { unit, score };
         }
         if (best && best.score > 22) spend(setup, {

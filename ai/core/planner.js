@@ -13,6 +13,49 @@ import { planCards, shouldDrawCard } from './cards.js';
 import { planProduction } from './production.js';
 import { isFieldCapturer, shouldHoldCityPosition } from './roster.js';
 import { COMMANDER_CONFIG } from '../../rules/commanders.js';
+import { TACTICAL_CARD_DATA } from '../../rules/cards.js';
+import { isHealingBlocked } from '../../rules/healing.js';
+import { distributeKmtPoolChange, getKmtLinkedUnits, getKmtReinforceDeficit } from '../../rules/kmtStronghold.js';
+
+function applyVirtualHealingAction(world, action, revertCallbacks) {
+    const unit = world.myUnits.find(candidate => candidate.id === (action.unitId ?? action.targetId));
+    if (!unit || !unit.tile) return;
+    if (action.type === 'reinforce' || action.type === 'repairShip') {
+        if (isHealingBlocked(unit, world.gameState, { allowReinforce: true })) return;
+        const linked = action.type === 'reinforce' ? getKmtLinkedUnits(unit, world.gameState) : [];
+        const deficit = linked.length > 0
+            ? getKmtReinforceDeficit(unit, world.gameState)
+            : Math.max(0, unit.maxHp - unit.hp);
+        const healAmt = Math.min(Math.floor(unit.maxHp * 0.50), deficit);
+        if (healAmt <= 0) return;
+        if (linked.length > 0) {
+            for (const entry of distributeKmtPoolChange(linked, healAmt, true)) {
+                const prevHp = entry.unit.hp;
+                entry.unit.hp = entry.hp;
+                revertCallbacks.push(() => { entry.unit.hp = prevHp; });
+            }
+        } else {
+            const prevHp = unit.hp;
+            unit.hp = Math.min(unit.maxHp, unit.hp + healAmt);
+            revertCallbacks.push(() => { unit.hp = prevHp; });
+        }
+        return;
+    }
+    if (action.type === 'tacticalCard' && action.cardId === 'heal') {
+        const prevPoison = unit._poison;
+        const prevHp = unit.hp;
+        if (!isHealingBlocked(unit, world.gameState)) {
+            const pct = TACTICAL_CARD_DATA.heal?.balance?.healMaxHpPct ?? 0.30;
+            const healAmt = Math.min(Math.max(0, unit.maxHp - unit.hp), Math.round(unit.maxHp * pct));
+            unit.hp = Math.min(unit.maxHp, unit.hp + healAmt);
+        }
+        unit._poison = null;
+        revertCallbacks.push(() => {
+            unit.hp = prevHp;
+            unit._poison = prevPoison;
+        });
+    }
+}
 
 // 移动后的追击复用战术评分，只刷新可见局面，不重新分配整支军队的任务。
 export function planFollowupAttack(gameState, helpers, myCamp, caps, unitId, plannedTargetId = null) {
@@ -70,22 +113,45 @@ export function planTurn(gameState, helpers, myCamp, caps) {
 
     const strategy = decideStrategy(world);
     const missionsCtx = assignMissions(world, strategy);
-    const cards = planCards(world, strategy, missionsCtx);
     const production = planProduction(world, strategy, missionsCtx);
+    const setupReinforces = production.actions.filter(action => action.type === 'reinforce');
+    const postTacticsProduction = production.actions.filter(action => action.type !== 'reinforce');
     const reserved = new Set(production.setup.filter(action => action.type === 'move').map(action => action.unitId));
     const unspentReserve = production.remainingReserve ?? strategy.reserve;
     const availableGold = production.recruitSpend >= world.gold
         ? 0
         : Math.max(0, world.gold - unspentReserve - production.recruitSpend);
-    const tactics = planTactics(world, strategy, missionsCtx, availableGold).filter(action => !reserved.has(action.unitId));
+
+    // 残血处理三段优先：先原地补员/修船 → 再打治疗卡（基于补员后的最新血量，避免重复浪费治疗）
+    // → 最后带回复后血量进入战术规划（能撤回安全陆地就撤，必死局直接在陆上爆掉换伤）。
+    const virtualReverts = [];
+    let cards;
+    let tactics;
+    try {
+        for (const action of [...setupReinforces, ...production.setup.filter(a => a.type === 'repairShip')]) {
+            applyVirtualHealingAction(world, action, virtualReverts);
+        }
+        const prevWorldGold = world.gold;
+        world.gold = Math.max(0, world.gold - (production.earlySpend || 0));
+        virtualReverts.push(() => { world.gold = prevWorldGold; });
+
+        cards = planCards(world, strategy, missionsCtx);
+        for (const action of cards.setup) {
+            if (action.cardId === 'heal') applyVirtualHealingAction(world, action, virtualReverts);
+        }
+        tactics = planTactics(world, strategy, missionsCtx, availableGold).filter(action => !reserved.has(action.unitId));
+    } finally {
+        for (let i = virtualReverts.length - 1; i >= 0; i--) virtualReverts[i]();
+    }
 
     const actions = [
         ...production.emergencyRecruits,
-        ...cards.setup,
+        ...setupReinforces,
         ...production.setup,
+        ...cards.setup,
         ...tactics,
         ...cards.sustain,
-        ...production.actions
+        ...postTacticsProduction
     ];
 
     const droneSpend = tactics.some(action => action.type === 'droneDeploy') ? COMMANDER_CONFIG.tianyan.balance.deployGoldCost : 0;
