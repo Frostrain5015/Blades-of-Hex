@@ -1355,6 +1355,43 @@ test('非谋士陆战将领与残血陆军绝不逃海漂流，已误入水面�
         '已落水的非两栖陆战将领应优先回到安全陆地，不得继续向深海漂流');
 });
 
+test('Imperator 随机抽取四类作战分支，且中局顺逆风自动动态切换风格', async () => {
+    const { IMPERATOR_DOCTRINE_IDS, resolveImperatorDoctrine } = await import('../ai/core/weights.js');
+    const { createRng } = await import('../core/rng.js');
+
+    const picked = new Set();
+    for (let i = 1; i <= 40; i++) {
+        const gs = { rng: createRng(i * 7919) };
+        const profile = resolveImperatorDoctrine(gs, 'player1', { round: 1, oceanMap: i % 2 === 0 });
+        picked.add(profile.id);
+    }
+    assert.deepEqual([...picked].sort(), [...IMPERATOR_DOCTRINE_IDS].sort(), '不同种子应覆盖全部四种 Imperator 分支');
+
+    const pinnedState = { rng: createRng(123), _imperatorDoctrinePinByCamp: { player1: 'blitz' } };
+    assert.equal(resolveImperatorDoctrine(pinnedState, 'player1', { round: 1 }).id, 'blitz');
+
+    // 逆风动态切换：开局 grandmaster 落后后切向 blitz/trickster
+    const shiftState = {
+        rng: createRng(99),
+        _aiCoreMemory: { player1: { openingDoctrine: 'grandmaster', doctrine: 'grandmaster', doctrineSinceRound: 1, lastCaptureRound: 1 } }
+    };
+    const shiftedBehind = resolveImperatorDoctrine(shiftState, 'player1', {
+        round: 8, cityGap: -2, incomeRatio: 0.65, ownCities: 1, roundsRemaining: 10, gold: 10
+    });
+    assert.ok(['blitz', 'trickster'].includes(shiftedBehind.id), '落后局面应切入强攻或诡道分支');
+    assert.equal(shiftedBehind.shiftedFrom, 'grandmaster');
+
+    // 领先收官：开局 blitz 扩大优势后切向稳固分支
+    const leadState = {
+        rng: createRng(99),
+        _aiCoreMemory: { player2: { openingDoctrine: 'blitz', doctrine: 'blitz', doctrineSinceRound: 1, lastCaptureRound: 9 } }
+    };
+    const shiftedAhead = resolveImperatorDoctrine(leadState, 'player2', {
+        round: 10, cityGap: 2, incomeRatio: 1.5, ownCities: 4, roundsRemaining: 9, oceanMap: true, gold: 12
+    });
+    assert.equal(shiftedAhead.id, 'armada', '海图大比分领先后 blitz 应转入 armada 巩固优势');
+});
+
 test('残血三段优先：先城内补员再向野战分配治疗卡，退无可退的必死单位原地破罐破摔打满输出', async () => {
     const { buildWorld, decideStrategy, assignMissions, planTactics } = await loadCore();
     const me = { id: 'player1' }, foe = { id: 'player2' }, neutral = { id: 'neutral' };

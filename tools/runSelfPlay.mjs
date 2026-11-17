@@ -42,6 +42,10 @@ if (args.cultures && (cultures.length !== playerCount || cultures.some(id => !Ob
 const doubleCommander = args['double-commander'] === true
     || args['double-commander'] === 'true'
     || args['double-commander'] === '1';
+const requestedStyles = typeof args['imperator-styles'] === 'string'
+    ? args['imperator-styles'].split(',').map(v => v.trim()).filter(Boolean)
+    : [];
+const defaultStyle = typeof args['imperator-style'] === 'string' ? args['imperator-style'].trim() : 'random';
 
 // 必须在加载引擎前安装，确保 AI 展示等待与卡牌延迟结算按相同比例缩放。
 const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
@@ -87,6 +91,12 @@ state.aiDifficultyByCamp = Object.fromEntries(
 state.aiOpponentCamp = null;
 state.commanderPhase = 'done';
 state.doubleCommanderMode = doubleCommander;
+const doctrinePins = {};
+playerKeys.forEach((key, index) => {
+    const style = requestedStyles[index] ?? defaultStyle;
+    if (style && style !== 'random') doctrinePins[key] = style;
+});
+if (Object.keys(doctrinePins).length > 0) state._imperatorDoctrinePinByCamp = doctrinePins;
 
 const candidatesPerPlayer = doubleCommander ? 5 : 3;
 const pools = commanders.shuffleAndSplitPool(playerCount === 3, candidatesPerPlayer, state.rng);
@@ -219,6 +229,16 @@ const report = {
         Object.entries(difficultyProfiles).map(([key, profile]) => [key, profile.id])
     ),
     totalActions: log.summary.totalActions,
+    imperatorDoctrines: Object.fromEntries(playerKeys.map(key => {
+        const mem = state._aiCoreMemory?.[key];
+        const pin = state._imperatorDoctrinePinByCamp?.[key] || null;
+        return [key, {
+            opening: pin || mem?.openingDoctrine || null,
+            final: pin || mem?.doctrine || null,
+            pinned: !!pin,
+            shifts: mem?.doctrineShifts || []
+        }];
+    })),
     suppressionRounds: state._imperatorSuppressRounds || {},
     strategicTelemetry: state._imperatorStrategicTelemetry || {},
     commanders: selectedCommanders,

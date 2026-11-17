@@ -166,6 +166,8 @@ export function planTurn(gameState, helpers, myCamp, caps) {
         round: world.round,
         posture: strategy.posture,
         urgency: strategy.urgency,
+        doctrine: strategy.doctrine?.id || null,
+        doctrineShiftedFrom: strategy.doctrine?.shiftedFrom || null,
         objective: missionsCtx.missions.find(m => m.kind === 'siege')
             ? { q: missionsCtx.missions.find(m => m.kind === 'siege').targetQ, r: missionsCtx.missions.find(m => m.kind === 'siege').targetR }
             : null,

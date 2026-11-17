@@ -363,6 +363,8 @@ function decisionContext(snapshot, actorCampKey, state = null) {
             round: latestStrategicIntent.round,
             posture: latestStrategicIntent.posture,
             urgency: latestStrategicIntent.urgency,
+            doctrine: latestStrategicIntent.doctrine || null,
+            doctrineShiftedFrom: latestStrategicIntent.doctrineShiftedFrom || null,
             objective: latestStrategicIntent.objective,
             objectiveAssetValue: latestStrategicIntent.objectiveAssetValue,
             projectedIncome: latestStrategicIntent.projectedIncome,

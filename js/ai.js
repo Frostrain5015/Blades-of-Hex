@@ -26,7 +26,7 @@ import * as optioPersonality from '../ai/optio.js';
 import * as legatusPersonality from '../ai/legatus.js';
 import * as imperatorPersonality from '../ai/imperator.js';
 import { planFollowupAttack, planOpenCityCaptures } from '../ai/core/planner.js';
-import { TIER_CAPABILITIES } from '../ai/core/weights.js';
+import { TIER_CAPABILITIES, resolveImperatorDoctrine } from '../ai/core/weights.js';
 import { canCaptureCityByCombat, resolveTianyanDroneReserve, scoreCommanderCarrierCandidate } from '../ai/doctrine.js';
 import {
     estimateAiTurnWatchdogMs,
@@ -68,7 +68,7 @@ import { canReinforceAtTile } from '../rules/healing.js';
 import { isLandTile } from '../rules/surfaces.js';
 import { getStandardMap } from '../rules/standardMaps.js';
 import { hasFullAiIntelligence, resolveAiDifficultyProfile } from '../ai/difficulty.js';
-import { getRoundIndex } from '../rules/turns.js';
+import { getRound, getRoundIndex } from '../rules/turns.js';
 import { waitForFactionSynergyPresentations } from './factionSynergyPresentation.js';
 import { withMatchAction } from './matchRecorder.js';
 
@@ -329,27 +329,48 @@ async function runV2Infrastructure(aiCamp, difficultyProfile, stukaSorties) {
         }
     }
 
-    await runAiAirCommands(aiCamp, difficultyProfile, stukaSorties);
+    const standardMap = getStandardMap(gameState.isThreePlayer ? 3 : 2, gameState.standardMapId);
+    const isOceanMap = !!standardMap?.isOceanMap;
+    const commanderIds = gameState.tiles
+        .filter(tile => tile.unit?.camp === aiCamp && tile.unit.hp > 0 && tile.unit.commander)
+        .map(tile => tile.unit.commander);
+    const imperatorDoctrine = difficultyProfile.id === 'hard'
+        ? resolveImperatorDoctrine(gameState, campKey, {
+            round: getRound(gameState),
+            oceanMap: isOceanMap,
+            cultureId: culture,
+            commanderIds
+        })
+        : null;
     const knownTile = tile => isKnownToAi(tile, aiCamp);
     const ownedCities = gameState.tiles.filter(tile => tile.isCity && tile.camp === aiCamp);
     const existingAirfields = ownedCities.filter(tile => tile.installation?.type === 'airfield');
     const buildCandidates = ownedCities.filter(city => canBuildAirfieldAt(city, aiCamp, gameState));
+    const maxAirfields = isOceanMap || imperatorDoctrine?.id === 'armada' ? 3 : 2;
     if (airPriority && buildCandidates.length) {
         const front = gameState.tiles.filter(tile => tile.isCity && isHostile(gameState, aiCamp, tile.camp) && knownTile(tile));
         const frontDistance = city => Math.min(Infinity, ...front.map(tile => hexDistance(city, tile)));
         const sorted = [...buildCandidates].sort((a, b) => frontDistance(a) - frontDistance(b));
-        const uncoveredHostile = city => front.some(hostileCity =>
-            hexDistance(city, hostileCity) <= AIRFIELD_BASE_RANGE + 2
-            && !existingAirfields.some(af => hexDistance(af, hostileCity) <= getAirCommandRange(af)));
-        const canExpandForward = existingAirfields.length === 1
+        const uncoveredHostile = city => front.some(hostileCity => {
+            const dNew = hexDistance(city, hostileCity);
+            if (dNew > AIRFIELD_BASE_RANGE + 2) return false;
+            const bestExisting = existingAirfields.reduce(
+                (best, af) => Math.min(best, hexDistance(af, hostileCity) - (hexDistance(af, hostileCity) <= getAirCommandRange(af) ? 0 : 99)),
+                Infinity
+            );
+            return !existingAirfields.some(af => hexDistance(af, hostileCity) <= getAirCommandRange(af))
+                || dNew + 2 <= bestExisting;
+        });
+        const canExpandForward = existingAirfields.length >= 1
+            && existingAirfields.length < maxAirfields
             && ownedCities.length >= 2
             && (culture === 'de' || difficultyProfile.infrastructureLevel >= 2);
         const candidate = existingAirfields.length === 0
             ? sorted[0]
             : (canExpandForward ? sorted.find(uncoveredHostile) : null);
         const airfieldReserve = existingAirfields.length === 0
-            ? (culture === 'de' ? 12 : difficultyProfile.infrastructureLevel >= 2 ? 18 : 24)
-            : 24;
+            ? (culture === 'de' ? 12 : difficultyProfile.infrastructureLevel >= 2 ? 16 : 24)
+            : (imperatorDoctrine?.airfieldExpansionReserve ?? 15);
         if (candidate && (gameState.playerGold[campKey] || 0) >= airfieldReserve
             && canSpend(constructionCost('airfield', candidate.unit, candidate, gameState))) {
             await runObservedAction({ type: 'buildAirfield', tileQ: candidate.q, tileR: candidate.r }, aiCamp, () => {
@@ -357,6 +378,7 @@ async function runV2Infrastructure(aiCamp, difficultyProfile, stukaSorties) {
             });
         }
     }
+    await runAiAirCommands(aiCamp, difficultyProfile, stukaSorties);
 
     const gate = getRiverGate(gameState);
     const gateTile = gate ? resolveTile(gate.q, gate.r) : null;
@@ -374,6 +396,9 @@ async function runAiAirCommands(aiCamp, difficultyProfile, stukaSorties, afterGr
     if (gameState.gameOver || gameState.currentCamp !== aiCamp || !gameState.aiActing) return false;
     const campKey = campToKey(aiCamp);
     const germanAir = getActiveCultureId(gameState, aiCamp) === 'de';
+    const imperatorDoctrine = difficultyProfile.id === 'hard'
+        ? resolveImperatorDoctrine(gameState, campKey)
+        : null;
     if (!germanAir && difficultyProfile.infrastructureLevel === 0) return false;
     const emergencyReserve = resolveEmergencyRecruitReserve(aiCamp, difficultyProfile);
     const culturalReserve = reserveForMissingCulturalUnit(aiCamp);
@@ -414,7 +439,7 @@ async function runAiAirCommands(aiCamp, difficultyProfile, stukaSorties, afterGr
             return launched;
         };
         const range = getAirCommandRange(city);
-        const directAirdropCity = available('airdrop')
+        const directAirdropCity = available('airdrop', true)
             ? gameState.tiles
                 .filter(tile => tile.isCity && canAttack(gameState, aiCamp, tile.camp)
                     && hexDistance(city, tile) <= range && knownTile(tile) && canAirCommandAirdropAt(tile))
@@ -422,12 +447,13 @@ async function runAiAirCommands(aiCamp, difficultyProfile, stukaSorties, afterGr
                     || hexDistance(city, a) - hexDistance(city, b))[0]
             : null;
         let airdropTarget = directAirdropCity;
+        const airdropFloor = imperatorDoctrine?.airdropReserveFloor ?? 8;
         if (!airdropTarget && available('airdrop')
             && difficultyProfile.infrastructureLevel >= 2
-            && (gameState.playerGold[campKey] || 0) - getAirCommandCost('airdrop', city, gameState) >= Math.max(reserve, 12)) {
+            && (gameState.playerGold[campKey] || 0) - getAirCommandCost('airdrop', city, gameState) >= Math.max(emergencyReserve, airdropFloor)) {
             const hostileCities = gameState.tiles
                 .filter(tile => tile.isCity && isHostile(gameState, aiCamp, tile.camp) && knownTile(tile)
-                    && tile.hp <= 120 && (!tile.unit || tile.unit.hp <= 45)
+                    && tile.hp <= 140 && (!tile.unit || tile.unit.hp <= 55)
                     && !gameState.tiles.some(ally => ally.unit?.camp === aiCamp && ally.unit.hp > 0
                         && canCaptureCityByCombat(ally.unit) && hexDistance(ally, tile) <= 2))
                 .sort((a, b) => Number(b.districtId === prizeDistrictId) - Number(a.districtId === prizeDistrictId)
@@ -485,12 +511,23 @@ async function runAiAirCommands(aiCamp, difficultyProfile, stukaSorties, afterGr
         }
 
         const strafing = (available('strafe') || available('strafe', true))
-            ? enemies.filter(canHit).map(tile => ({
-                tile, kill: lethal('strafe', tile), urgent: threatensCity(tile)
-            })).filter(target => (target.kill && available('strafe', target.urgent))
-                || (target.urgent && available('strafe', true))).sort((a, b) => Number(b.kill) - Number(a.kill)
-                || Number(b.urgent) - Number(a.urgent) || Number(!!b.tile.unit.commander) - Number(!!a.tile.unit.commander)
-                || a.tile.unit.hp - b.tile.unit.hp)[0]
+            ? enemies.filter(canHit).map(tile => {
+                const isCommander = !!tile.unit.commander;
+                const isHighValueSea = ['warship', 'carrier', 'gb_battleship'].includes(tile.unit.type);
+                return {
+                    tile,
+                    kill: lethal('strafe', tile),
+                    urgent: threatensCity(tile),
+                    highValue: isCommander || isHighValueSea
+                };
+            }).filter(target => (target.kill && available('strafe', target.urgent))
+                || (target.urgent && available('strafe', true))
+                || (afterGround && target.highValue && available('strafe', false)))
+                .sort((a, b) => Number(b.kill) - Number(a.kill)
+                    || Number(!!b.tile.unit.commander) - Number(!!a.tile.unit.commander)
+                    || Number(b.urgent) - Number(a.urgent)
+                    || Number(b.highValue) - Number(a.highValue)
+                    || a.tile.unit.hp - b.tile.unit.hp)[0]
             : null;
         let bombing = null;
         if (available('bombing', false, { allowClusterOpening: !afterGround }) || available('bombing', true)) {
@@ -697,11 +734,21 @@ async function deployAvailableCommanders(aiCamp) {
             && !(unit.isCommanderUnit ?? Boolean(unit.commander))
             && unit.tile && unit.hp > 0);
 
+    const deployCampKey = campToKey(aiCamp);
+    const deployDiff = resolveAiDifficultyProfile(gameState, aiCamp);
+    const deployDoctrine = deployDiff.id === 'hard'
+        ? resolveImperatorDoctrine(gameState, deployCampKey, {
+            round: getRound(gameState),
+            oceanMap: !!standardMap?.isOceanMap,
+            cultureId: getActiveCultureId(gameState, aiCamp),
+            commanderIds: commanders.map(c => c.commanderId)
+        })
+        : null;
     for (const { commanderId } of commanders) {
         if (availableUnits.length === 0) break;
         availableUnits.sort((left, right) =>
-            scoreCommanderCarrierCandidate(right, commanderId, standardMap)
-            - scoreCommanderCarrierCandidate(left, commanderId, standardMap));
+            scoreCommanderCarrierCandidate(right, commanderId, standardMap, { doctrine: deployDoctrine })
+            - scoreCommanderCarrierCandidate(left, commanderId, standardMap, { doctrine: deployDoctrine }));
         const [carrier] = availableUnits.splice(0, 1);
         await executeAction({ type: 'deployCommander', unitId: carrier.id, commanderId }, aiCamp);
     }
@@ -1146,7 +1193,9 @@ export async function processOpponentTurn(aiCamp) {
                 && unit.commander !== 'minister' && canCaptureCityByCombat(unit));
             const prioritizeUnique = unique && (getUnitBaseType(unique) !== 'archer' || canSpareAssault)
                 && canRecruitTypeAtSelectedSite(unique, city, gameState, aiCamp);
-            const budget = gameState.playerGold[campKey];
+            const strategicSaveReserve = Number(gameState._aiCoreMemory?.[campKey]?.strategicSaveReserve || 0);
+            const threatenedHere = estimateVisibleThreatAt(city, aiCamp, difficultyProfile.threatForecast) >= 0.35;
+            const budget = Math.max(0, gameState.playerGold[campKey] - (threatenedHere ? 0 : strategicSaveReserve));
             const uniqueCost = prioritizeUnique ? getHistoricalRecruitCost(UNIT_CONFIG[unique].cost, gameState, aiCamp, unique) : Infinity;
             if (prioritizeUnique && budget < uniqueCost && canSpareAssault && countLivingUnitsOfType(gameState, aiCamp, unique) === 0
                 && estimateVisibleThreatAt(city, aiCamp, difficultyProfile.threatForecast) < 0.45) continue;
@@ -1196,13 +1245,16 @@ export async function processOpponentTurn(aiCamp) {
             const myWarships = livingOwnUnits.filter(u => getUnitBaseType(u) === 'warship').length;
             const myDestroyers = livingOwnUnits.filter(u => getUnitBaseType(u) === 'destroyer' || u.config?.submarineDetectorRadius).length;
             const enemyAntiSub = visibleHostiles.filter(u => getUnitBaseType(u) === 'destroyer' || u.config?.submarineDetectorRadius).length;
+            const preferCruiserFirst = !landMap && myWarships < 2 && !hostileTypes.has('submarine');
             let navalOrder = hostileTypes.has('submarine')
-                ? ['destroyer', 'submarine', 'warship']
-                : hostileTypes.has('warship') && mySubs < Math.max(2, myWarships + myDestroyers) && enemyAntiSub <= myDestroyers + 1
-                    ? ['submarine', 'destroyer', 'warship']
-                    : hostileTypes.has('destroyer')
-                        ? ['warship', 'destroyer', 'submarine']
-                        : ['destroyer', 'submarine', 'warship'];
+                ? ['destroyer', 'warship', 'submarine']
+                : preferCruiserFirst
+                    ? ['warship', 'destroyer', 'submarine']
+                    : hostileTypes.has('warship') && mySubs < Math.max(2, myWarships + myDestroyers) && enemyAntiSub <= myDestroyers + 1
+                        ? ['submarine', 'warship', 'destroyer']
+                        : hostileTypes.has('destroyer')
+                            ? ['warship', 'destroyer', 'submarine']
+                            : ['warship', 'destroyer', 'submarine'];
             if (portFallbackBlocked) navalOrder = [];
             const unique = getCulturalRecruitmentCandidate(gameState, aiCamp);
             if (unique && canRecruitTypeAtSelectedSite(unique, port, gameState, aiCamp)) {
@@ -1211,7 +1263,12 @@ export async function processOpponentTurn(aiCamp) {
                     && estimateVisibleThreatAt(port, aiCamp, difficultyProfile.threatForecast) < 0.40) continue;
                 navalOrder.unshift(unique);
             }
-            const unitType = navalOrder.find(type => {
+            const warshipFallbackCost = getHistoricalRecruitCost(UNIT_CONFIG.warship.cost, gameState, aiCamp, 'warship');
+            const holdForCruiser = preferCruiserFirst
+                && canRecruitTypeAtSelectedSite('warship', port, gameState, aiCamp)
+                && gameState.playerGold[campKey] < warshipFallbackCost
+                && estimateVisibleThreatAt(port, aiCamp, difficultyProfile.threatForecast) < 0.35;
+            const unitType = holdForCruiser ? null : navalOrder.find(type => {
                 const c = getHistoricalRecruitCost(UNIT_CONFIG[type].cost, gameState, aiCamp, type);
                 return gameState.playerGold[campKey] >= c && canRecruitTypeAtSelectedSite(type, port, gameState, aiCamp);
             });

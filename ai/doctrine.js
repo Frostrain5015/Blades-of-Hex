@@ -125,8 +125,9 @@ export function scoreTacticalRoleMatchup(attacker, target) {
     return 0;
 }
 
-export function scoreCommanderCarrierCandidate(unit, commanderId, mapDefinition) {
+export function scoreCommanderCarrierCandidate(unit, commanderId, mapDefinition, options = {}) {
     if (!unit || !unit.tile || unit.hp <= 0 || unit.commander) return -Infinity;
+    const doctrine = options?.doctrine || null;
     const attack = Number(unit.getEffectiveAttack?.() ?? unit.config?.attack ?? 0);
     const maxHp = Math.max(1, Number(unit.maxHp ?? unit.config?.hp ?? unit.hp ?? 1));
     const hpRatio = Math.max(0, Math.min(1, Number(unit.hp ?? 0) / maxHp));
@@ -145,18 +146,20 @@ export function scoreCommanderCarrierCandidate(unit, commanderId, mapDefinition)
         return score + (unit.tile.isCity ? 520 : 0)
             + (unit.config?.movementDomain === 'land' ? 80 : 0);
     }
+    if (commanderId === 'colonel' && unit.tile?.isCity && unit.tile.installation?.type === 'airfield') {
+        score += 240;
+    }
 
-    // 无主航路的胜负先由制海权决定：高属性主力舰是将领的首选载体。
+    // 无主航路的胜负先由制海权决定：高属性主力舰是将领的首选载体；
+    // 激进突击派（blitz/trickster）敢把近战/驱逐将领顶到一线突破，避免三家缩在后排互望。
     if (mapDefinition?.familyId === 'uncharted-passage') {
-        const navalFlagshipBonus = {
-            carrier: 230,
-            warship: 210,
-            destroyer: 125,
-            submarine: 65
-        };
+        const aggressiveSpear = !!doctrine?.commanderRiskPush && commanderId !== 'colonel';
+        const navalFlagshipBonus = aggressiveSpear
+            ? { carrier: 210, destroyer: 235, warship: 185, cavalry: 190, infantry: 150, submarine: 95 }
+            : { carrier: 230, warship: 210, destroyer: 125, submarine: 65 };
         const base = getUnitBaseType(unit);
         score += navalFlagshipBonus[unit.type] ?? navalFlagshipBonus[base] ?? 0;
-        // 空军上校与航母的舰载航空体系拥有额外协同。
+        // 空军上校与航母或己方机场城体系拥有额外协同。
         if (commanderId === 'colonel' && base === 'carrier') score += 90;
     } else if (unit.config?.movementDomain === 'naval') {
         // 陆战为主的地图：将领挂军舰 = 脱离主战场（打不到城、护不了陆军）。

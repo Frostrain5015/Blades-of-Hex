@@ -24,9 +24,10 @@ function expectedLightningDamage(weather) {
 }
 
 function enemyValueOfTarget(world, target, extraDamage = 0) {
+    const w = world.weights || W;
     const kills = extraDamage >= target.hp + (target._shield || 0);
     let value = extraDamage * hpGold(target);
-    if (kills) value += residualGold(target) * W.killPremiumRatio + (target.commander ? W.commanderKillBonus : 0);
+    if (kills) value += residualGold(target) * w.killPremiumRatio + (target.commander ? w.commanderKillBonus : 0);
     return { value, kills };
 }
 
@@ -324,7 +325,8 @@ export function planCards(world, strategy, missionsCtx) {
     const frontThreatened = strategy.capitalThreat >= 0.35
         || world.myCities.some(city => world.rivalUnits.some(unit =>
             unit.tile && world.helpers.hexDistance(unit.tile, city) <= 3));
-    if (has('landmine') && (circulate || frontThreatened || strategy.posture === 'hold' || strategy.posture === 'defend')) {
+    const wCards = world.weights || W;
+    if (has('landmine') && (circulate || frontThreatened || wCards.cardFocus || strategy.posture === 'hold' || strategy.posture === 'defend')) {
         let best = null;
         for (const tile of legalTiles('landmine')) {
             const protectsFront = world.myUnits.some(unit => world.helpers.hexDistance(unit.tile, tile) <= 2)
@@ -407,18 +409,28 @@ export function planCards(world, strategy, missionsCtx) {
 /** 抽牌决策：金币先保证招募、天眼部署与紧急预留，答案缺口（中毒无疗愈等）降低门槛。 */
 export function shouldDrawCard(world, strategy, plannedRecruitSpend = 0, plannedCardUses = 0) {
     if (world.cardDrawsLeft <= 0 || (world.handFull && plannedCardUses === 0)) return false;
+    const w = world.weights || W;
     const drawsDone = (world.cardConfig.maxDrawsPerTurn || 2) - world.cardDrawsLeft;
     const cost = getHistoricalCost((world.cardConfig.drawCost || 4) * (1 + drawsDone), world.gameState, world.myCamp);
+    const effectiveHandCount = Math.max(0, world.hand.length - plannedCardUses);
+    const woundedCommanderNeedsCard = effectiveHandCount <= 1
+        && world.myUnits.some(u => u.commander && u.hp < u.maxHp * 0.72)
+        && !world.hand.some(c => c === 'heal' || c === 'shield');
     const needsAnswer = (world.myUnits.some(u => u._poison) && !world.hand.includes('heal'))
         || (strategy.posture === 'hold' && !world.hand.some(c => c === 'lightning' || c === 'imprison'))
-        || (strategy.posture === 'allin' && world.hand.length === 0);
+        || (strategy.posture === 'allin' && effectiveHandCount === 0)
+        || woundedCommanderNeedsCard
+        || (w.cardFocus && effectiveHandCount === 0);
     const tianyanReserve = needsAnswer ? 0 : resolveTianyanDroneReserve(world.gameState, world.myCamp, {
         assaultCount: world.myUnits.filter(u => isFieldCapturer(world, u)).length,
         urgentDefense: !!strategy.emergencyDefenseCity,
         gold: world.gold - plannedRecruitSpend
     });
-    const affordable = world.gold - cost - plannedRecruitSpend - strategy.reserve - tianyanReserve >= 0;
-    if (!affordable) return false;
+    const strategicSave = Number(world.gameState._aiCoreMemory?.[world.myCampKey]?.strategicSaveReserve || 0);
+    const leftover = world.gold - cost - plannedRecruitSpend - Math.max(strategy.reserve, strategicSave) - tianyanReserve;
+    if (leftover < 0) return false;
     if (needsAnswer) return true;
-    return world.gold - cost - plannedRecruitSpend - strategy.reserve - tianyanReserve >= 6;
+    if (effectiveHandCount >= 2 && drawsDone > 0) return false;
+    const surplusMin = world.caps?.id === 'hard' ? (w.cardDrawSurplusMin ?? 3) : 6;
+    return leftover >= surplusMin;
 }

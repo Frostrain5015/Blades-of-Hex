@@ -11,7 +11,8 @@ import {
 } from '../strategy.js';
 import { rankCityObjectives } from './perceive.js';
 import { isFieldCapturer } from './roster.js';
-import { W } from './weights.js';
+import { W, resolveEffectiveWeights, resolveImperatorDoctrine } from './weights.js';
+import { getActiveCultureId } from '../../rules/cultures.js';
 
 /** 攻城 ETA（回合）：占领者赶路 + 破城 + 清守军。 */
 function estimateApproachTurns(world, unit, tile) {
@@ -110,6 +111,25 @@ export function decideStrategy(world) {
         posture = 'allin';
         urgency = Math.max(urgency, 0.88);
     }
+    let activeDoctrine = world.doctrine || null;
+    if (world.caps?.id === 'hard') {
+        const incomeRatio = world.economy.projectedIncome / Math.max(1, world.strongestRivalEconomy.projectedIncome);
+        activeDoctrine = resolveImperatorDoctrine(world.gameState, world.myCampKey, {
+            round: world.round,
+            oceanMap: world.oceanMap,
+            cultureId: getActiveCultureId(world.gameState, world.myCamp),
+            commanderIds: world.myUnits.map(u => u.commander).filter(Boolean),
+            cityGap: world.cityGap,
+            forceRatio: base.forceRatio,
+            incomeRatio,
+            roundsRemaining: world.roundsRemaining,
+            ownCities: world.myCities.length,
+            bleeding,
+            gold: world.gold
+        });
+        world.doctrine = activeDoctrine;
+        world.weights = resolveEffectiveWeights(world.caps, activeDoctrine);
+    }
     if (emergencyDefenseCity) {
         posture = 'defend';
         urgency = Math.max(urgency, 0.95);
@@ -193,6 +213,7 @@ export function decideStrategy(world) {
     return Object.freeze({
         posture,
         urgency,
+        doctrine: activeDoctrine,
         basePosture: base.posture,
         forceRatio: base.forceRatio,
         incomeGap: base.incomeGap,

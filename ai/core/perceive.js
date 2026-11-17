@@ -15,7 +15,7 @@ import { isSubmarineTargetableBy, isUnitVisibleToCamp } from '../../rules/visibi
 import { COMMANDER_CONFIG } from '../../rules/commanders.js';
 import { isMechanicEnabled } from '../../rules/mechanics.js';
 import { isCityDisabled } from '../../rules/citySiege.js';
-import { isCampCulture } from '../../rules/cultures.js';
+import { getActiveCultureId, isCampCulture } from '../../rules/cultures.js';
 import {
     AIRFIELD_BASE_RANGE,
     COLONEL_AIR_RANGE_BONUS,
@@ -36,7 +36,7 @@ import {
     estimateFogRivalForce,
     estimateForceValue
 } from '../strategy.js';
-import { W } from './weights.js';
+import { W, resolveEffectiveWeights, resolveImperatorDoctrine } from './weights.js';
 import { createCaptureRouteFinder } from './amphibious.js';
 
 const NEUTRAL_KEY = 'neutral';
@@ -359,6 +359,20 @@ export function buildWorld(gameState, helpers, myCamp, caps) {
         : baseRivalEstimate;
     intelMemory.rivalForceEstimate = rivalForceEstimate;
     intelMemory.forceEstimateRound = round;
+    if (!Number.isFinite(intelMemory.lastCityCount) || myCities.length > intelMemory.lastCityCount) {
+        intelMemory.lastCaptureRound = round;
+    }
+    intelMemory.lastCityCount = myCities.length;
+    const commanderIds = myUnits.map(unit => unit.commander).filter(Boolean);
+    const doctrine = caps?.id === 'hard'
+        ? resolveImperatorDoctrine(gameState, myCampKey, {
+            round,
+            oceanMap,
+            cultureId: getActiveCultureId(gameState, myCamp),
+            commanderIds
+        })
+        : null;
+    const weights = resolveEffectiveWeights(caps, doctrine);
 
     // ── 手牌与预算 ───────────────────────────────────────────
     const cardConfig = helpers.CARD_SYSTEM_CONFIG || { drawCost: 4, maxDrawsPerTurn: 2, maxUsesPerTurn: 2, maxHandSize: 3 };
@@ -401,7 +415,7 @@ export function buildWorld(gameState, helpers, myCamp, caps) {
     };
 
     return {
-        gameState, helpers, myCamp, myCampKey, caps, combat,
+        gameState, helpers, myCamp, myCampKey, caps, doctrine, weights, combat,
         round, roundsRemaining, turnLimit, fog, oceanMap, hasRivers, standardMap,
         navDistance,
         captureRoute: caps.transportPlanning && oceanMap ? createCaptureRouteFinder(gameState) : null,

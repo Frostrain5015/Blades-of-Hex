@@ -31,9 +31,12 @@ function unitCost(world, type) {
 /** 招募城市兵种：突击缺口时步兵/骑兵置顶（对齐真人"城就是产能"的认知）。 */
 function landRecruitOrder(world, missionsCtx, hasCapturer) {
     if (!hasCapturer) return LAND_ORDER;
+    const w = world.weights || W;
     const hostileFortifications = world.rivalUnits.filter(unit =>
         getUnitBaseType(unit) === 'mgNest' || getUnitBaseType(unit) === 'shoreBattery').length;
     const myArchers = world.myUnits.filter(unit => getUnitBaseType(unit) === 'archer').length;
+    const myCavalry = world.myUnits.filter(unit => getUnitBaseType(unit) === 'cavalry').length;
+    const myInfantry = world.myUnits.filter(unit => getUnitBaseType(unit) === 'infantry').length;
     if (world.caps.lethalFocus && hostileFortifications > myArchers) {
         return ['archer', 'cavalry', 'infantry'];
     }
@@ -50,25 +53,38 @@ function landRecruitOrder(world, missionsCtx, hasCapturer) {
         && myArchers < desiredSupport) {
         return ['archer', 'infantry', 'cavalry'];
     }
+    if (w.recruitOrderBias === 'blitz' && myCavalry < Math.max(2, Math.floor(myInfantry * 0.45))) {
+        return ['cavalry', 'infantry', 'archer'];
+    }
+    if (world.caps.id === 'hard' && myInfantry >= 1) {
+        if (myCavalry < Math.max(1, Math.floor(myInfantry * 0.35))) {
+            return ['cavalry', 'archer', 'infantry'];
+        }
+        if (myArchers < Math.max(1, Math.floor((myInfantry + myCavalry) / 3))) {
+            return ['archer', 'cavalry', 'infantry'];
+        }
+    }
     return LAND_ORDER;
 }
 
 function navalRecruitOrder(world) {
+    const w = world.weights || W;
     const enemySubs = world.rivalUnits.filter(u => getUnitBaseType(u) === 'submarine').length;
     const myDestroyers = world.myUnits.filter(u => getUnitBaseType(u) === 'destroyer' || u.config?.submarineDetectorRadius).length;
+    const enemyWarships = world.rivalUnits.filter(u => getUnitBaseType(u) === 'warship').length;
+    const enemyAntiSub = world.rivalUnits.filter(u => getUnitBaseType(u) === 'destroyer' || u.config?.submarineDetectorRadius).length;
+    const mySubs = world.myUnits.filter(u => getUnitBaseType(u) === 'submarine').length;
+    const myWarships = world.myUnits.filter(u => getUnitBaseType(u) === 'warship').length;
     let order = NAVAL_ORDER;
-    if (enemySubs > myDestroyers) order = ['destroyer', 'warship', 'submarine'];
-    else {
-        const enemyWarships = world.rivalUnits.filter(u => getUnitBaseType(u) === 'warship').length;
-        const enemyAntiSub = world.rivalUnits.filter(u => getUnitBaseType(u) === 'destroyer' || u.config?.submarineDetectorRadius).length;
-        const mySubs = world.myUnits.filter(u => getUnitBaseType(u) === 'submarine').length;
-        const myWarships = world.myUnits.filter(u => getUnitBaseType(u) === 'warship').length;
-        // 避免无护卫纯潜艇海被敌方驱逐逐一清盘：至多维持反巡洋所需比例。
-        if (enemyWarships > mySubs
-            && mySubs < Math.max(2, myWarships + myDestroyers)
-            && enemyAntiSub <= myDestroyers + 1) {
-            order = ['submarine', 'warship', 'destroyer'];
-        }
+    if (enemySubs > myDestroyers) {
+        order = ['destroyer', 'warship', 'submarine'];
+    } else if (world.oceanMap && myWarships < Math.max(2, enemyWarships + ((w.navalWarshipBias ?? 1) > 1.2 ? 1 : 0))) {
+        // 海图优先补齐巡洋舰与护航驱逐舰，抢夺制海与远程轰城权。
+        order = ['warship', 'destroyer', 'submarine'];
+    } else if (enemyWarships > mySubs
+        && mySubs < Math.max(2, myWarships + myDestroyers)
+        && enemyAntiSub <= myDestroyers + 1) {
+        order = ['submarine', 'warship', 'destroyer'];
     }
     return order;
 }
@@ -107,6 +123,8 @@ export function planProduction(world, strategy, missionsCtx) {
     let gold = world.gold;
     const assaultCount = world.myUnits.filter(unit => isFieldCapturer(world, unit)).length;
     let currentAssaultCount = assaultCount;
+    const prodMemory = ((world.gameState._aiCoreMemory ||= {})[world.myCampKey] ||= {});
+    prodMemory.strategicSaveReserve = 0;
     const tianyanProtectedFund = (reserveBase, urgent = false) => reserveBase + (urgent
         ? 0
         : resolveTianyanDroneReserve(world.gameState, world.myCamp, {
@@ -114,6 +132,25 @@ export function planProduction(world, strategy, missionsCtx) {
             urgentDefense: !!strategy.emergencyDefenseCity,
             gold
         }));
+
+    // 战略级拨款优先队列（海图巡洋舰 / 空城空降 / 前进机场），防止每回合被 $8 步兵吸干预算。
+    const readyAirfields = world.myCities.filter(city => city.installation?.type === 'airfield'
+        && city.installation?.status === 'ready');
+    const pendingDirectAirdrop = world.caps.id === 'hard' && readyAirfields.some(af => {
+        const range = 8;
+        const readyRound = Number(af.installation?.airCommandReadyRound?.airdrop || 0);
+        if (readyRound > world.round) return false;
+        return world.cities.some(c => c.hostile && !c.garrison && c.hp <= 0
+            && helpers.hexDistance(af, c.tile) <= range);
+    });
+    const pendingForwardAirfield = world.caps.id === 'hard' && !strategy.emergencyDefenseCity
+        && currentAssaultCount >= 2 && gold >= 10
+        && world.myCities.length >= 2 && existingAirfieldCount(world) < (world.oceanMap ? 3 : 2)
+        && world.cities.some(c => c.mine && !c.tile.installation);
+    function existingAirfieldCount(wObj) {
+        return wObj.myCities.filter(c => c.installation?.type === 'airfield').length;
+    }
+    const strategicAirFund = pendingDirectAirdrop ? 10 : (pendingForwardAirfield && gold >= 8 ? 10 : 0);
     const isCapturerType = type => !['archer', 'warship', 'shoreBattery', 'submarine', 'carrier', 'destroyer', 'drone', 'mgNest']
         .includes(getUnitBaseType(type));
     const uniqueType = getCulturalRecruitmentCandidate(world.gameState, world.myCamp);
@@ -205,7 +242,7 @@ export function planProduction(world, strategy, missionsCtx) {
         .sort((a, b) => Number(b === strategy.emergencyDefenseCity) - Number(a === strategy.emergencyDefenseCity));
     const urgentCities = new Set();
     let recruits = 0;
-    const maxRecruits = world.caps.id === 'easy' ? 1 : 2;
+    const maxRecruits = world.caps.id === 'easy' ? 1 : world.caps.id === 'hard' ? 3 : 2;
     const landOrder = landRecruitOrder(world, missionsCtx, assaultCount > 0);
     const cityOrder = (site, order, urgent) => uniqueSlots > 0 && cityUnique
         && (uniqueCanCapture || (!urgent && assaultCount > 0)) && canRecruit(uniqueType, site)
@@ -306,6 +343,32 @@ export function planProduction(world, strategy, missionsCtx) {
         if (isCapturerType(uniqueType)) currentAssaultCount++;
         uniqueSlots--;
     }
+    const wProdEarly = world.weights || W;
+    const earlyEmptyPorts = world.tiles.filter(t => t.isPort && t.camp === world.myCamp && !t.unit);
+    const earlyMyWarships = world.myUnits.filter(u => getUnitBaseType(u) === 'warship').length;
+    const earlyEnemyWarships = world.rivalUnits.filter(u => getUnitBaseType(u) === 'warship').length;
+    const desiredWarships = (wProdEarly.navalWarshipBias ?? 1) > 1.2 ? Math.max(3, earlyEnemyWarships + 1) : Math.max(2, earlyEnemyWarships);
+    const needCruiserLead = world.oceanMap && !strategy.emergencyDefenseCity
+        && currentAssaultCount >= 2 && earlyEmptyPorts.length > 0 && earlyMyWarships < desiredWarships
+        && !(world.myCities.some(c => !c.unit && world.threatAt(c, null) >= 40));
+    const warshipCost = unitCost(world, 'warship');
+    const navalOrderNow = navalRecruitOrder(world);
+    let builtPriorityWarship = false;
+    if (needCruiserLead && navalOrderNow[0] === 'warship'
+        && gold - warshipCost >= emergencyRecruitFund
+        && (!helpers.canRecruitTypeAtSite || helpers.canRecruitTypeAtSite('warship', earlyEmptyPorts[0]))) {
+        actions.push({ type: 'recruit', unitType: 'warship', tileQ: earlyEmptyPorts[0].q, tileR: earlyEmptyPorts[0].r });
+        gold -= warshipCost;
+        recruits++;
+        builtPriorityWarship = true;
+    } else if (needCruiserLead && !builtPriorityWarship && gold < warshipCost + emergencyRecruitFund) {
+        prodMemory.strategicSaveReserve = Math.max(prodMemory.strategicSaveReserve, Math.min(gold, warshipCost));
+    }
+    if (strategicAirFund > 0 && !strategy.emergencyDefenseCity) {
+        prodMemory.strategicSaveReserve = Math.max(prodMemory.strategicSaveReserve, strategicAirFund);
+    }
+    const strategicReserveFloor = Math.max(emergencyRecruitFund, prodMemory.strategicSaveReserve || 0);
+
     for (const city of emptyCities) {
         if (recruits >= maxRecruits) break;
         if (savingForUnique) continue;
@@ -315,7 +378,16 @@ export function planProduction(world, strategy, missionsCtx) {
         const types = cityOrder(city, standard, false);
         for (const type of types) {
             const cost = unitCost(world, type);
-            const minFundAfterRecruit = tianyanProtectedFund(emergencyRecruitFund, false);
+            const cityUnderThreat = world.threatAt(city, null) >= 35;
+            const diversifyCap = world.caps.id === 'hard' && !cityUnderThreat && !strategy.emergencyDefenseCity
+                && !needCruiserLead && (type === 'cavalry' || type === 'archer')
+                && currentAssaultCount >= 2;
+            const reserveFloorHere = cityUnderThreat
+                ? emergencyRecruitFund
+                : diversifyCap
+                    ? Math.max(2, (prodMemory.strategicSaveReserve || 0) - 6)
+                    : strategicReserveFloor;
+            const minFundAfterRecruit = tianyanProtectedFund(reserveFloorHere, false);
             if (gold - cost < minFundAfterRecruit) continue;
             if (!canRecruit(type, city)) continue;
             actions.push({ type: 'recruit', unitType: type, tileQ: city.q, tileR: city.r });
@@ -330,16 +402,22 @@ export function planProduction(world, strategy, missionsCtx) {
     // ── 2. 港口招募：舰队有饱和上限，金币不能全变成占不了城的船。
     // 海军熔断：最近 3 回合内有舰船阵亡就停招——"排队送进岸防炮射程"的连败
     // 循环必须用记忆打断（阵亡的舰不占饱和数，单看饱和会永远补招）。
+    const wProd = world.weights || W;
     const navalCount = world.myUnits.filter(u => world.isNaval(u)).length;
+    const myWarshipsCount = world.myUnits.filter(u => getUnitBaseType(u) === 'warship').length;
+    const enemyWarshipsCount = world.rivalUnits.filter(u => getUnitBaseType(u) === 'warship').length;
     const navalMemory = ((world.gameState._aiCoreMemory ||= {})[world.myCampKey] ||= {});
     if (Number.isFinite(navalMemory.lastNavalCount) && navalCount < navalMemory.lastNavalCount) {
-        navalMemory.navalCooldownUntil = world.round + 3;
+        const trailingWarships = world.oceanMap && enemyWarshipsCount > myWarshipsCount;
+        navalMemory.navalCooldownUntil = world.round + (trailingWarships ? 1 : 2);
     }
     navalMemory.lastNavalCount = navalCount;
     const navalCoolingDown = Number.isFinite(navalMemory.navalCooldownUntil)
         && world.round < navalMemory.navalCooldownUntil;
-    const fleetSaturated = navalCount >= Math.max(4, assaultCount * 2)
-        || assaultCount < 3
+    const minAssaultForNavy = world.oceanMap ? 2 : 3;
+    const fleetCap = Math.max(4, Math.round(assaultCount * 2 * (wProd.navalSaturatedScale ?? 1)));
+    const fleetSaturated = navalCount >= fleetCap
+        || assaultCount < minAssaultForNavy
         || navalCoolingDown;
     const hostileNavyPresent = world.rivalUnits.some(u => world.isNaval(u));
     const allowLandMapNavy = !world.oceanMap && hostileNavyPresent && navalCount < 1;
@@ -357,6 +435,10 @@ export function planProduction(world, strategy, missionsCtx) {
         for (const port of emptyPorts.slice(0, 1)) {
             if (!world.oceanMap && world.rivalUnits.some(u => world.isNaval(u) && u.tile
                 && world.helpers.hexDistance(u.tile, port) <= 2)) continue;
+            if (!builtPriorityWarship && needCruiserLead && order[0] === 'warship'
+                && gold - warshipCost < tianyanProtectedFund(emergencyRecruitFund)) {
+                break;
+            }
             for (const type of order) {
                 const cost = unitCost(world, type);
                 if (gold - cost < tianyanProtectedFund(emergencyRecruitFund)) continue;

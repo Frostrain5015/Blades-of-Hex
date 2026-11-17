@@ -178,12 +178,254 @@ export function residualGold(unit) {
     return cost * readiness + commanderValue + rankValue;
 }
 
+// ─── Imperator 多风格作战分支（仅困难档启用）─────────────────────
+// 每分支只调整无量纲比率与建造/抽牌偏好，共享同一套规则认知与管线。
+export const IMPERATOR_DOCTRINES = Object.freeze({
+    grandmaster: Object.freeze({
+        id: 'grandmaster',
+        name: '铁血稳健',
+        riskWeightScale: 1.0,
+        tradeVetoRatio: 0.45,
+        lethalThreatMargin: 1.15,
+        retreatHpRatio: 0.30,
+        retreatHpRatioCommander: 0.42,
+        navalRetreatHpRatio: 0.46,
+        occupierThreatTolerance: 1.9,
+        killPremiumRatio: 0.55,
+        commanderKillBonus: 65,
+        commanderTargetFocusBonus: 36,
+        commanderRiskPush: false,
+        allowRiskySiege: false,
+        siegeEtaTickRatio: 0.06,
+        cardDrawSurplusMin: 3,
+        cardFocus: false,
+        navalWarshipBias: 1.15,
+        navalSaturatedScale: 1.15,
+        airfieldExpansionReserve: 15,
+        airdropReserveFloor: 8,
+        recruitOrderBias: 'balanced'
+    }),
+    blitz: Object.freeze({
+        id: 'blitz',
+        name: '闪击突进',
+        riskWeightScale: 0.56,
+        tradeVetoRatio: 0.80,
+        lethalThreatMargin: 1.00,
+        retreatHpRatio: 0.18,
+        retreatHpRatioCommander: 0.25,
+        navalRetreatHpRatio: 0.28,
+        occupierThreatTolerance: 2.8,
+        killPremiumRatio: 0.85,
+        commanderKillBonus: 95,
+        commanderTargetFocusBonus: 55,
+        commanderRiskPush: true,
+        allowRiskySiege: true,
+        siegeEtaTickRatio: 0.095,
+        cardDrawSurplusMin: 4,
+        cardFocus: false,
+        navalWarshipBias: 1.25,
+        navalSaturatedScale: 1.1,
+        airfieldExpansionReserve: 14,
+        airdropReserveFloor: 6,
+        recruitOrderBias: 'blitz'
+    }),
+    armada: Object.freeze({
+        id: 'armada',
+        name: '海空铁壁',
+        riskWeightScale: 0.82,
+        tradeVetoRatio: 0.55,
+        lethalThreatMargin: 1.08,
+        retreatHpRatio: 0.24,
+        retreatHpRatioCommander: 0.34,
+        navalRetreatHpRatio: 0.38,
+        occupierThreatTolerance: 2.2,
+        killPremiumRatio: 0.65,
+        commanderKillBonus: 70,
+        commanderTargetFocusBonus: 42,
+        commanderRiskPush: false,
+        allowRiskySiege: true,
+        siegeEtaTickRatio: 0.075,
+        cardDrawSurplusMin: 3,
+        cardFocus: false,
+        navalWarshipBias: 1.65,
+        navalSaturatedScale: 1.45,
+        airfieldExpansionReserve: 12,
+        airdropReserveFloor: 4,
+        recruitOrderBias: 'armada'
+    }),
+    trickster: Object.freeze({
+        id: 'trickster',
+        name: '诡道奇袭',
+        riskWeightScale: 0.68,
+        tradeVetoRatio: 0.65,
+        lethalThreatMargin: 1.04,
+        retreatHpRatio: 0.20,
+        retreatHpRatioCommander: 0.28,
+        navalRetreatHpRatio: 0.34,
+        occupierThreatTolerance: 2.4,
+        killPremiumRatio: 0.75,
+        commanderKillBonus: 110,
+        commanderTargetFocusBonus: 65,
+        commanderRiskPush: true,
+        allowRiskySiege: true,
+        siegeEtaTickRatio: 0.080,
+        cardDrawSurplusMin: 1,
+        cardFocus: true,
+        navalWarshipBias: 1.2,
+        navalSaturatedScale: 1.1,
+        airfieldExpansionReserve: 13,
+        airdropReserveFloor: 5,
+        recruitOrderBias: 'trickster'
+    })
+});
+
+export const IMPERATOR_DOCTRINE_IDS = Object.freeze(Object.keys(IMPERATOR_DOCTRINES));
+
+function sampleRngUnit(rng) {
+    if (typeof rng === 'function') return rng();
+    if (rng && typeof rng.next === 'function') return rng.next();
+    return null;
+}
+
+function weightedDoctrinePick(weightsById, rng) {
+    const entries = IMPERATOR_DOCTRINE_IDS.map(id => [id, Math.max(0.05, Number(weightsById[id]) || 0.05)]);
+    const total = entries.reduce((sum, [, weight]) => sum + weight, 0);
+    const sample = sampleRngUnit(rng);
+    if (sample == null) return 'grandmaster';
+    const roll = sample * total;
+    let acc = 0;
+    for (const [id, weight] of entries) {
+        acc += weight;
+        if (roll <= acc) return id;
+    }
+    return entries[0][0];
+}
+
+export function resolveImperatorDoctrine(gameState, myCampKey, context = {}) {
+    if (!gameState || !myCampKey) return { ...IMPERATOR_DOCTRINES.grandmaster, shiftedFrom: null };
+    const pinned = gameState._imperatorDoctrinePinByCamp?.[myCampKey]
+        || gameState._imperatorDoctrinePin;
+    if (pinned && pinned !== 'random' && Object.hasOwn(IMPERATOR_DOCTRINES, pinned)) {
+        return { ...IMPERATOR_DOCTRINES[pinned], shiftedFrom: null, pinned: true };
+    }
+
+    const aiMemory = (gameState._aiCoreMemory ||= {});
+    const campMemory = (aiMemory[myCampKey] ||= {});
+    const round = Number(context.round ?? 0);
+
+    if (!campMemory.doctrine || !Object.hasOwn(IMPERATOR_DOCTRINES, campMemory.doctrine)) {
+        const commanderIds = new Set(context.commanderIds || []);
+        const cultureId = context.cultureId || null;
+        const weights = { grandmaster: 1.0, blitz: 1.0, armada: 1.0, trickster: 1.0 };
+        if (context.oceanMap) weights.armada += 0.65;
+        if (['centurion', 'berserker', 'vampire', 'paladin'].some(id => commanderIds.has(id))
+            || cultureId === 'jp' || cultureId === 'fr') {
+            weights.blitz += 0.55;
+        }
+        if (['colonel', 'engineer', 'tianyan'].some(id => commanderIds.has(id))
+            || cultureId === 'de' || cultureId === 'us') {
+            weights.armada += 0.55;
+        }
+        if (['diplomat', 'advisor', 'magician'].some(id => commanderIds.has(id))) {
+            weights.trickster += 0.60;
+        }
+        if (['minister', 'ironGuard', 'staller', 'priest'].some(id => commanderIds.has(id))) {
+            weights.grandmaster += 0.45;
+        }
+        const chosen = weightedDoctrinePick(weights, gameState.rng);
+        campMemory.openingDoctrine = chosen;
+        campMemory.doctrine = chosen;
+        campMemory.doctrineSinceRound = round;
+        campMemory.doctrineShifts = [];
+    }
+
+    let shiftedFrom = null;
+    const currentId = campMemory.doctrine;
+    const sinceRound = Number(campMemory.doctrineSinceRound ?? 0);
+    const cityGap = Number(context.cityGap);
+    const hasSituationMetrics = Number.isFinite(cityGap);
+    if (hasSituationMetrics && round >= 6 && round - sinceRound >= 4) {
+        const incomeRatio = Number(context.incomeRatio ?? 1);
+        const roundsRemaining = Number(context.roundsRemaining ?? 99);
+        const ownCities = Number(context.ownCities ?? 1);
+        const lastCaptureRound = Number(campMemory.lastCaptureRound ?? 0);
+        const stagnantRounds = round - lastCaptureRound;
+        const commanderIds = new Set(context.commanderIds || []);
+        const gold = Number(context.gold ?? 0);
+        let nextId = null;
+        let reason = null;
+
+        if (cityGap <= -1 && (incomeRatio < 0.85 || round >= 10 || context.bleeding)) {
+            if (currentId === 'grandmaster' || currentId === 'armada') {
+                const preferTrickster = gold >= 16 || ['diplomat', 'advisor', 'magician', 'colonel'].some(id => commanderIds.has(id));
+                nextId = preferTrickster ? 'trickster' : 'blitz';
+                reason = 'trailing-pivot';
+            }
+        } else if (cityGap >= 2 || (cityGap >= 1 && roundsRemaining <= 8)) {
+            if (currentId === 'blitz' || currentId === 'trickster') {
+                nextId = context.oceanMap ? 'armada' : 'grandmaster';
+                reason = 'lead-consolidation';
+            }
+        } else if (round >= 8 && cityGap === 0 && ownCities <= 2 && stagnantRounds >= 5) {
+            if (currentId === 'grandmaster') {
+                nextId = context.oceanMap ? 'armada' : 'blitz';
+                reason = 'stalemate-breaker';
+            } else if (currentId === 'armada' && round >= 11 && stagnantRounds >= 6) {
+                nextId = 'blitz';
+                reason = 'sea-stalemate-blitz';
+            }
+        }
+
+        if (nextId && nextId !== currentId) {
+            shiftedFrom = currentId;
+            campMemory.doctrine = nextId;
+            campMemory.doctrineSinceRound = round;
+            (campMemory.doctrineShifts ||= []).push({ round, from: currentId, to: nextId, reason });
+        }
+    }
+
+    return {
+        ...IMPERATOR_DOCTRINES[campMemory.doctrine],
+        openingDoctrine: campMemory.openingDoctrine || campMemory.doctrine,
+        shiftedFrom,
+        pinned: false
+    };
+}
+
+export function resolveEffectiveWeights(caps, doctrine = null) {
+    if (caps?.id !== 'hard' || !doctrine) return W;
+    return Object.freeze({
+        ...W,
+        riskWeightScale: doctrine.riskWeightScale ?? 1.0,
+        tradeVetoRatio: doctrine.tradeVetoRatio ?? W.tradeVetoRatio,
+        lethalThreatMargin: doctrine.lethalThreatMargin ?? W.lethalThreatMargin,
+        retreatHpRatio: doctrine.retreatHpRatio ?? W.retreatHpRatio,
+        retreatHpRatioCommander: doctrine.retreatHpRatioCommander ?? W.retreatHpRatioCommander,
+        navalRetreatHpRatio: doctrine.navalRetreatHpRatio ?? 0.58,
+        occupierThreatTolerance: doctrine.occupierThreatTolerance ?? W.occupierThreatTolerance,
+        killPremiumRatio: doctrine.killPremiumRatio ?? W.killPremiumRatio,
+        commanderKillBonus: doctrine.commanderKillBonus ?? W.commanderKillBonus,
+        commanderTargetFocusBonus: doctrine.commanderTargetFocusBonus ?? 30,
+        commanderRiskPush: !!doctrine.commanderRiskPush,
+        allowRiskySiege: !!doctrine.allowRiskySiege,
+        siegeEtaTickRatio: doctrine.siegeEtaTickRatio ?? W.siegeEtaTickRatio,
+        cardDrawSurplusMin: doctrine.cardDrawSurplusMin ?? 3,
+        cardFocus: !!doctrine.cardFocus,
+        navalWarshipBias: doctrine.navalWarshipBias ?? 1.0,
+        navalSaturatedScale: doctrine.navalSaturatedScale ?? 1.0,
+        airfieldExpansionReserve: doctrine.airfieldExpansionReserve ?? 18,
+        airdropReserveFloor: doctrine.airdropReserveFloor ?? 10,
+        recruitOrderBias: doctrine.recruitOrderBias ?? 'balanced'
+    });
+}
+
 /** 攻击的账面金币净值：打出伤害 + 击杀溢价 − 预期反击成本。 */
-export function tradeNetValue({ damageDealt = 0, target = null, kills = false, counterDamage = 0, attacker = null }) {
+export function tradeNetValue({ damageDealt = 0, target = null, kills = false, counterDamage = 0, attacker = null, weights = W }) {
+    const w = weights || W;
     let value = damageDealt * hpGold(target);
     if (kills && target) {
-        value += residualGold(target) * W.killPremiumRatio;
-        if (target.commander) value += W.commanderKillBonus;
+        value += residualGold(target) * w.killPremiumRatio;
+        if (target.commander) value += w.commanderKillBonus;
     }
     value -= counterDamage * hpGold(attacker);
     return value;
