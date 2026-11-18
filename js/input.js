@@ -3,7 +3,7 @@ import { HEX_SIZE, canvas, cardCanvas, settings, saveSettings, MORALE_CONFIG, TE
 import { allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
 import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getEffectiveWeather } from './commanderInterface.js';
 import { buildUnitEffectItems } from './effectItems.js';
-import { gameState, clearselection, deselectUnit, updateRecruitButtonStates, updateRecruitCostDisplay, updateButtonColors, notify, logMessage, serializeState, showTargetingBanner, hideTargetingBanner, getViewingCamp, updateUI, setInspectionTarget, refreshInspectionSelection } from './state.js';
+import { gameState, clearselection, deselectUnit, updateRecruitButtonStates, updateRecruitCostDisplay, updateButtonColors, notify, logMessage, serializeState, showTargetingBanner, hideTargetingBanner, getViewingCamp, getLocalPlayerCamp, updateUI, setInspectionTarget, refreshInspectionSelection } from './state.js';
 import { on, emit } from './eventBus.js';
 import { withMatchAction } from './matchRecorder.js';
 import { isTileVisible, updateAllFogOfWar } from './fogOfWar.js';
@@ -154,14 +154,8 @@ const boardDetailDesc = document.getElementById('boardDetailDesc');
 const boardDetailStatus = document.getElementById('boardDetailStatus');
 
 function _getMyCampInput() {
-    if (gameState.campaignMode && gameState.localPlayerCampKey) return _campFromKeyInput(gameState.localPlayerCampKey);
-    if (isNetworkGame()) {
-        return getRoleCamp(gameState, getMyRole());
-    }
-    if (gameState.gameMode === 'pve' && gameState.aiOpponentCamp) {
-        return Object.values(gameState.factions || {}).find(faction => faction.controller === 'human') || gameState.currentCamp;
-    }
-    return gameState.currentCamp;
+    if (isNetworkGame()) return getRoleCamp(gameState, getMyRole());
+    return getLocalPlayerCamp(gameState);
 }
 
 function _campKeyInput(camp) {
@@ -200,7 +194,7 @@ function _isLocalActionTurn() {
     const myCamp = _getMyCampInput();
     if (!myCamp) return false;
     if (isNetworkGame()) return _sameCampInput(gameState.currentCamp, myCamp) && isMyTurn(gameState.currentCamp);
-    if ((gameState.campaignMode && gameState.localPlayerCampKey) || (gameState.gameMode === 'pve' && gameState.aiOpponentCamp)) {
+    if (gameState.campaignMode || gameState.gameMode === 'pve') {
         return _sameCampInput(gameState.currentCamp, myCamp);
     }
     return true;

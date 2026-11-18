@@ -24,7 +24,7 @@ export const FRONTEND_TEXT = deepFreeze({
             name: '攻城火力',
             desc: `对仍有生命值的城市（含城内驻军与城郭）伤害提高${percent(CITY_SIEGE_CONFIG.cannonSiegeDamageBonus)}`
         },
-        mgNest: { name: '机枪', desc: `对步兵造成的伤害提高${percent(MG_NEST_MACHINE_GUN_DAMAGE_BONUS)}` },
+        mgNest: { name: '机枪', desc: `对步兵/骑兵造成的伤害提高${percent(MG_NEST_MACHINE_GUN_DAMAGE_BONUS)}` },
         carrier: { name: '舰载机', desc: '目标生命每损失5%，攻击力提高1点（至多15点）' },
         us_marine: { name: '两栖登陆', desc: CULTURE_CONFIG.us.tier1.summary },
         gb_battleship: { name: '天佑女王', desc: CULTURE_CONFIG.gb.tier1.summary },
@@ -45,7 +45,7 @@ export const FRONTEND_TEXT = deepFreeze({
     },
     icons: {
         unitPassive: {
-            infantry: '⚔️', cavalry: '🐎', archer: '🎯', shoreBattery: '🏯', destroyer: '🛡', warship: '💥', submarine: '🌊', carrier: '🛫', drone: EMOJI.commander.drone,
+            infantry: '⚔️', cavalry: '🐎', archer: '🎯', mgNest: EMOJI.fortification.flak, shoreBattery: '🏯', destroyer: '🛡', warship: '💥', submarine: '🌊', carrier: '🛫', drone: EMOJI.commander.drone,
             us_marine: '🦅', gb_battleship: '👑', fr_heavy_cannon: '💣', ru_katyusha: '🚀', kmt_training_brigade: '🛡️', cpc_guerrilla: '🚩', jp_samurai: '⛩️'
         },
         commander: {

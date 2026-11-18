@@ -3342,7 +3342,8 @@ async function handleRemoteAction(msg) {
     // 本地投降尚未被服务端收录时（_localSurrenderPendingKey），即使本地已因投降提前进入
     // gameOver 也要继续接收快照，否则无法完成投降重放收敛。
     let remoteStateApplied = false;
-    const heavyVolleys = msg.actionType === 'endTurn' && Array.isArray(msg.effects?.heavyCannonVolleys)
+    const heavyVolleys = (msg.actionType === 'endTurn' || (msg.actionType === 'tacticalCard' && msg.effects?.cardId === 'forceMarch'))
+        && Array.isArray(msg.effects?.heavyCannonVolleys)
         ? msg.effects.heavyCannonVolleys : [];
     if (!gameState.aiActing && (!gameState.gameOver || gameState._localSurrenderPendingKey)) {
         // 飞行类攻击（鱼雷/舰载机弹流）击杀：快照落地会立即移除阵亡单位，
@@ -3500,7 +3501,8 @@ async function handleRemoteAction(msg) {
             }
         }
         if (heavyVolleys.length > 0) {
-            const heavyImpactAt = volleyStartedAt + HEAVY_CANNON_IMPACT_MS;
+            const heavyOffsetMs = msg.actionType === 'tacticalCard' ? BURN_MS : 0;
+            const heavyImpactAt = volleyStartedAt + heavyOffsetMs + HEAVY_CANNON_IMPACT_MS;
             for (const { unit, hit } of heavyTargets) {
                 const current = gameState.tileMap.get(`${hit.q},${hit.r}`)?.unit;
                 if (current?.id === unit.id) {
@@ -3512,12 +3514,14 @@ async function handleRemoteAction(msg) {
                     (gameState.unitDeathGhosts ||= []).push({ unit, until: heavyImpactAt });
                 }
             }
-            for (const hv of heavyVolleys) {
-                spawnHeavyCannonShell(hv.fromX, hv.fromY, hv.toX, hv.toY, hv.isCrit, null, {
-                    startedAt: volleyStartedAt, dodged: hv.dodged, splash: hv.splash
-                });
-                if (hv.dodged && Number.isFinite(hv.toX) && Number.isFinite(hv.toY)) {
-                    setTimeout(() => spawnDodgeShimmer(hv.toX, hv.toY), HEAVY_CANNON_IMPACT_MS);
+            if (msg.actionType === 'endTurn') {
+                for (const hv of heavyVolleys) {
+                    spawnHeavyCannonShell(hv.fromX, hv.fromY, hv.toX, hv.toY, hv.isCrit, null, {
+                        startedAt: volleyStartedAt, dodged: hv.dodged, splash: hv.splash
+                    });
+                    if (hv.dodged && Number.isFinite(hv.toX) && Number.isFinite(hv.toY)) {
+                        setTimeout(() => spawnDodgeShimmer(hv.toX, hv.toY), HEAVY_CANNON_IMPACT_MS);
+                    }
                 }
             }
         }
@@ -3769,6 +3773,15 @@ function _playActionPresentation(actionType, e, { katyushaStartedAt = undefined,
                                 fm.unit.remainingMP += 2;
                             }
                             spawnCommanderSkillEffect(e.x, e.y, '🏃', '强行军');
+                            for (const hv of e.heavyCannonVolleys || []) {
+                                if (!hv || !Number.isFinite(hv.fromX) || !Number.isFinite(hv.toX)) continue;
+                                spawnHeavyCannonShell(hv.fromX, hv.fromY, hv.toX, hv.toY, hv.isCrit, null, {
+                                    dodged: hv.dodged, splash: hv.splash
+                                });
+                                if (hv.dodged && Number.isFinite(hv.toX) && Number.isFinite(hv.toY)) {
+                                    setTimeout(() => spawnDodgeShimmer(hv.toX, hv.toY), HEAVY_CANNON_IMPACT_MS);
+                                }
+                            }
                             break;
                         }
                         case 'orbitalStrike': {

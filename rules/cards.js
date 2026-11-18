@@ -32,7 +32,7 @@ export const TACTICAL_CARD_DATA = (() => {
     cards.lightning.desc = `【雷击】\n对指定敌方单位造成${rangeText(cards.lightning.balance.minDamage, cards.lightning.balance.maxDamage)}真实伤害，雨天伤害提高${percent(cards.lightning.balance.rainMultiplier - 1)}`;
     cards.mgNest.desc = `【碉堡】\n在己方行政区空地部署一座碉堡\n生命${UNIT_CONFIG.mgNest.hp} 攻击${UNIT_CONFIG.mgNest.attack} 射程${UNIT_CONFIG.mgNest.range} 不可移动`;
     cards.airdrop.desc = `【空降】\n在指定空地投放一支${cards.airdrop.balance.infantryHp}生命值的空降步兵`;
-    cards.forceMarch.desc = `【强行军】\n对指定己方单位释放，立即回复${cards.forceMarch.balance.movementPoints}点行动力`;
+    cards.forceMarch.desc = `【强行军】\n对指定己方单位释放，立即回复${cards.forceMarch.balance.movementPoints}点行动力；对架起状态的法国巨炮使用时，额外自动触发一次炮击`;
     cards.scout.desc = `【侦察】\n对指定位置释放，揭示目标及其相邻地块的战争迷雾，持续${cards.scout.balance.duration}回合`;
     cards.shield.desc = `【护盾】\n对指定目标释放，使其获得${cards.shield.balance.shield}点护盾值，永久有效直到被消耗殆尽`;
     cards.poison.desc = `【投毒】\n使目标单位中毒：其所属阵营回合开始时流失${percent(cards.poison.balance.damageMaxHpPct)}最大生命值，持续${cards.poison.balance.ticks}回合，并会传染给相邻单位`;

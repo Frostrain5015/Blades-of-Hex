@@ -634,10 +634,13 @@ test('跨域伤害修正对齐 rules/naval', () => {
     assert.equal(crossDomainDamageBonus({ type: 'infantry' }, land, { type: 'cavalry' }), 0);
 });
 
-test('碉堡【机枪】对步兵增伤为约定值（改动需刻意）', () => {
-    assert.equal(MG_NEST_MACHINE_GUN_DAMAGE_BONUS, 0.30);
-    assert.equal(getMachineGunDamageBonus('mgNest', 'infantry'), 0.30);
-    assert.equal(getMachineGunDamageBonus('mgNest', 'cavalry'), 0);
+test('碉堡【机枪】对步兵/骑兵增伤为约定值（改动需刻意）', () => {
+    assert.equal(MG_NEST_MACHINE_GUN_DAMAGE_BONUS, 0.50);
+    assert.equal(getMachineGunDamageBonus('mgNest', 'infantry'), 0.50);
+    assert.equal(getMachineGunDamageBonus('mgNest', 'cavalry'), 0.50);
+    assert.equal(getMachineGunDamageBonus('mgNest', 'us_marine'), 0.50);
+    assert.equal(getMachineGunDamageBonus('mgNest', 'cpc_guerrilla'), 0.50);
+    assert.equal(getMachineGunDamageBonus('mgNest', 'archer'), 0);
     assert.equal(getMachineGunDamageBonus('infantry', 'mgNest'), 0);
     assert.equal(getMachineGunDamageBonus('shoreBattery', 'infantry'), 0);
 });

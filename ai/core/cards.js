@@ -14,7 +14,7 @@ import { poisonPressure, resolveTianyanDroneReserve } from '../doctrine.js';
 import { isFieldCapturer } from './roster.js';
 import { resolveTargetingPreview } from '../../rules/targeting.js';
 import { isHealingBlocked } from '../../rules/healing.js';
-import { getHistoricalCost } from '../../rules/cultures.js';
+import { getHistoricalCost, isHeavyCannonDeployed } from '../../rules/cultures.js';
 
 const BAL = TACTICAL_CARD_DATA;
 
@@ -254,9 +254,31 @@ export function planCards(world, strategy, missionsCtx) {
         if (!best) {
             const reach = unit => Math.max(1, Number(unit.config?.speed) || 4) + Math.max(1, Number(unit.config?.range) || 1) + 2;
             const exhausted = world.myUnits
-                .filter(u => !u.canAct && !world.isImmobile(u)
-                    && (missionCriticalIds.has(u.id) || u.commander || u.type === 'carrier' || u.type === 'cavalry'))
+                .filter(u => isHeavyCannonDeployed(u) || (!u.canAct && !world.isImmobile(u)
+                    && (missionCriticalIds.has(u.id) || u.commander || u.type === 'carrier' || u.type === 'cavalry')))
                 .map(u => {
+                    if (isHeavyCannonDeployed(u)) {
+                        const range = Math.max(2, Number(u.getEffectiveRange?.() ?? u.config?.range ?? 5));
+                        const targets = enemies.filter(e => {
+                            if (!e.tile) return false;
+                            const dist = world.helpers.hexDistance(u.tile, e.tile);
+                            return dist >= 2 && dist <= range;
+                        });
+                        const targetCities = world.cities.filter(c => {
+                            if (!c.hostile || !c.tile || (c.hp || 0) <= 0) return false;
+                            const dist = world.helpers.hexDistance(u.tile, c.tile);
+                            return dist >= 2 && dist <= range;
+                        });
+                        if (targets.length === 0 && targetCities.length === 0) return null;
+                        const atk = u.getEffectiveAttack?.() ?? u.config?.attack ?? 45;
+                        let bestVal = 0;
+                        for (const t of targets) {
+                            const { value } = enemyValueOfTarget(world, t, atk);
+                            if (value > bestVal) bestVal = value;
+                        }
+                        if (bestVal === 0 && targetCities.length > 0) bestVal = atk * 2.5;
+                        return { unit: u, score: bestVal + 60 };
+                    }
                     const hasFollowupTarget = enemies.some(e => e.tile && world.helpers.hexDistance(u.tile, e.tile) <= reach(u));
                     const hasOpenCityInReach = world.isCapturable(u) && world.cities.some(c =>
                         c.hostile && !c.garrison && c.hp <= 0 && world.helpers.hexDistance(u.tile, c.tile) <= reach(u));

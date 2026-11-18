@@ -381,12 +381,13 @@ export const COUNTER_RELATION = deepFreeze(
     }))
 );
 
-/** 碉堡兵种被动【机枪】：对步兵（含特色步兵）造成的伤害提高（与岸防炮对舰加成同类，归入②增伤乘区）。 */
-export const MG_NEST_MACHINE_GUN_DAMAGE_BONUS = 0.30;
+/** 碉堡兵种被动【机枪】：对步兵/骑兵（含对应特色兵种）造成的伤害提高（与岸防炮对舰加成同类，归入②增伤乘区）。 */
+export const MG_NEST_MACHINE_GUN_DAMAGE_BONUS = 0.50;
 
-/** 【机枪】增伤判定：攻击方为碉堡且目标为步兵时返回加成，否则为 0。 */
+/** 【机枪】增伤判定：攻击方为碉堡且目标为步兵或骑兵时返回加成，否则为 0。 */
 export function getMachineGunDamageBonus(attackerType, defenderType) {
-    return attackerType === 'mgNest' && getUnitBaseType(defenderType) === 'infantry'
+    const defenderBase = getUnitBaseType(defenderType);
+    return attackerType === 'mgNest' && (defenderBase === 'infantry' || defenderBase === 'cavalry')
         ? MG_NEST_MACHINE_GUN_DAMAGE_BONUS
         : 0;
 }

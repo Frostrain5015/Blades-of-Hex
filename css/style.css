@@ -909,13 +909,19 @@ body {
    ============================================================= */
 
 #commandPanel {
+    --cmd-camp-main: #888888;
+    --cmd-camp-dark: #444444;
+    --cmd-camp-light: #aaaaaa;
     background: var(--surface);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     border-radius: var(--radius-md);
-    border: 1px solid var(--gold-border);
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
+    border: 1px solid color-mix(in srgb, var(--cmd-camp-main) 44%, rgba(255, 215, 0, 0.16));
+    box-shadow:
+        0 4px 20px rgba(0, 0, 0, 0.6),
+        inset 0 1px 0 color-mix(in srgb, var(--cmd-camp-light) 14%, transparent);
     overflow: hidden;
+    transition: border-color 0.25s ease;
 }
 
 .cmd-section {
@@ -1021,65 +1027,25 @@ body {
     font-weight: normal;
 }
 
-/* Per-camp recruit button theming */
-#commandPanel[data-camp="p1"] .recruit-btn {
-    background: rgba(116, 26, 20, 0.22);
-    border-color: rgba(185, 50, 40, 0.28);
+/* Dynamic faction-color recruit button theming */
+#commandPanel .recruit-btn {
+    background: color-mix(in srgb, var(--cmd-camp-dark) 30%, rgba(16, 12, 10, 0.65));
+    border-color: color-mix(in srgb, var(--cmd-camp-main) 34%, transparent);
 }
-#commandPanel[data-camp="p1"] .recruit-btn:hover:not(:disabled) {
-    background: rgba(145, 32, 25, 0.42);
-    border-color: var(--red-border);
-    box-shadow: 0 0 10px var(--red-glow);
+#commandPanel .recruit-btn:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--cmd-camp-dark) 54%, rgba(16, 12, 10, 0.55));
+    border-color: color-mix(in srgb, var(--cmd-camp-main) 68%, transparent);
+    box-shadow: 0 0 10px color-mix(in srgb, var(--cmd-camp-main) 34%, transparent);
     transform: translateY(-1px);
 }
-#commandPanel[data-camp="p1"] .recruit-btn.available {
-    background: var(--red-bg);
-    border-color: var(--red-border);
-    box-shadow: 0 0 10px var(--red-glow);
+#commandPanel .recruit-btn.available {
+    background: color-mix(in srgb, var(--cmd-camp-main) 34%, color-mix(in srgb, var(--cmd-camp-dark) 78%, rgba(10, 8, 6, 0.92)));
+    border-color: color-mix(in srgb, var(--cmd-camp-light) 55%, var(--cmd-camp-main));
+    box-shadow: 0 0 10px color-mix(in srgb, var(--cmd-camp-main) 32%, transparent);
 }
-#commandPanel[data-camp="p1"] .recruit-btn.available:hover:not(:disabled) {
-    filter: brightness(1.22);
-    box-shadow: 0 4px 14px var(--red-glow);
-}
-
-#commandPanel[data-camp="p2"] .recruit-btn {
-    background: rgba(20, 44, 116, 0.22);
-    border-color: rgba(40, 82, 175, 0.28);
-}
-#commandPanel[data-camp="p2"] .recruit-btn:hover:not(:disabled) {
-    background: rgba(25, 55, 145, 0.42);
-    border-color: var(--blue-border);
-    box-shadow: 0 0 10px var(--blue-glow);
-    transform: translateY(-1px);
-}
-#commandPanel[data-camp="p2"] .recruit-btn.available {
-    background: var(--blue-bg);
-    border-color: var(--blue-border);
-    box-shadow: 0 0 10px var(--blue-glow);
-}
-#commandPanel[data-camp="p2"] .recruit-btn.available:hover:not(:disabled) {
-    filter: brightness(1.22);
-    box-shadow: 0 4px 14px var(--blue-glow);
-}
-
-#commandPanel[data-camp="p3"] .recruit-btn {
-    background: rgba(20, 70, 30, 0.22);
-    border-color: rgba(40, 140, 60, 0.28);
-}
-#commandPanel[data-camp="p3"] .recruit-btn:hover:not(:disabled) {
-    background: rgba(25, 90, 38, 0.42);
-    border-color: var(--green-border);
-    box-shadow: 0 0 10px var(--green-glow);
-    transform: translateY(-1px);
-}
-#commandPanel[data-camp="p3"] .recruit-btn.available {
-    background: var(--green-bg);
-    border-color: var(--green-border);
-    box-shadow: 0 0 10px var(--green-glow);
-}
-#commandPanel[data-camp="p3"] .recruit-btn.available:hover:not(:disabled) {
-    filter: brightness(1.22);
-    box-shadow: 0 4px 14px var(--green-glow);
+#commandPanel .recruit-btn.available:hover:not(:disabled) {
+    filter: brightness(1.18);
+    box-shadow: 0 4px 14px color-mix(in srgb, var(--cmd-camp-main) 38%, transparent);
 }
 
 /* ----- Command Buttons ----- */
@@ -1096,7 +1062,7 @@ body {
     color: var(--text-bright);
     background: rgba(255, 255, 255, 0.05);
     font-family: inherit;
-    transition: filter 0.18s ease, box-shadow 0.18s ease, transform 0.14s ease;
+    transition: filter 0.18s ease, box-shadow 0.18s ease, transform 0.14s ease, background 0.25s ease, border-color 0.25s ease, color 0.25s ease;
     text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
     position: relative;
     overflow: hidden;
@@ -1111,71 +1077,27 @@ body {
     pointer-events: none;
 }
 
-#commandPanel[data-camp="p1"] .cmd-btn:not(.danger) {
-    background: var(--red-bg);
-    border-color: var(--red-border);
+#commandPanel .cmd-btn:not(.danger) {
+    background: color-mix(in srgb, var(--cmd-camp-main) 32%, color-mix(in srgb, var(--cmd-camp-dark) 78%, rgba(10, 8, 6, 0.92)));
+    border-color: color-mix(in srgb, var(--cmd-camp-light) 48%, var(--cmd-camp-main));
 }
-#commandPanel[data-camp="p1"] .cmd-btn:not(.danger):hover:not(:disabled) {
-    filter: brightness(1.22);
-    box-shadow: 0 4px 14px var(--red-glow);
-    transform: translateY(-1px);
-}
-#commandPanel[data-camp="p2"] .cmd-btn:not(.danger) {
-    background: var(--blue-bg);
-    border-color: var(--blue-border);
-}
-#commandPanel[data-camp="p2"] .cmd-btn:not(.danger):hover:not(:disabled) {
-    filter: brightness(1.22);
-    box-shadow: 0 4px 14px var(--blue-glow);
-    transform: translateY(-1px);
-}
-#commandPanel[data-camp="p3"] .cmd-btn:not(.danger) {
-    background: var(--green-bg);
-    border-color: var(--green-border);
-}
-#commandPanel[data-camp="p3"] .cmd-btn:not(.danger):hover:not(:disabled) {
-    filter: brightness(1.22);
-    box-shadow: 0 4px 14px var(--green-glow);
+#commandPanel .cmd-btn:not(.danger):hover:not(:disabled) {
+    filter: brightness(1.18);
+    box-shadow: 0 4px 14px color-mix(in srgb, var(--cmd-camp-main) 36%, transparent);
     transform: translateY(-1px);
 }
 
-/* Surrender — per-camp danger coloring */
-#commandPanel[data-camp="p1"] .cmd-btn.danger {
-    background: rgba(55, 12, 10, 0.88);
-    border-color: rgba(145, 35, 28, 0.42);
-    color: #b06060;
+/* Surrender / Exit — muted faction-tinted danger styling */
+#commandPanel .cmd-btn.danger {
+    background: color-mix(in srgb, var(--cmd-camp-dark) 48%, rgba(10, 8, 10, 0.90));
+    border-color: color-mix(in srgb, var(--cmd-camp-main) 46%, transparent);
+    color: color-mix(in srgb, var(--cmd-camp-light) 68%, #d8d0c8);
 }
-#commandPanel[data-camp="p1"] .cmd-btn.danger:hover:not(:disabled) {
-    background: rgba(78, 18, 14, 0.92);
-    border-color: rgba(185, 50, 40, 0.65);
-    color: #e08888;
-    box-shadow: 0 4px 14px rgba(165, 35, 28, 0.32);
-    transform: translateY(-1px);
-}
-
-#commandPanel[data-camp="p2"] .cmd-btn.danger {
-    background: rgba(10, 18, 55, 0.88);
-    border-color: rgba(28, 55, 145, 0.42);
-    color: #6080b0;
-}
-#commandPanel[data-camp="p2"] .cmd-btn.danger:hover:not(:disabled) {
-    background: rgba(14, 24, 78, 0.92);
-    border-color: rgba(40, 80, 185, 0.65);
-    color: #88a8e0;
-    box-shadow: 0 4px 14px rgba(28, 55, 165, 0.32);
-    transform: translateY(-1px);
-}
-
-#commandPanel[data-camp="p3"] .cmd-btn.danger {
-    background: rgba(10, 45, 18, 0.88);
-    border-color: rgba(28, 130, 50, 0.42);
-    color: #60a060;
-}
-#commandPanel[data-camp="p3"] .cmd-btn.danger:hover:not(:disabled) {
-    background: rgba(14, 60, 24, 0.92);
-    border-color: rgba(40, 160, 65, 0.65);
-    color: #88d088;
-    box-shadow: 0 4px 14px rgba(28, 140, 55, 0.32);
+#commandPanel .cmd-btn.danger:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--cmd-camp-dark) 68%, rgba(14, 12, 14, 0.92));
+    border-color: color-mix(in srgb, var(--cmd-camp-main) 72%, transparent);
+    color: color-mix(in srgb, var(--cmd-camp-light) 86%, #ffffff);
+    box-shadow: 0 4px 14px color-mix(in srgb, var(--cmd-camp-main) 34%, transparent);
     transform: translateY(-1px);
 }
 

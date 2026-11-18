@@ -459,6 +459,9 @@ function getImpactDelayForStep(step, state) {
     const p = step?.payload || {};
     if (step.actionType === 'tacticalCard' && p.cardId && p.cardId !== 'airdrop') {
         if (p.cardId === 'diveStrafe' || p.cardId === 'carpetBomb') return 2800;
+        if (p.cardId === 'forceMarch' && Array.isArray(p.heavyCannonVolleys) && p.heavyCannonVolleys.length > 0) {
+            return 1600 + 700;
+        }
         return 1600;
     }
     if (step.actionType === 'airCommand') {
@@ -827,6 +830,21 @@ function buildEnrichedPayload(step, state, preUnits, fxMeta, impactDelay) {
         'results'
     ]) {
         if (Array.isArray(p[listField])) p[listField] = enrichCoordList(state, p[listField]);
+    }
+    if (Array.isArray(p.heavyCannonVolleys)) {
+        p.heavyCannonVolleys = p.heavyCannonVolleys.map(hv => {
+            if (!hv || typeof hv !== 'object') return hv;
+            const ft = Number.isFinite(hv.fromQ) && Number.isFinite(hv.fromR) ? state.tileMap.get(`${hv.fromQ},${hv.fromR}`) : null;
+            const tt = Number.isFinite(hv.toQ) && Number.isFinite(hv.toR) ? state.tileMap.get(`${hv.toQ},${hv.toR}`) : null;
+            return {
+                ...hv,
+                fromX: Number.isFinite(hv.fromX) ? hv.fromX : (ft?.x ?? p.x),
+                fromY: Number.isFinite(hv.fromY) ? hv.fromY : (ft?.y ?? p.y),
+                toX: Number.isFinite(hv.toX) ? hv.toX : tt?.x,
+                toY: Number.isFinite(hv.toY) ? hv.toY : tt?.y,
+                splash: enrichCoordList(state, hv.splash)
+            };
+        });
     }
     if (p.counterDmg > 0 && p.fromX != null && p.fromY != null) {
         if (p.counterX == null) p.counterX = p.fromX;

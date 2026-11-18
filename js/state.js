@@ -155,17 +155,70 @@ export function getViewingCamp() {
     return gameState.currentCamp;
 }
 
-// ===== UI 更新 =====================
+// ===== 阵营解析与 UI 更新 =====================
+export function getLocalPlayerCamp(state = gameState) {
+    if (!state) return null;
+    if (state.campaignMode) {
+        return campFromKey(getViewingCampKey(state), state)
+            || Object.values(state.factions || {}).find(f => f && f.active !== false && f.controller === 'human')
+            || state.currentCamp;
+    }
+    if (isNetworkGame()) {
+        return getRoleCamp(state, getMyRole()) || state.currentCamp;
+    }
+    if (state.gameMode === 'pve') {
+        const humanFactions = Object.values(state.factions || {})
+            .filter(f => f && f.active !== false && f.controller === 'human');
+        if (humanFactions.length === 1) return humanFactions[0];
+        if (humanFactions.length > 1) return state.currentCamp;
+        if (state.aiOpponentCamp) {
+            const nonAiFactions = Object.values(state.factions || {})
+                .filter(f => f && f.active !== false && f !== state.aiOpponentCamp);
+            if (nonAiFactions.length === 1) return nonAiFactions[0];
+        }
+        if (state.localPlayerCampKey) return campFromKey(state.localPlayerCampKey, state);
+    }
+    return state.currentCamp;
+}
+
+export function getCommandPanelCamp(state = gameState) {
+    if (!state) return null;
+    if (state._replayMode) {
+        if (state.campaignMode) return getLocalPlayerCamp(state) || state.currentCamp;
+        if (state.skirmishFog && state._replayViewCampKey && state._replayViewCampKey !== 'neutral') {
+            return campFromKey(state._replayViewCampKey, state) || state.currentCamp;
+        }
+        return state.currentCamp;
+    }
+    return getLocalPlayerCamp(state);
+}
+
+export function getCommandPanelThemeColors(camp, state = gameState) {
+    const faction = getFaction(state, camp) || camp;
+    const campKey = campToKey(camp);
+    if (!camp || campKey === 'neutral') {
+        return { campKey: 'neutral', dataCamp: 'neu', ...CAMP_FLAG_COLORS.neu };
+    }
+    const colorSpec = faction?.colorId || faction?.color;
+    const flag = colorSpec ? getFlagColors(colorSpec) : CAMP_FLAG_COLORS.neu;
+    const dataCamp = campKey === 'player1' ? 'p1' : campKey === 'player2' ? 'p2' : campKey === 'player3' ? 'p3' : campKey;
+    return { campKey, dataCamp, main: flag.main, dark: flag.dark, light: flag.light };
+}
+
 export function updateButtonColors() {
-    const myCamp = _getMyCamp();
-    const displayCamp = gameState._replayMode
-        ? gameState.currentCamp
-        : (isNetworkGame() ? myCamp : (gameState.gameMode === 'pve' ? _getHumanCamp() : gameState.currentCamp));
-    const campKey = campToKey(displayCamp);
+    const displayCamp = getCommandPanelCamp(gameState);
+    const theme = getCommandPanelThemeColors(displayCamp, gameState);
     const panel = document.getElementById('commandPanel');
     if (panel) {
-        panel.setAttribute('data-camp', campKey === 'player1' ? 'p1' : campKey === 'player2' ? 'p2' : campKey === 'player3' ? 'p3' : 'neu');
+        panel.setAttribute('data-camp', theme.dataCamp);
+        panel.style.setProperty('--cmd-camp-main', theme.main);
+        panel.style.setProperty('--cmd-camp-dark', theme.dark);
+        panel.style.setProperty('--cmd-camp-light', theme.light);
     }
+    const activeTurnKey = campToKey(gameState.commanderPhase === 'selection' ? displayCamp : gameState.currentCamp);
+    const activeSeatKey = gameState.campaignMode
+        ? (activeTurnKey === getViewingCampKey(gameState) ? 'player1' : null)
+        : activeTurnKey;
     const card1 = document.getElementById('campCard1');
     const card2 = document.getElementById('campCard2');
     const card3 = document.getElementById('campCard3');
@@ -181,39 +234,24 @@ export function updateButtonColors() {
             card.title = selected ? '再次点击回到全图视角' : '点击切换到该阵营实时视角';
         } else {
             card.classList.remove('replay-viewing');
-            card.classList.toggle('active', campKey === seatKey);
+            card.classList.toggle('active', activeSeatKey === seatKey);
             if (card.title) card.title = '';
         }
     }
 }
 
 function _getMyCamp() {
-    if (gameState.campaignMode && gameState.localPlayerCampKey) return campFromKey(gameState.localPlayerCampKey, gameState);
-    if (isNetworkGame()) {
-        return getRoleCamp(gameState, getMyRole()) || gameState.currentCamp;
-    }
-    if (gameState.gameMode === 'pve' && gameState.aiOpponentCamp) {
-        return Object.values(gameState.factions || {}).find(faction => faction.controller === 'human') || gameState.currentCamp;
-    }
-    return gameState.currentCamp;
+    return getLocalPlayerCamp(gameState);
 }
 
-function _getHumanCamp() {
-    if (gameState.campaignMode && gameState.localPlayerCampKey) return campFromKey(gameState.localPlayerCampKey, gameState);
-    if (gameState.gameMode === 'pve' && gameState.aiOpponentCamp) {
-        return Object.values(gameState.factions || {}).find(faction => faction.controller === 'human') || gameState.currentCamp;
-    }
-    return gameState.currentCamp;
-}
-
-function _getRecruitCost(type) {
-    const myCamp = _getMyCamp();
-    const baseCost = getHistoricalRecruitCost(UNIT_CONFIG[type].cost, gameState, myCamp, type);
+function _getRecruitCost(type, camp = getCommandPanelCamp(gameState)) {
+    const baseCost = getHistoricalRecruitCost(UNIT_CONFIG[type].cost, gameState, camp, type);
     // 通过将领接口获取实际招募费用（尚书需驻扎城市才打折）
-    return getCommanderRecruitCost(baseCost, gameState, myCamp);
+    return getCommanderRecruitCost(baseCost, gameState, camp);
 }
 
 export function updateRecruitCostDisplay() {
+    const panelCamp = getCommandPanelCamp(gameState);
     const tile = gameState.selectedCityTile;
     const siteKind = getRecruitmentSiteKind(tile, gameState);
     const sectionLabel = document.getElementById('recruitSectionLabel');
@@ -223,7 +261,7 @@ export function updateRecruitCostDisplay() {
             ? '建造防御'
             : '招募陆军';
     let showsPortRecruitment = false;
-    const uniqueOption = getUniqueRecruitmentOption(gameState, gameState.currentCamp);
+    const uniqueOption = getUniqueRecruitmentOption(gameState, panelCamp);
     if (!uniqueOption) {
         const uniqueBtn = document.getElementById('recruitUnique');
         if (uniqueBtn) uniqueBtn.style.display = 'none';
@@ -232,7 +270,7 @@ export function updateRecruitCostDisplay() {
     for (const option of displayOptions) {
         const btn = document.getElementById(option.buttonId);
         if (!btn) continue;
-        const visible = shouldShowRecruitmentOption(option, tile, gameState, gameState.currentCamp);
+        const visible = shouldShowRecruitmentOption(option, tile, gameState, panelCamp);
         if (!visible) { btn.style.display = 'none'; continue; }
         btn.style.display = '';
         if (option.portOnly) showsPortRecruitment = true;
@@ -244,12 +282,12 @@ export function updateRecruitCostDisplay() {
         if (badge) paintFlagBadgeCanvas(badge, option.flagBadge, { size: 28, fallbackGlyph: ' ' });
         if (typeEl) typeEl.textContent = option.label;
         if (option.isUnique) {
-            const capStatus = getUniqueRecruitmentStatus(gameState, gameState.currentCamp, option.type);
+            const capStatus = getUniqueRecruitmentStatus(gameState, panelCamp, option.type);
             btn.title = `${option.label}（特色兵种 ${capStatus.count}/${capStatus.limit}，快捷键 ${option.shortcut}）`;
         }
         if (!costSpan) continue;
         const baseCost = UNIT_CONFIG[option.type].cost;
-        const cost = _getRecruitCost(option.type);
+        const cost = _getRecruitCost(option.type, panelCamp);
         const discountPct = cost < baseCost ? Math.round((1 - cost / baseCost) * 100) : 0;
         const discountSuffix = discountPct > 0 ? `<small> (-${discountPct}%)</small>` : '';
         costSpan.innerHTML = `<small>$</small><span class="unit-cost-num">${cost}</span>${discountSuffix}`;
@@ -260,7 +298,8 @@ export function updateRecruitCostDisplay() {
 }
 
 export function updateRecruitButtonStates() {
-    const uniqueOption = getUniqueRecruitmentOption(gameState, gameState.currentCamp);
+    const panelCamp = getCommandPanelCamp(gameState);
+    const uniqueOption = getUniqueRecruitmentOption(gameState, panelCamp);
     const btns = Object.fromEntries(RECRUITMENT_OPTIONS.map(option => [
         option.type,
         document.getElementById(option.buttonId)
@@ -277,13 +316,14 @@ export function updateRecruitButtonStates() {
 
     const opponentTurn = isNetworkGame() && !isMyTurn(gameState.currentCamp);
     const isNeutralTurn = campToKey(gameState.currentCamp) === 'neutral';
-    const isCampaignAiTurn = gameState.campaignMode
-        && gameState.factions?.[campToKey(gameState.currentCamp)]?.controller !== 'human';
+    const currentController = gameState.factions?.[campToKey(gameState.currentCamp)]?.controller;
+    const isCampaignAiTurn = gameState.campaignMode && currentController !== 'human';
+    const isLocalControllerAiTurn = !isNetworkGame() && currentController === 'ai';
     const isSkirmishAiTurn = gameState.gameMode === 'pve' && gameState.currentCamp === gameState.aiOpponentCamp;
     const inCommanderSetup = gameState.commanderPhase === 'selection';
     const recruitmentDisabled = !isMechanicEnabled(gameState, 'recruitment')
-        || gameState.currentCamp?.canRecruit === false;
-    if (gameState._replayMode || opponentTurn || isNeutralTurn || isCampaignAiTurn || isSkirmishAiTurn
+        || panelCamp?.canRecruit === false;
+    if (gameState._replayMode || opponentTurn || isNeutralTurn || isCampaignAiTurn || isLocalControllerAiTurn || isSkirmishAiTurn
         || gameState.gameOver || inCommanderSetup || recruitmentDisabled) {
         for (const btn of Object.values(btns)) {
             if (btn) { btn.disabled = true; btn.classList.remove('available'); }
@@ -293,8 +333,8 @@ export function updateRecruitButtonStates() {
 
     const tile = gameState.selectedCityTile;
     const isVillage = tile && tile.isVillage;
-    const currentKey = _campKeyStr(gameState.currentCamp);
-    const gold = gameState.playerGold[currentKey];
+    const panelCampKey = _campKeyStr(panelCamp);
+    const gold = gameState.playerGold[panelCampKey];
     const cityTemporarilyDisabled = isCityDisabled(tile);
 
     // 村庄不可招募（仅保留产币+补员功能）
@@ -307,10 +347,10 @@ export function updateRecruitButtonStates() {
 
     for (const [type, btn] of Object.entries(btns)) {
         if (!btn) continue;
-        const cost = _getRecruitCost(type);
+        const cost = _getRecruitCost(type, panelCamp);
         const affordable = gold >= cost;
         const available = !cityTemporarilyDisabled
-            && canRecruitTypeAtSelectedCity(type, tile, gameState, gameState.currentCamp)
+            && canRecruitTypeAtSelectedCity(type, tile, gameState, panelCamp)
             && affordable;
         btn.disabled = !available;
         if (available) {
@@ -641,8 +681,9 @@ export function finalizeDeployment() {
     // 强制UI刷新
     const turnEl = document.getElementById('currentTurn');
     if (turnEl) {
-        turnEl.textContent = gameState.currentCamp?.name || '行动方';
-        turnEl.style.color = gameState.currentCamp?.color || '#ffffff';
+        const turnFaction = getFaction(gameState, gameState.currentCamp);
+        turnEl.textContent = turnFaction?.name || gameState.currentCamp?.name || '行动方';
+        turnEl.style.color = getFlagColors(turnFaction?.colorId || turnFaction?.color || gameState.currentCamp?.color).main;
     }
     updateButtonColors();
     updateUI();

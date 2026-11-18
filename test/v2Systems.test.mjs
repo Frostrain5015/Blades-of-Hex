@@ -289,7 +289,7 @@ test('要塞炮与攻城火力规则、文案及真实 Unit 伤害结算口径�
     assert.match(CULTURE_CONFIG.us.tier1.summary, /要塞炮/);
     assert.match(getConstructionChoiceContent('trench').effect, /25%/);
     assert.match(getConstructionChoiceContent('flak').effect, /30%防空/);
-    assert.match(getConstructionChoiceContent('bunker').effect, /200生命.*40攻击.*5%防御.*30%/);
+    assert.match(getConstructionChoiceContent('bunker').effect, /200生命.*40攻击.*5%防御.*50%/);
     assert.match(getConstructionChoiceContent('bunker', { engineer: true }).placement, /立即完成/);
     assert.match(getConstructionChoiceContent('shoreBattery').effect, /150生命.*50攻击.*15%.*35%.*40%/);
     for (const type of ['archer', 'fr_heavy_cannon', 'ru_katyusha', 'warship', 'gb_battleship', 'shoreBattery']) {
@@ -340,4 +340,126 @@ test('要塞炮与攻城火力规则、文案及真实 Unit 伤害结算口径�
     const marineHit = battery.calculateDamage(enemyMarineSea, 0, { showDamageText: false }).dmg;
     assert.ok(Math.abs(archerHit - 57.5) < 1e-6, `要塞炮打火炮+15% (expected ~57.5, got ${archerHit})`);
     assert.ok(Math.abs(marineHit - 30.875) < 1e-6, `水上陆战队豁免+15%，吃-35%并计5%甲 (expected ~30.875, got ${marineHit})`);
+});
+
+test('碉堡【机枪】具备有效图标且对步兵/骑兵提供 +50% 伤害加成', async () => {
+    const { FRONTEND_TEXT } = await import('../rules/uiText.js');
+    const { wireHeadlessEngine } = await import('../core/headless.js');
+    wireHeadlessEngine();
+    const { gameState } = await import('../js/state.js');
+    const { HexTile } = await import('../js/HexTile.js');
+    const { Unit } = await import('../js/Unit.js');
+
+    assert.equal(FRONTEND_TEXT.unitPassives.mgNest.name, '机枪');
+    assert.match(FRONTEND_TEXT.unitPassives.mgNest.desc, /步兵\/骑兵.*50%/);
+    assert.ok(
+        FRONTEND_TEXT.icons.unitPassive.mgNest && FRONTEND_TEXT.icons.unitPassive.mgNest !== '✦',
+        '碉堡被动应配置专属图标而不是默认占位符'
+    );
+
+    const P1 = { id: 'player1', name: 'P1' };
+    const P2 = { id: 'player2', name: 'P2' };
+    const nestTile = new HexTile(0, 0);
+    const infTile = new HexTile(1, 0);
+    const cavTile = new HexTile(0, 1);
+    const artTile = new HexTile(-1, 1);
+    gameState.tiles = [nestTile, infTile, cavTile, artTile];
+    gameState.tileMap = new Map(gameState.tiles.map(t => [`${t.q},${t.r}`, t]));
+    gameState.factions = { player1: P1, player2: P2 };
+    gameState.turnOrder = ['player1', 'player2'];
+    gameState.currentCamp = P1;
+    gameState.diplomacy = { player1: { player2: 'enemy' }, player2: { player1: 'enemy' } };
+    const prevRng = gameState.rng;
+    gameState.rng = { next: () => 0.5, range: (a, b) => (a + b) / 2, chance: () => false, between: a => a };
+    try {
+        const nest = new Unit('mgNest', P1, nestTile, false);
+        nest._calcFloat = () => 1;
+        const inf = new Unit('infantry', P2, infTile, false);
+        const cav = new Unit('cavalry', P2, cavTile, false);
+        const art = new Unit('archer', P2, artTile, false);
+        // 攻击 40 × (1 + 0.50) × (1 - 0) = 60（步兵多 5% 甲 → 57）
+        assert.ok(Math.abs(nest.calculateDamage(cav, 0, { showDamageText: false }).dmg - 60) < 1e-6);
+        assert.ok(Math.abs(nest.calculateDamage(inf, 0, { showDamageText: false }).dmg - 57) < 1e-6);
+        assert.ok(Math.abs(nest.calculateDamage(art, 0, { showDamageText: false }).dmg - 40) < 1e-6);
+    } finally {
+        gameState.rng = prevRng;
+    }
+});
+
+test('招募面板与菜单按钮主题色严格跟随真实阵营色及对应模式阵营归属', async () => {
+    const { wireHeadlessEngine } = await import('../core/headless.js');
+    wireHeadlessEngine();
+    const { JSDOM } = await import('jsdom');
+    const { createMatchState } = await import('../engine/matchState.js');
+    const { resetGameState, gameState, getCommandPanelCamp, getCommandPanelThemeColors, updateButtonColors } = await import('../js/state.js');
+    const { createDefaultFactions } = await import('../rules/diplomacy.js');
+    const { getFlagColors } = await import('../rules/camps.js');
+
+    const dom = new JSDOM(`<!doctype html><html><body>
+        <div id="campCard1"></div><div id="campCard2"></div><div id="campCard3"></div>
+        <div id="commandPanel" data-camp="neu"></div>
+    </body></html>`);
+    const prevDoc = globalThis.document;
+    globalThis.document = dom.window.document;
+    try {
+        if (typeof gameState.rng?.setState !== 'function') {
+            gameState.rng = createMatchState().rng;
+        }
+        resetGameState();
+        gameState.factions = createDefaultFactions([
+            { id: 'player1', name: '法国', colorId: 'franceSky', color: 'franceSky', controller: 'human' },
+            { id: 'player2', name: '美国', colorId: 'usaTeal', color: 'usaTeal', controller: 'ai' }
+        ]);
+        gameState.turnOrder = ['player1', 'player2'];
+        gameState.gameMode = 'pve';
+        gameState.aiOpponentCamp = gameState.factions.player2;
+        gameState.currentCamp = gameState.factions.player2; // AI 回合
+
+        // PVE 中即使在 AI 回合，面板仍保持玩家自身阵营法国的浅蓝色，而不是按 p1 席位强行变红
+        assert.equal(getCommandPanelCamp(gameState), gameState.factions.player1);
+        updateButtonColors();
+        const panel = dom.window.document.getElementById('commandPanel');
+        const frFlag = getFlagColors('franceSky');
+        assert.equal(panel.style.getPropertyValue('--cmd-camp-main'), frFlag.main);
+        assert.equal(panel.style.getPropertyValue('--cmd-camp-dark'), frFlag.dark);
+        assert.equal(panel.style.getPropertyValue('--cmd-camp-light'), frFlag.light);
+        assert.equal(dom.window.document.getElementById('campCard2').classList.contains('active'), true);
+        assert.equal(dom.window.document.getElementById('campCard1').classList.contains('active'), false);
+
+        // 战役模式即使 aiOpponentCamp 为空且使用自定义阵营键，也应锁定本地人类阵营色
+        gameState.campaignMode = true;
+        gameState.aiOpponentCamp = null;
+        gameState.factions = createDefaultFactions([
+            { id: 'iris', name: '鸢尾', colorId: 'purple', color: 'purple', controller: 'human' },
+            { id: 'regency', name: '摄政', colorId: 'germanyGray', color: 'germanyGray', controller: 'ai' }
+        ]);
+        gameState.localPlayerCampKey = 'iris';
+        gameState.currentCamp = gameState.factions.regency;
+        updateButtonColors();
+        assert.equal(panel.style.getPropertyValue('--cmd-camp-main'), getFlagColors('purple').main);
+
+        // 本地双人热座严格跟随当前行动阵营切换颜色
+        gameState.campaignMode = false;
+        gameState.gameMode = 'pvp';
+        gameState.factions.iris.controller = 'human';
+        gameState.factions.regency.controller = 'human';
+        gameState.currentCamp = gameState.factions.regency;
+        const regencyTheme = getCommandPanelThemeColors(gameState.currentCamp, gameState);
+        assert.equal(regencyTheme.main, getFlagColors('germanyGray').main);
+        updateButtonColors();
+        assert.equal(panel.style.getPropertyValue('--cmd-camp-main'), getFlagColors('germanyGray').main);
+
+        // 遭遇战回放切到指定视角时跟随该视角阵营色，回到全图时跟随 currentCamp
+        gameState._replayMode = true;
+        gameState.skirmishFog = true;
+        gameState._replayViewCampKey = 'iris';
+        updateButtonColors();
+        assert.equal(panel.style.getPropertyValue('--cmd-camp-main'), getFlagColors('purple').main);
+        gameState._replayViewCampKey = 'neutral';
+        updateButtonColors();
+        assert.equal(panel.style.getPropertyValue('--cmd-camp-main'), getFlagColors('germanyGray').main);
+    } finally {
+        globalThis.document = prevDoc;
+        resetGameState();
+    }
 });

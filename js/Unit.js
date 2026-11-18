@@ -355,14 +355,7 @@ export class Unit {
             });
         }
 
-        if (this._freeResistanceUntilTurn > (gameState?.turnCounter ?? 0)) {
-            effects.push({
-                label: FREE_RESISTANCE_EFFECT.name,
-                desc: FREE_RESISTANCE_EFFECT.desc,
-                color: FREE_RESISTANCE_EFFECT.color,
-                remaining: 1
-            });
-        }
+        // 自由不屈由 js/effectItems.js 以 culture:free-resistance 单一来源构建（含临时护盾数），不在此重复推送。
         if (this._imprisoned) {
             effects.push({ label: '禁锢', desc: '本回合无法移动', color: '#ff8844', status: '本回合生效' });
         }

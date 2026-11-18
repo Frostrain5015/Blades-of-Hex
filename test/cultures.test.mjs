@@ -432,8 +432,10 @@ test('法国巨炮射程5，自由不屈由暴击或阵亡触发并按阵营冷�
     state.turnCounter = getFactionCount(state) * FREE_RESISTANCE_EFFECT.cooldownRounds;
     cannon.applyDamage(cannon.hp);
     assert.equal(allyInf.activeShield, 11 + FREE_RESISTANCE_EFFECT.shield);
-    assert.equal(buildUnitEffectItems(allyInf, state).some(item => item.key === 'culture:free-resistance'), true);
-    assert.equal(getUnitStatusIcons(allyInf, state).some(item => item.key === 'culture:free-resistance'), false);
+    const allyEffectItems = buildUnitEffectItems(allyInf, state);
+    assert.equal(allyEffectItems.filter(item => item.label === FREE_RESISTANCE_EFFECT.name).length, 1);
+    assert.equal(allyEffectItems.some(item => item.key === 'culture:free-resistance'), true);
+    assert.equal(getUnitStatusIcons(allyInf, state).some(item => item.label === FREE_RESISTANCE_EFFECT.name), false);
 });
 
 test('苏联文化：喀秋莎保留溅射且全阵营普通炮兵禁用火箭炮专精，Tier2 炮兵-1费且全军免疫负面天气', () => {

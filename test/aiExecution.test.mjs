@@ -1320,3 +1320,56 @@ test('Hybrid 位移动画保护：startUnitMovePath 不受陈旧 frameInfo.now �
     assert.ok(mover.tile !== state.tileMap.get('2,0'), 'AI 骑兵应执行机动位移');
     assert.ok(recordedWaits.some(ms => ms >= 150 && ms < 1000), `AI 移动后必须先等待完整 movePathDuration（实测等待列表: ${recordedWaits.join(',')}）`);
 });
+
+test('强行军对架起状态的法国巨炮使用触发额外一次炮击，机动状态不触发', () => {
+    const { me, foe, home, enemyCity } = setupMatch();
+    me.flagPreset = 'img/flags/svg/fr.svg';
+    const cannonTile = state.tileMap.get('2,0');
+    const targetTile = state.tileMap.get('6,0');
+    const cannon = place('fr_heavy_cannon', me, cannonTile);
+    const enemy = place('infantry', foe, targetTile);
+    const initialHp = enemy.hp;
+
+    // 机动状态：强行军只回复行动力并允许再行动，不触发自动炮击
+    cannon.remainingMP = 0;
+    cannon.canAct = false;
+    state.playerHands.player1 = ['forceMarch', 'forceMarch'];
+    state.playerUsesThisTurn.player1 = 0;
+    startMatchRecording(state);
+    engine.executeTacticalCard('forceMarch', cannonTile);
+    assert.equal(cannon.remainingMP, 2);
+    assert.equal(cannon.canAct, true);
+    assert.equal(enemy.hp, initialHp, '未架起的法国巨炮使用强行军不应自动炮击');
+
+    // 架起状态（且即便本回合已自动开火过）：强行军触发额外一次炮击并写入录像载荷
+    assert.equal(executeHeavyCannonStance(cannon), true);
+    assert.equal(isHeavyCannonDeployed(cannon), true);
+    cannon._heavyCannonAutoFiredThisTurn = true;
+    state.playerUsesThisTurn.player1 = 0;
+    engine.executeTacticalCard('forceMarch', cannonTile);
+    assert.ok(enemy.hp < initialHp, '架起状态的法国巨炮使用强行军应自动触发额外炮击造成伤害');
+
+    const log = getCurrentMatchLog();
+    const fmEntry = [...log.timeline].reverse().find(e => e.actionType === 'tacticalCard' && e.payload?.cardId === 'forceMarch');
+    assert.ok(Array.isArray(fmEntry?.payload?.heavyCannonVolleys) && fmEntry.payload.heavyCannonVolleys.length === 1, '广播与录像应记录 heavyCannonVolleys');
+});
+
+test('AI 对射程内有敌军的架起法国巨炮使用强行军以触发额外炮击', async () => {
+    const { me, foe } = setupMatch();
+    me.flagPreset = 'img/flags/svg/fr.svg';
+    const cannonTile = state.tileMap.get('2,0');
+    const targetTile = state.tileMap.get('6,0');
+    const cannon = place('fr_heavy_cannon', me, cannonTile);
+    const enemy = place('infantry', foe, targetTile);
+    const initialHp = enemy.hp;
+    assert.equal(executeHeavyCannonStance(cannon), true);
+    cannon.canAct = false;
+    cannon.remainingMP = 0;
+    state.playerGold.player1 = 0;
+    state.playerHands.player1 = ['forceMarch'];
+    state.playerUsesThisTurn.player1 = 0;
+
+    await processOpponentTurn(me);
+    assert.equal(state.playerHands.player1.length, 0, 'AI 应打出强行军卡');
+    assert.ok(enemy.hp < initialHp, 'AI 对架起巨炮打出强行军后应实际造成炮击伤害');
+});
