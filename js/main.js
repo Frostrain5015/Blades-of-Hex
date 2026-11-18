@@ -462,35 +462,46 @@ window.addEventListener('beforeunload', (e) => {
 
 // Initial fit is called in startGame after gameWrapper becomes visible
 
+function _resetBattlefieldPresentationCaches() {
+    _battlefieldSnapshot = null;
+    _battlefieldSnapshotCheckedAt = -Infinity;
+    _terrainTextureDirty = true;
+    _terrainPendingFade = null;
+}
+
 // ==== 游戏循环（始终运行，画布隐藏时无开销） ===================
 function gameLoop() {
-    const now = performance.now();
-    const deltaMs = Math.min(50, Math.max(0, now - _battlefieldLastFrameAt));
-    _battlefieldLastFrameAt = now;
-    const renderer = _battlefieldRenderer;
-    if (renderer) {
-        // 混合渲染：Canvas 保留辅助图层，已注册后端承担委托给它的图层。
-        renderGame();
-        _syncBattlefieldScene(now);
-        _syncBackendTerrainTexture(now);
-        try {
-            renderer.render({ nowMs: now, deltaMs, frameId: ++_battlefieldFrameId });
-        } catch (error) {
-            console.error('[渲染] 后端帧渲染失败:', error);
+    try {
+        const now = performance.now();
+        const deltaMs = Math.min(50, Math.max(0, now - _battlefieldLastFrameAt));
+        _battlefieldLastFrameAt = now;
+        const renderer = _battlefieldRenderer;
+        if (renderer) {
+            // 混合渲染：Canvas 保留辅助图层，已注册后端承担委托给它的图层。
+            renderGame();
+            _syncBattlefieldScene(now);
+            _syncBackendTerrainTexture(now);
+            try {
+                renderer.render({ nowMs: now, deltaMs, frameId: ++_battlefieldFrameId });
+            } catch (error) {
+                console.error('[渲染] 后端帧渲染失败:', error);
+            }
         }
+        syncBoardActionBar();
+
+        // 对策卡手牌独立画布
+        drawCardCanvas(now);
+
+        // 顶部阵营信息卡旗帜预览渲染
+        if (_campFlagAnimationStarted) {
+            _renderCampFlagPreviews(now);
+        }
+        renderResultFlagPreviews(now);
+    } catch (error) {
+        console.error('[gameLoop] 帧执行异常:', error);
+    } finally {
+        requestAnimationFrame(gameLoop);
     }
-    syncBoardActionBar();
-
-    // 对策卡手牌独立画布
-    drawCardCanvas(now);
-
-    // 顶部阵营信息卡旗帜预览渲染
-    if (_campFlagAnimationStarted) {
-        _renderCampFlagPreviews(now);
-    }
-    renderResultFlagPreviews(now);
-
-    requestAnimationFrame(gameLoop);
 }
 requestAnimationFrame(gameLoop);
 
@@ -1358,6 +1369,7 @@ function _launchScenario(scenario) {
 	stopBattleBGM();
 
 	// 在遮罩后预先加载棋盘，避免玩家点击后才看到空棋盘
+	_resetBattlefieldPresentationCaches();
 	gameState.rng.setState(scenario.seed);
 	// 配置关卡自带棋盘（半径/城市/区划由配置决定），跳过标准建图。
 	if (!scenario.buildsOwnBoard) initMap();
@@ -2714,6 +2726,7 @@ function startGame() {
     stopBattleBGM();
 
     // 在准备遮罩移除前同步加载棋盘，避免玩家看到空棋盘。
+    _resetBattlefieldPresentationCaches();
     loadCommanderFx(gameState).catch(err => console.warn('[commanderFx] 加载失败:', err));
 
     preloadPortraits();
@@ -4411,6 +4424,7 @@ function startMatchReplay(log) {
 
                 applyTopbarLayout();
                 fitCanvas();
+                _resetBattlefieldPresentationCaches();
                 loadCommanderFx(gameState).catch(err => console.warn('[replay] 将领特效加载失败:', err));
                 preloadPortraits();
                 initInput();
@@ -4478,6 +4492,7 @@ function startMatchReplay(log) {
                 setReplayEndTurnHandler(null);
                 clearTransientEffects();
                 stopBattleBGM();
+                _resetBattlefieldPresentationCaches();
                 resetGameState();
                 updateUI();
                 updateButtonColors();

@@ -346,5 +346,15 @@ test('修复历史阵营色、双将领不重复、位移动画坐标与阵亡�
         [{ id: 'commanderDeploy', commanderId: 'necromancer' }, 'heal'],
         '使用空军上校部署卡与雷击卡后均应从手牌消失，抽卡加入疗愈并保留未部署的亡灵术师卡'
     );
+
+    // 回归校验：观战多手牌队列绘制不得抛出未定义符号异常（如 getFlagColors）
+    const { drawCardCanvas } = await import('../js/renderer.js');
+    gameState._replayMode = true;
+    gameState.campaignMode = false;
+    gameState.skirmishFog = false;
+    gameState.commanderPhase = 'done';
+    gameState.gameOver = false;
+    assert.doesNotThrow(() => drawCardCanvas(performance.now()));
+
     resetGameState();
 });

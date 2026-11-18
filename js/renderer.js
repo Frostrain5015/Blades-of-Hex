@@ -50,7 +50,7 @@ import {
     isTileVisible
 } from './fogOfWar.js';
 import { isMechanicEnabled } from '../rules/mechanics.js';
-import { campToKey } from '../rules/camps.js';
+import { campToKey, getFlagColors } from '../rules/camps.js';
 import { hexDistance } from '../rules/hex.js';
 import { getViewingCamp } from './state.js';
 import { getRoleCamp } from '../rules/diplomacy.js';
