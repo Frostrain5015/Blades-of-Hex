@@ -140,6 +140,8 @@ test('录像回放精确复刻初始战局、每步动作与暂停/视角切换/
     assert.equal(getViewingCampKey(gameState), 'player1');
     assert.equal(session.setPerspective('player2').viewCampKey, 'player2');
     assert.equal(getViewingCampKey(gameState), 'player2');
+    assert.equal(session.togglePerspective('player2').viewCampKey, 'neutral', '再次点击已选阵营回到全图视角');
+    assert.equal(getViewingCampKey(gameState), 'neutral');
 
     assert.equal(session.togglePause().paused, true);
     assert.equal(gameState._replayPaused, true);
@@ -188,5 +190,106 @@ test('兼容未附带 replaySnapshot 的历史完整日志并在战役模式锁�
         applyReplayStep(step, gameState, deps);
     }
     assert.equal(gameState.tileMap.get(`${dest.q},${dest.r}`).fortification, 'flak', '旧日志仍可按动作载荷恢复高射机枪工事');
+    resetGameState();
+});
+
+test('修复历史阵营色、双将领不重复、位移动画坐标与阵亡伤害浮字', async () => {
+    wireHeadlessEngine();
+    clearMatchRecording();
+    resetGameState();
+    gameState.standardMapId = 'uncharted-passage';
+    gameState.doubleCommanderMode = true;
+    gl.initMap();
+    gameState.factions.player1.name = '德国';
+    gameState.factions.player1.colorId = 'germanyGray';
+    gameState.factions.player1.color = '#99a1aa';
+    gameState.factions.player1.flagPreset = 'img/flags/svg/de.svg';
+    gameState.factions.player2.name = '苏联';
+    gameState.factions.player2.colorId = 'red';
+    gameState.factions.player2.color = '#ffaaaa';
+    gameState.factions.player2.flagPreset = 'img/flags/soviet-union.svg';
+    gameState.commanderP1 = 'colonel';
+    gameState.commanderP1Secondary = 'necromancer';
+    gameState.playerHands.player1 = [
+        { id: 'commanderDeploy', commanderId: 'colonel' },
+        { id: 'commanderDeploy', commanderId: 'necromancer' },
+        'lightning'
+    ];
+    gameState.currentCamp = gameState.factions.player1;
+    startMatchRecording(gameState);
+    const u1 = gameState.tiles.find(t => t.unit?.camp === gameState.factions.player1 && t.unit.type === 'infantry').unit;
+    const dest = gl.getMovableTiles(u1)[0];
+    gl.moveUnit(u1, dest);
+
+    const log = JSON.parse(serializeCurrentMatchLog(gameState));
+    delete log.initialState.replaySnapshot;
+    // 模拟旧日志：participants 仅存 colorId 无 color，cards 仅存 'commanderDeploy' 字符串，move path 不带 x/y
+    for (const p of log.participants) delete p.color;
+    log.initialState.resources.player1.cards = ['commanderDeploy', 'commanderDeploy', 'lightning'];
+    const moveAction = log.timeline.find(e => e.actionType === 'move');
+    moveAction.payload.path = moveAction.payload.path.map(({ q, r }) => ({ q, r }));
+    // 插入一次击杀攻击（仅有 unitsRemoved 与 attackDmg，无 unitHp）
+    const enemyEntry = log.initialState.units.find(u => u.campKey === 'player2');
+    log.timeline.push({
+        kind: 'action',
+        actionId: 'fake:kill1',
+        sequence: log.timeline.length + 1,
+        actorCampKey: 'player1',
+        accepted: true,
+        actionType: 'attack',
+        payload: {
+            attackerUnitId: u1.id,
+            targetUnitId: enemyEntry.id,
+            fromQ: dest.q,
+            fromR: dest.r,
+            q: enemyEntry.q,
+            r: enemyEntry.r,
+            attackDmg: enemyEntry.hp,
+            killed: true,
+            isCrit: true
+        },
+        outcome: {
+            changed: true,
+            changes: {
+                unitsRemoved: [enemyEntry]
+            },
+            engineMessages: []
+        }
+    });
+    clearMatchRecording();
+
+    const deps = replayDeps();
+    buildReplayInitialState(log, gameState, deps);
+
+    assert.equal(gameState.factions.player1.colorId, 'germanyGray');
+    assert.equal(gameState.factions.player1.color, '#99a1aa', '德国领土颜色应匹配 germanyGray 而非席位默认红');
+    assert.equal(gameState.factions.player2.color, '#ffaaaa', '苏联领土颜色应匹配 red 而非席位默认蓝');
+    const p1City = gameState.tiles.find(t => t.isCity && t.camp === gameState.factions.player1);
+    assert.equal(p1City.currentColor, '#99a1aa', '地块渲染色与阵营主色一致');
+
+    assert.deepEqual(
+        gameState.playerHands.player1,
+        [
+            { id: 'commanderDeploy', commanderId: 'colonel' },
+            { id: 'commanderDeploy', commanderId: 'necromancer' },
+            'lightning'
+        ],
+        '双将领部署卡应保留两位不同将领身份而非重复显示空军上校'
+    );
+
+    const session = createReplaySession({ log, gameState, deps });
+    const status = session.start();
+    assert.equal(status.canSwitchPerspective, false, '非遭遇战模式不可切换视野');
+    assert.equal(session.setPerspective('player2').viewCampKey, 'neutral');
+    session.stop();
+
+    buildReplayInitialState(log, gameState, deps);
+    const steps = extractReplaySteps(log);
+    const moveRes = applyReplayStep(steps.find(s => s.actionType === 'move'), gameState, deps);
+    assert.ok(moveRes.effects.path.every(pt => Number.isFinite(pt.x) && Number.isFinite(pt.y)), '移动路径应补齐画布像素坐标用于完整动画');
+
+    const atkRes = applyReplayStep(steps.find(s => s.actionType === 'attack'), gameState, deps);
+    assert.ok(Array.isArray(atkRes.effects.floatTexts) && atkRes.effects.floatTexts.length > 0, '击杀攻击仍应生成伤害浮字');
+    assert.ok(atkRes.effects.floatTexts.every(ft => Number.isFinite(ft.timeLeft) && ft.value > 0), '合成浮字必须自带有限 timeLeft 防止 NaN 丢失显示');
     resetGameState();
 });

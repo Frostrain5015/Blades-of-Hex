@@ -147,6 +147,7 @@ export function replayFloatTexts(entries, options = {}) {
         if (!entry) continue;
         const kind = entry.kind || 'damage';
         const record = { ...entry };
+        if (!Number.isFinite(record.timeLeft)) record.timeLeft = _defaultTimeLeft(kind);
         const delayMs = Math.max(0, record.delayMs || 0);
         delete record.delayMs;
         if (delayMs <= 0) {
@@ -182,6 +183,7 @@ export function flushFloatTexts(now, gs = null) {
 export function drainPendingFloatTexts(gs = null) {
     const state = gs || _defaultState();
     const captured = state?._pendingFloatTexts;
+    if (state) state._recordedFloatCursor = 0;
     if (!captured || captured.length === 0) return null;
     state._pendingFloatTexts = [];
     return captured;

@@ -169,9 +169,22 @@ export function updateButtonColors() {
     const card1 = document.getElementById('campCard1');
     const card2 = document.getElementById('campCard2');
     const card3 = document.getElementById('campCard3');
-    if (card1) card1.classList.toggle('active', campKey === 'player1');
-    if (card2) card2.classList.toggle('active', campKey === 'player2');
-    if (card3) card3.classList.toggle('active', campKey === 'player3');
+    const isSkirmishReplayObserver = Boolean(gameState._replayMode && gameState.skirmishFog && !gameState.campaignMode);
+    const replayViewKey = isSkirmishReplayObserver ? (gameState._replayViewCampKey || 'neutral') : null;
+    for (const [card, seatKey] of [[card1, 'player1'], [card2, 'player2'], [card3, 'player3']]) {
+        if (!card) continue;
+        card.classList.toggle('replay-selectable', isSkirmishReplayObserver);
+        if (isSkirmishReplayObserver) {
+            const selected = replayViewKey === seatKey;
+            card.classList.toggle('replay-viewing', selected);
+            card.classList.toggle('active', selected);
+            card.title = selected ? '再次点击回到全图视角' : '点击切换到该阵营实时视角';
+        } else {
+            card.classList.remove('replay-viewing');
+            card.classList.toggle('active', campKey === seatKey);
+            if (card.title) card.title = '';
+        }
+    }
 }
 
 function _getMyCamp() {
@@ -466,7 +479,12 @@ export function updateUI() {
     if (factionListBtn) factionListBtn.style.display = gameState.campaignMode ? '' : 'none';
     const recruitSection = document.querySelector('.recruit-section');
     if (recruitSection) recruitSection.hidden = gameState.campaignMode && !isMechanicEnabled(gameState, 'recruitment');
-    // 投降/退出：PVE 模式下按钮改为"退出"，回放模式下隐藏由右上角按钮负责退出
+    // 投降/退出：PVE 模式下按钮改为"退出"，回放模式下替换为全宽"退出回放"按钮
+    const replayExitBtn = document.getElementById('replayExitBtn');
+    if (replayExitBtn) {
+        replayExitBtn.style.display = isReplay ? '' : 'none';
+        replayExitBtn.disabled = false;
+    }
     const surrenderBtn = document.getElementById('surrenderBtn');
     if (surrenderBtn) {
         if (isReplay) {

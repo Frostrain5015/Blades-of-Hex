@@ -2982,6 +2982,13 @@ let _shiftOffset = 0;  // lerps to 0: negative when card added, positive when re
 let _lastTurnCounter = -1;  // guard: detect turn change to reset draw pile UI
 
 function _getMyCampForUI() {
+    if (gameState._replayMode) {
+        if (gameState.campaignMode) return getViewingCamp();
+        if (gameState.skirmishFog && gameState._replayViewCampKey && gameState._replayViewCampKey !== 'neutral') {
+            return getViewingCamp();
+        }
+        return campToKey(gameState.currentCamp) !== 'neutral' ? gameState.currentCamp : null;
+    }
     if (gameState.campaignMode) return getViewingCamp();
     if (isNetworkGame()) return getRoleCamp(gameState, getMyRole());
     if (gameState.gameMode === 'pve') return Object.values(gameState.factions || {}).find(faction => faction.controller === 'human') || gameState.currentCamp;

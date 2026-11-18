@@ -658,6 +658,22 @@ body {
     box-shadow: 0 0 12px color-mix(in srgb, var(--camp-card-color, #888) 38%, transparent);
 }
 
+.camp-card.replay-selectable {
+    cursor: pointer;
+    transition: transform 0.14s ease, background 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.camp-card.replay-selectable:hover {
+    border-color: color-mix(in srgb, var(--camp-card-color, #d4af37) 48%, transparent);
+    background: color-mix(in srgb, var(--camp-card-color, #d4af37) 10%, transparent);
+}
+
+.camp-card.replay-selectable.replay-viewing {
+    background: color-mix(in srgb, var(--camp-card-color, #888) 24%, transparent);
+    border-color: color-mix(in srgb, var(--camp-card-color, #888) 72%, transparent);
+    box-shadow: 0 0 14px color-mix(in srgb, var(--camp-card-color, #888) 45%, transparent);
+}
+
 .camp-emblem {
     flex-shrink: 0;
     width: 56px;
@@ -1634,86 +1650,6 @@ body {
     transform: translateY(-1px);
     border-color: rgba(247, 212, 134, 0.85);
     background: linear-gradient(135deg, rgba(228, 179, 82, 0.36), rgba(164, 112, 34, 0.38));
-}
-
-.replay-exit-btn {
-    padding: 5px 11px;
-    border: 1px solid rgba(235, 110, 96, 0.52);
-    background: rgba(155, 42, 34, 0.28);
-    color: #ffd7d2;
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: 0.5px;
-}
-
-.replay-exit-btn:hover {
-    border-color: rgba(255, 138, 122, 0.82);
-    background: rgba(185, 52, 42, 0.44);
-}
-
-.replay-observer-bar {
-    position: absolute;
-    top: 12px;
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 25;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 5px 10px;
-    border: 1px solid rgba(224, 184, 108, 0.35);
-    border-radius: 999px;
-    background: rgba(12, 15, 22, 0.82);
-    backdrop-filter: blur(8px);
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
-    pointer-events: auto;
-}
-
-.replay-badge {
-    color: #f2d497;
-    font-size: 12px;
-    font-weight: 700;
-    padding: 0 6px;
-    white-space: nowrap;
-}
-
-.replay-perspective-group {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-}
-
-.replay-perspective-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    padding: 4px 10px;
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.05);
-    color: rgba(235, 228, 214, 0.82);
-    font-size: 11px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
-}
-
-.replay-perspective-btn:hover {
-    background: rgba(255, 255, 255, 0.12);
-    color: #fff;
-}
-
-.replay-perspective-btn.active {
-    border-color: rgba(236, 194, 110, 0.78);
-    background: rgba(212, 165, 72, 0.24);
-    color: #fff2d6;
-}
-
-.replay-perspective-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    flex-shrink: 0;
 }
 
 .match-stats-scroll {

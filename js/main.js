@@ -2475,9 +2475,9 @@ function updateCampEmblems() {
         if (!emblem) continue;
         const textEl = emblem.querySelector('.camp-emblem-text');
 
-        // 遭遇战：敌方将领未发现时隐藏立绘
+        // 遭遇战：敌方将领未发现时隐藏立绘（回放全图视角豁免）
         let hidden = false;
-        if (viewingCamp && camp !== viewingCamp && cmdKey) {
+        if (viewingCamp && campToKey(viewingCamp) !== 'neutral' && camp !== viewingCamp && cmdKey) {
             hidden = !_isCommanderUnitVisible(camp, cmdKey, viewingCamp);
         }
 
@@ -3570,9 +3570,11 @@ function _playActionPresentation(actionType, e, { katyushaStartedAt = undefined,
             if (e) {
                 const movedUnit = gameState.tiles.reduce((found, t) =>
                     found || (t.unit?.id === e.unitId ? t.unit : null), null);
-                if (movedUnit && e.path) {
+                if (movedUnit && e.path && (!gameState._replayMode || !movedUnit.movePath)) {
                     movedUnit.startMovePath(e.path);
                     if (e.marineLanding) emit('fx:marineLanding', { ...e, x: movedUnit.tile.x, y: movedUnit.tile.y, delayMs: movedUnit.movePathDuration });
+                } else if (movedUnit && e.marineLanding) {
+                    emit('fx:marineLanding', { ...e, x: movedUnit.tile.x, y: movedUnit.tile.y, delayMs: movedUnit.movePathDuration || 0 });
                 }
                 if (e.capturedCity) {
                     const cc = e.capturedCity;
@@ -4259,7 +4261,8 @@ function _playActionPresentation(actionType, e, { katyushaStartedAt = undefined,
             if (e) {
                 const banzaiUnit = gameState.tiles.reduce((found, t) =>
                     found || (t.unit?.id === e.unitId ? t.unit : null), null);
-                if (banzaiUnit && Number.isFinite(e.fromX) && Number.isFinite(e.fromY) && Number.isFinite(e.destX) && Number.isFinite(e.destY)) {
+                if (banzaiUnit && Number.isFinite(e.fromX) && Number.isFinite(e.fromY) && Number.isFinite(e.destX) && Number.isFinite(e.destY)
+                    && (!gameState._replayMode || !banzaiUnit.movePath)) {
                     banzaiUnit.startMovePath(e.path || [{ x: e.fromX, y: e.fromY }, { x: e.destX, y: e.destY }]);
                 }
                 if (Number.isFinite(e.fromX) && Number.isFinite(e.toX)) {
@@ -4303,6 +4306,7 @@ function _playActionPresentation(actionType, e, { katyushaStartedAt = undefined,
             break;
         case 'recruit':
             if (e) {
+                playSound('recruit');
                 triggerRecruitFlash(e.x, e.y);
                 spawnRecruitEffect(e.x, e.y);
             }
@@ -4364,48 +4368,6 @@ function _playActionPresentation(actionType, e, { katyushaStartedAt = undefined,
 // ==== 录像回放系统 =====================
 let _activeReplaySession = null;
 
-function _renderReplayObserverBar(status) {
-    const exitBtn = document.getElementById('replayExitBtn');
-    const observerBar = document.getElementById('replayObserverBar');
-    const progressEl = document.getElementById('replayProgressLabel');
-    const groupEl = document.getElementById('replayPerspectiveGroup');
-    if (exitBtn) exitBtn.style.display = status?.active ? '' : 'none';
-    if (!observerBar) return;
-    observerBar.style.display = status?.active ? 'flex' : 'none';
-    if (!status?.active) return;
-
-    if (progressEl) {
-        const suffix = status.paused ? ' · 已暂停' : status.finished ? ' · 已结束' : '';
-        progressEl.textContent = `录像回放 ${status.currentStep}/${status.totalSteps}${suffix}`;
-    }
-    if (!groupEl) return;
-    if (status.isCampaign) {
-        groupEl.hidden = true;
-        groupEl.innerHTML = '';
-        return;
-    }
-    groupEl.hidden = false;
-    const options = [
-        { key: 'neutral', label: '全图视角', color: '#d4af37' },
-        ...(gameState.turnOrder || [])
-            .filter(key => key !== 'neutral' && gameState.factions?.[key]?.active !== false)
-            .map(key => ({
-                key,
-                label: gameState.factions?.[key]?.name || key,
-                color: gameState.factions?.[key]?.color || '#aaa'
-            }))
-    ];
-    groupEl.innerHTML = '';
-    for (const opt of options) {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'replay-perspective-btn' + (status.viewCampKey === opt.key ? ' active' : '');
-        btn.innerHTML = `<span class="replay-perspective-dot" style="background:${opt.color}"></span><span>${opt.label}</span>`;
-        btn.addEventListener('click', () => _activeReplaySession?.setPerspective(opt.key));
-        groupEl.appendChild(btn);
-    }
-}
-
 function startMatchReplay(log) {
     try {
         _activeReplaySession?.stop();
@@ -4462,10 +4424,14 @@ function startMatchReplay(log) {
                 updateChatAvailability();
                 updateUI();
                 updateButtonColors();
-                _renderReplayObserverBar(status);
                 renderGame();
                 startBattleBGM();
-                notify(status.isCampaign ? '开始战役录像回放' : '开始遭遇战录像回放（可切换右上观察视角）', 'info');
+                notify(
+                    status.canSwitchPerspective
+                        ? '开始遭遇战录像回放（点击上方阵营栏切换视野，再次点击回到全局视角）'
+                        : '开始录像回放',
+                    'info'
+                );
             },
             onPlayFx: (step, effects, fxMeta) => {
                 if (step.actionType === 'airCommand' && effects?.kind === 'airdrop') {
@@ -4480,7 +4446,12 @@ function startMatchReplay(log) {
                 for (const unit of fxMeta?.moraleChangedUnits || []) {
                     spawnMoraleEffect(unit);
                 }
-                _playActionPresentation(step.actionType, effects, { applyCardSideEffects: false });
+                const isKatyushaStep = step.actionType === 'attack'
+                    && (effects?.attackerType === 'ru_katyusha' || effects?.counterType === 'ru_katyusha');
+                _playActionPresentation(step.actionType, effects, {
+                    katyushaStartedAt: isKatyushaStep ? performance.now() : undefined,
+                    applyCardSideEffects: false
+                });
             },
             onAfterStep: () => {
                 updateUI();
@@ -4489,18 +4460,17 @@ function startMatchReplay(log) {
                 updateCampEmblems();
                 renderGame();
             },
-            onStateChange: status => {
+            onStateChange: () => {
                 updateUI();
                 updateButtonColors();
                 updateCampEmblems();
                 syncBoardActionBar();
-                _renderReplayObserverBar(status);
                 renderGame();
             },
-            onComplete: status => {
+            onComplete: () => {
                 updateUI();
-                _renderReplayObserverBar(status);
-                notify('录像回放已完成，可点击“重新回放”或右上角退出回放', 'success');
+                updateButtonColors();
+                notify('录像回放已完成，可点击“重新回放”或“退出回放”', 'success');
             },
             onExit: () => {
                 _activeReplaySession = null;
@@ -4508,9 +4478,9 @@ function startMatchReplay(log) {
                 setReplayEndTurnHandler(null);
                 clearTransientEffects();
                 stopBattleBGM();
-                _renderReplayObserverBar({ active: false });
                 resetGameState();
                 updateUI();
+                updateButtonColors();
                 updateChatAvailability();
                 document.getElementById('gameWrapper').style.display = 'none';
                 document.getElementById('lobbyOverlay').style.display = '';
@@ -4530,8 +4500,8 @@ document.getElementById('replayExitBtn')?.addEventListener('click', () => {
 
 for (const [cardId, campKey] of [['campCard1', 'player1'], ['campCard2', 'player2'], ['campCard3', 'player3']]) {
     document.getElementById(cardId)?.addEventListener('click', () => {
-        if (gameState._replayMode && !gameState.campaignMode && _activeReplaySession) {
-            _activeReplaySession.setPerspective(campKey);
+        if (gameState._replayMode && gameState.skirmishFog && !gameState.campaignMode && _activeReplaySession) {
+            _activeReplaySession.togglePerspective(campKey);
         }
     });
 }

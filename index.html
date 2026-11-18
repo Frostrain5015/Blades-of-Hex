@@ -353,7 +353,6 @@
                 </div>
                 <button class="tool-btn" id="chatToggleBtn" title="聊天 (Ctrl+Enter)" style="display:none">💬</button>
                 <button class="tool-btn" id="factionListBtn" title="外交菜单" style="display:none">🤝</button>
-                <button class="tool-btn replay-exit-btn" id="replayExitBtn" title="退出回放" style="display:none">退出回放</button>
                 <button class="tool-btn" id="settingsBtn" title="设置">⚙</button>
             </div>
 
@@ -409,10 +408,6 @@
                     <div id="boardDetailDesc" class="board-detail-desc"></div>
                     <div id="boardDetailStatus" class="board-detail-status"></div>
                 </section>
-                <div id="replayObserverBar" class="replay-observer-bar" aria-live="polite" style="display:none">
-                    <span class="replay-badge" id="replayProgressLabel">录像回放</span>
-                    <div id="replayPerspectiveGroup" class="replay-perspective-group"></div>
-                </div>
                 <div id="opponentTurnBanner" class="top-banner">
                     <span>⏳</span><span>等待对手行动...</span>
                 </div>
@@ -479,6 +474,7 @@
             <!-- 指令区 -->
             <div class="cmd-section">
                 <button class="cmd-btn btn" id="endTurnBtn">结束回合</button>
+                <button class="cmd-btn btn danger" id="replayExitBtn" style="display:none">退出回放</button>
                 <button class="cmd-btn btn danger" id="surrenderBtn">投降</button>
             </div>
 

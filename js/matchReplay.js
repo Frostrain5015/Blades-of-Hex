@@ -8,12 +8,14 @@
 // 本模块不直接 import DOM/Audio/Pixi，便于在 Node 单元测试中直接验证，
 // 视觉/音效表现由调用方注入的 hooks / fxCallback 承担。
 
-import { campToKey } from '../rules/camps.js';
+import { campToKey, getPaletteEntry } from '../rules/camps.js';
 import {
     campFromKey,
     createDefaultDiplomacy,
-    createStandardFactions
+    createStandardFactions,
+    getFlagPresetColor
 } from '../rules/diplomacy.js';
+import { isWaterSurface } from '../rules/surfaces.js';
 import { normalizeFactionRuleMode } from '../rules/cultures.js';
 import { getStandardMap } from '../rules/standardMaps.js';
 import { applyHistoricalNeutralAppearance } from '../rules/historicalNeutral.js';
@@ -106,13 +108,20 @@ function buildFactionsFromParticipants(participants, playerCount) {
     for (const p of participants) {
         if (!p?.campKey) continue;
         const fallback = base[p.campKey] || {};
+        const resolvedColorId = p.colorId
+            || (p.flagPreset ? getFlagPresetColor(p.flagPreset) : null)
+            || fallback.colorId
+            || null;
+        const palette = getPaletteEntry(resolvedColorId || p.color);
+        const colorId = palette?.id || resolvedColorId || fallback.colorId || null;
+        const color = p.color || palette?.tile || fallback.color || '#8b8f96';
         factions[p.campKey] = {
             ...fallback,
             id: p.campKey,
             name: p.name || fallback.name || p.campKey,
             controller: p.controller || fallback.controller || (p.campKey === 'neutral' ? 'ai' : 'human'),
-            colorId: p.colorId ?? fallback.colorId ?? null,
-            color: p.color ?? fallback.color ?? '#8b8f96',
+            colorId,
+            color,
             flagEmoji: p.flagEmoji ?? fallback.flagEmoji ?? null,
             flagPreset: p.flagPreset ?? fallback.flagPreset ?? null,
             flagUrl: p.flagUrl ?? fallback.flagUrl ?? null,
@@ -127,6 +136,86 @@ function buildFactionsFromParticipants(participants, playerCount) {
     }
     if (!factions.neutral) factions.neutral = base.neutral;
     return factions;
+}
+
+function syncFactionPaletteColors(state) {
+    if (!state?.factions) return;
+    for (const [campKey, faction] of Object.entries(state.factions)) {
+        if (!faction) continue;
+        const resolvedColorId = faction.colorId
+            || (faction.flagPreset ? getFlagPresetColor(faction.flagPreset) : null)
+            || null;
+        const palette = getPaletteEntry(resolvedColorId || faction.color);
+        if (palette) {
+            faction.colorId = palette.id;
+            faction.color = palette.tile;
+        }
+        if (campKey === 'neutral' && !faction.color) {
+            faction.color = getPaletteEntry('gray')?.tile || '#b0b0b0';
+        }
+    }
+}
+
+function syncDeployedCommanderFlags(state) {
+    const deployedByCamp = { player1: new Set(), player2: new Set(), player3: new Set() };
+    for (const tile of state.tiles || []) {
+        const u = tile?.unit;
+        if (!u?.commander) continue;
+        const ck = campToKey(u.camp);
+        if (deployedByCamp[ck]) deployedByCamp[ck].add(u.commander);
+    }
+    const slots = [
+        ['player1', 'commanderP1', 'commanderP1Secondary'],
+        ['player2', 'commanderP2', 'commanderP2Secondary'],
+        ['player3', 'commanderP3', 'commanderP3Secondary']
+    ];
+    for (const [ck, primaryKey, secondaryKey] of slots) {
+        const set = deployedByCamp[ck];
+        if (state[primaryKey] && set.has(state[primaryKey])) state[`${primaryKey}Deployed`] = true;
+        if (state[secondaryKey] && set.has(state[secondaryKey])) state[`${primaryKey}SecondaryDeployed`] = true;
+    }
+}
+
+function hydrateReplayHand(rawCards, campKey, state) {
+    const list = Array.isArray(rawCards) ? rawCards : [];
+    const primaryKey = campKey === 'player1' ? 'commanderP1'
+        : campKey === 'player2' ? 'commanderP2'
+        : campKey === 'player3' ? 'commanderP3'
+        : null;
+    if (!primaryKey || !state?.doubleCommanderMode) {
+        return list.map(c => (c && typeof c === 'object' ? { ...c } : c)).filter(Boolean);
+    }
+    const candidates = [state[primaryKey], state[`${primaryKey}Secondary`]].filter(Boolean);
+    if (candidates.length === 0) {
+        return list.map(c => (c && typeof c === 'object' ? { ...c } : c)).filter(Boolean);
+    }
+    const explicitIds = new Set();
+    for (const entry of list) {
+        if (entry && typeof entry === 'object' && entry.id === 'commanderDeploy' && entry.commanderId) {
+            explicitIds.add(entry.commanderId);
+        }
+    }
+    const deployedSet = new Set();
+    if (state[`${primaryKey}Deployed`] && state[primaryKey]) deployedSet.add(state[primaryKey]);
+    if (state[`${primaryKey}SecondaryDeployed`] && state[`${primaryKey}Secondary`]) deployedSet.add(state[`${primaryKey}Secondary`]);
+    for (const tile of state.tiles || []) {
+        if (tile.unit?.commander && campToKey(tile.unit.camp) === campKey) {
+            deployedSet.add(tile.unit.commander);
+        }
+    }
+    const plainDeployCount = list.filter(entry => entry === 'commanderDeploy' || (entry && typeof entry === 'object' && entry.id === 'commanderDeploy' && !entry.commanderId)).length;
+    let available = candidates.filter(id => !explicitIds.has(id) && !deployedSet.has(id));
+    if (available.length < plainDeployCount) {
+        available = [...available, ...candidates.filter(id => !explicitIds.has(id) && !available.includes(id))];
+    }
+    let idx = 0;
+    return list.map(entry => {
+        if (entry === 'commanderDeploy' || (entry && typeof entry === 'object' && entry.id === 'commanderDeploy' && !entry.commanderId)) {
+            const cmdId = available[idx++] || candidates[0];
+            return cmdId ? { id: 'commanderDeploy', commanderId: cmdId } : 'commanderDeploy';
+        }
+        return entry && typeof entry === 'object' ? { ...entry } : entry;
+    }).filter(Boolean);
 }
 
 function applyCommandersFromParticipants(state, participants) {
@@ -317,6 +406,31 @@ export function buildReplayInitialState(log, state, deps) {
     state.cardTargeting = null;
 
     applyHistoricalNeutralAppearance(state);
+    syncFactionPaletteColors(state);
+    for (const tile of state.tiles || []) {
+        const water = isWaterSurface(tile.surface);
+        if (water) {
+            if (tile.isPort && tile.camp) {
+                tile.camp = campFromKey(campToKey(tile.camp), state) || state.factions.neutral;
+            } else {
+                tile.camp = null;
+            }
+            continue;
+        }
+        tile.camp = campFromKey(campToKey(tile.camp), state) || state.factions.neutral;
+        if (tile.camp?.color) {
+            tile.startColor = tile.camp.color;
+            tile.targetColor = tile.camp.color;
+            tile.currentColor = tile.camp.color;
+        }
+        if (tile.unit) {
+            tile.unit.camp = campFromKey(campToKey(tile.unit.camp), state) || state.factions.neutral;
+        }
+    }
+    syncDeployedCommanderFlags(state);
+    for (const ck of Object.keys(state.playerHands || {})) {
+        state.playerHands[ck] = hydrateReplayHand(state.playerHands[ck], ck, state);
+    }
     if (typeof computeCampBorders === 'function') state.campBorderEdges = computeCampBorders(state.tiles, state.tileMap);
     if (typeof computeDistrictBorders === 'function') state.districtBorderEdges = computeDistrictBorders(state.tiles, state.tileMap);
     updateAllFogOfWar?.(state);
@@ -385,13 +499,22 @@ function applyChangesBucket(changes, step, state, deps, preUnits, impactDelay, f
         if (oldTile && oldTile.unit === unit) oldTile.unit = null;
         unit.tile = toTile;
         toTile.unit = unit;
-        const animPath = Array.isArray(p.path) && p.path.length > 0 && String(p.unitId) === String(unit.id)
+        const animPath = Array.isArray(p.path) && p.path.length >= 2 && String(p.unitId) === String(unit.id)
             ? p.path.map(node => {
                 const t = state.tileMap.get(`${node.q},${node.r}`);
                 return { q: node.q, r: node.r, x: t?.x ?? node.x ?? oldTile?.x ?? 0, y: t?.y ?? node.y ?? oldTile?.y ?? 0 };
             })
             : (oldTile ? [{ q: oldTile.q, r: oldTile.r, x: oldTile.x, y: oldTile.y }, { q: toTile.q, r: toTile.r, x: toTile.x, y: toTile.y }] : null);
-        if (animPath) unit.startMovePath?.(animPath);
+        if (animPath) {
+            const moveDelayMs = step.actionType === 'attack'
+                ? (p.attackerType === 'us_marine' ? 260 : 140)
+                : 0;
+            unit.startMovePath?.(animPath, moveDelayMs > 0 ? { delayMs: moveDelayMs } : undefined);
+            const estDuration = Number.isFinite(unit.movePathDuration) && unit.movePathDuration > 0
+                ? unit.movePathDuration
+                : (animPath.length - 1) * 120;
+            fxMeta.maxMoveMs = Math.max(fxMeta.maxMoveMs || 0, estDuration + moveDelayMs);
+        }
         fxMeta.movedUnits.push({ unit, fromTile: oldTile, toTile });
     }
 
@@ -463,15 +586,18 @@ function applyChangesBucket(changes, step, state, deps, preUnits, impactDelay, f
         if (c.constructionScaffold) unit._constructionScaffold = c.constructionScaffold.after ? { ...c.constructionScaffold.after } : null;
     }
 
+    const deathGhostMs = impactDelay > 0
+        ? impactDelay
+        : (['attack', 'banzaiCharge', 'droneSuicide', 'tacticalCard', 'airCommand'].includes(step.actionType) ? 180 : 0);
     for (const removed of changes.unitsRemoved || []) {
         const unit = findUnitInState(state, removed.id);
         const pre = preUnits.get(String(removed.id));
         if (unit && unit.tile?.unit === unit) unit.tile.unit = null;
-        if (impactDelay > 0 && (unit || pre?.unit)) {
+        if (deathGhostMs > 0 && (unit || pre?.unit)) {
             const ghostUnit = unit || pre.unit;
             ghostUnit.hp = Math.max(1, Number(pre?.hp || ghostUnit.hp || 1));
             ghostUnit.displayHp = Number(pre?.displayHp || ghostUnit.hp || 1);
-            (state.unitDeathGhosts ||= []).push({ unit: ghostUnit, until: now + impactDelay });
+            (state.unitDeathGhosts ||= []).push({ unit: ghostUnit, until: now + deathGhostMs });
         }
         fxMeta.removedUnits.push({ removed, pre });
     }
@@ -548,12 +674,13 @@ function applyChangesBucket(changes, step, state, deps, preUnits, impactDelay, f
         }
     }
 
+    syncDeployedCommanderFlags(state);
     for (const res of changes.resources || []) {
         const key = res.campKey;
         const c = res.changes || {};
         if (c.gold) state.playerGold[key] = Number(c.gold.after || 0);
         if (c.kills) state.killCount[key] = Number(c.kills.after || 0);
-        if (c.cards && Array.isArray(c.cards.after)) state.playerHands[key] = [...c.cards.after];
+        if (c.cards && Array.isArray(c.cards.after)) state.playerHands[key] = hydrateReplayHand(c.cards.after, key, state);
         if (c.surrendered) {
             const camp = campFromKey(key, state);
             if (camp) {
@@ -587,6 +714,27 @@ function applyChangesBucket(changes, step, state, deps, preUnits, impactDelay, f
     }
 }
 
+function resolveCoordXY(state, q, r, fx, fy) {
+    if (Number.isFinite(fx) && Number.isFinite(fy)) return { x: fx, y: fy };
+    const t = Number.isFinite(q) && Number.isFinite(r) ? state.tileMap.get(`${q},${r}`) : null;
+    if (t && Number.isFinite(t.x) && Number.isFinite(t.y)) return { x: t.x, y: t.y };
+    return null;
+}
+
+function enrichCoordList(state, list) {
+    if (!Array.isArray(list)) return list;
+    return list.map(item => {
+        if (!item || typeof item !== 'object') return item;
+        const t = Number.isFinite(item.q) && Number.isFinite(item.r) ? state.tileMap.get(`${item.q},${item.r}`) : null;
+        if (!t) return item;
+        return {
+            ...item,
+            x: Number.isFinite(item.x) ? item.x : t.x,
+            y: Number.isFinite(item.y) ? item.y : t.y
+        };
+    });
+}
+
 function buildEnrichedPayload(step, state, preUnits, fxMeta, impactDelay) {
     const p = { ...(step.payload || {}) };
     const tile = Number.isFinite(p.q) && Number.isFinite(p.r) ? state.tileMap.get(`${p.q},${p.r}`) : null;
@@ -594,16 +742,46 @@ function buildEnrichedPayload(step, state, preUnits, fxMeta, impactDelay) {
         if (p.x == null) p.x = tile.x;
         if (p.y == null) p.y = tile.y;
     }
+    if (Number.isFinite(p.targetQ) && Number.isFinite(p.targetR)) {
+        const targetPos = resolveCoordXY(state, p.targetQ, p.targetR, p.toX, p.toY);
+        if (targetPos) {
+            if (p.toX == null) p.toX = targetPos.x;
+            if (p.toY == null) p.toY = targetPos.y;
+            if (p.x == null) p.x = targetPos.x;
+            if (p.y == null) p.y = targetPos.y;
+        }
+    }
+    if (Number.isFinite(p.destQ) && Number.isFinite(p.destR)) {
+        const destPos = resolveCoordXY(state, p.destQ, p.destR, p.destX, p.destY);
+        if (destPos) {
+            if (p.destX == null) p.destX = destPos.x;
+            if (p.destY == null) p.destY = destPos.y;
+        }
+    }
     if (Number.isFinite(p.fromQ) && Number.isFinite(p.fromR)) {
         const fromTile = state.tileMap.get(`${p.fromQ},${p.fromR}`);
         if (fromTile) {
             if (p.fromX == null) p.fromX = fromTile.x;
             if (p.fromY == null) p.fromY = fromTile.y;
         }
-    } else if (p.attackerUnitId != null && preUnits.has(String(p.attackerUnitId))) {
-        const preAtt = preUnits.get(String(p.attackerUnitId));
+    } else if ((p.attackerUnitId ?? p.unitId) != null && preUnits.has(String(p.attackerUnitId ?? p.unitId))) {
+        const preAtt = preUnits.get(String(p.attackerUnitId ?? p.unitId));
         if (p.fromX == null) p.fromX = preAtt.x;
         if (p.fromY == null) p.fromY = preAtt.y;
+    }
+    if (Array.isArray(p.path) && p.path.length > 0) {
+        p.path = enrichCoordList(state, p.path);
+    }
+    for (const listField of [
+        'specializationSplashResults',
+        'berserkerSplash',
+        'katyushaCounterSplash',
+        'airstrikeResults',
+        'carpetBombResults',
+        'orbitalStrikeResults',
+        'results'
+    ]) {
+        if (Array.isArray(p[listField])) p[listField] = enrichCoordList(state, p[listField]);
     }
     if (p.counterDmg > 0 && p.fromX != null && p.fromY != null) {
         if (p.counterX == null) p.counterX = p.fromX;
@@ -612,37 +790,165 @@ function buildEnrichedPayload(step, state, preUnits, fxMeta, impactDelay) {
 
     const recordedFloats = step.outcome?.floatTexts;
     if (Array.isArray(recordedFloats) && recordedFloats.length > 0) {
-        p.floatTexts = recordedFloats.map(ft => ({ ...ft }));
+        p.floatTexts = recordedFloats.map(ft => ({
+            ...ft,
+            timeLeft: Number.isFinite(ft.timeLeft) ? ft.timeLeft : (ft.kind === 'damage' || !ft.kind ? 900 : 1000)
+        }));
     } else {
         const synthesized = [];
+        const emittedUnitIds = new Set();
+        const pushFloat = (entry) => {
+            if (!Number.isFinite(entry.x) || !Number.isFinite(entry.y)) return;
+            const kind = entry.kind || 'damage';
+            synthesized.push({
+                timeLeft: kind === 'damage' ? 900 : 1000,
+                ...entry
+            });
+        };
+
         for (const hd of fxMeta.hpDeltas) {
             if (!Number.isFinite(hd.x) || !Number.isFinite(hd.y) || !hd.delta) continue;
-            synthesized.push({
+            if (hd.unit?.id != null) emittedUnitIds.add(String(hd.unit.id));
+            const isCounterTarget = hd.delta < 0
+                && p.counterDmg > 0
+                && p.attackerUnitId != null
+                && String(hd.unit?.id) === String(p.attackerUnitId);
+            const counterDelay = isCounterTarget
+                ? (p.counterType === 'ru_katyusha' ? 750 : p.counterType === 'fr_heavy_cannon' ? 700 : p.counterType === 'us_marine' ? 260 : impactDelay)
+                : impactDelay;
+            pushFloat({
                 kind: hd.delta > 0 ? 'heal' : 'damage',
                 x: hd.x,
                 y: hd.y,
                 q: hd.q,
                 r: hd.r,
-                value: Math.abs(hd.delta),
-                isCrit: Boolean(p.isCrit || p.attackIsCrit),
+                value: Math.round(Math.abs(hd.delta)),
+                isCrit: isCounterTarget ? Boolean(p.counterIsCrit) : Boolean(p.isCrit || p.attackIsCrit),
+                ...(counterDelay > 0 ? { delayMs: counterDelay } : {})
+            });
+        }
+
+        // 阵亡单位不会出现在 changes.unitHp 中（diffStates 只写入 unitsRemoved），需从载荷与战前血量补回伤害数字
+        for (const { removed, pre } of fxMeta.removedUnits) {
+            const rid = String(removed?.id ?? pre?.unit?.id ?? '');
+            if (rid && emittedUnitIds.has(rid)) continue;
+            const pos = resolveCoordXY(state, removed?.q ?? pre?.q, removed?.r ?? pre?.r, pre?.x, pre?.y);
+            if (!pos) continue;
+            let dmgVal = null;
+            let crit = false;
+            let trueDmg = false;
+            let dMs = impactDelay;
+            if (step.actionType === 'attack') {
+                if (p.targetUnitId != null && String(p.targetUnitId) === rid && Number(p.attackDmg) > 0) {
+                    dmgVal = p.attackDmg;
+                    crit = Boolean(p.attackIsCrit ?? p.isCrit);
+                } else if (p.attackerUnitId != null && String(p.attackerUnitId) === rid && Number(p.counterDmg) > 0) {
+                    dmgVal = p.counterDmg;
+                    crit = Boolean(p.counterIsCrit);
+                    dMs = p.counterType === 'ru_katyusha' ? 750 : p.counterType === 'fr_heavy_cannon' ? 700 : p.counterType === 'us_marine' ? 260 : impactDelay;
+                } else {
+                    const hitMatch = [
+                        ...(p.specializationSplashResults || []),
+                        ...(p.berserkerSplash || []),
+                        ...(p.katyushaCounterSplash || [])
+                    ].find(h => (h?.unitId != null && String(h.unitId) === rid) || (h?.q === (removed?.q ?? pre?.q) && h?.r === (removed?.r ?? pre?.r)));
+                    if (hitMatch && Number(hitMatch.dmg) > 0) {
+                        dmgVal = hitMatch.dmg;
+                        crit = Boolean(hitMatch.isCrit);
+                    }
+                }
+            } else if (step.actionType === 'tacticalCard') {
+                const hitMatch = [
+                    ...(p.airstrikeResults || []),
+                    ...(p.carpetBombResults || []),
+                    ...(p.orbitalStrikeResults || [])
+                ].find(h => h?.q === (removed?.q ?? pre?.q) && h?.r === (removed?.r ?? pre?.r));
+                if (hitMatch && Number(hitMatch.dmg) > 0) {
+                    dmgVal = hitMatch.dmg;
+                } else if (Number(p.dmg) > 0 && p.q === (removed?.q ?? pre?.q) && p.r === (removed?.r ?? pre?.r)) {
+                    dmgVal = p.dmg;
+                    trueDmg = p.cardId === 'lightning';
+                }
+            } else if (step.actionType === 'airCommand') {
+                const hitMatch = (p.results || []).find(h => (h?.unitId != null && String(h.unitId) === rid) || (h?.q === (removed?.q ?? pre?.q) && h?.r === (removed?.r ?? pre?.r)));
+                if (hitMatch && Number(hitMatch.dmg) > 0) dmgVal = hitMatch.dmg;
+            }
+            if (!(dmgVal > 0)) dmgVal = pre?.hp ?? removed?.hp ?? 0;
+            if (dmgVal > 0) {
+                emittedUnitIds.add(rid);
+                pushFloat({
+                    kind: 'damage',
+                    x: pos.x,
+                    y: pos.y,
+                    q: removed?.q ?? pre?.q,
+                    r: removed?.r ?? pre?.r,
+                    value: Math.round(dmgVal),
+                    isCrit: crit,
+                    isTrueDmg: trueDmg,
+                    ...(dMs > 0 ? { delayMs: dMs } : {})
+                });
+            }
+        }
+
+        // 若护盾完全吸收导致 HP 未变，但攻击造成了伤害，补出护盾受击伤害数字
+        if (step.actionType === 'attack' && !p.dodged && Number(p.attackDmg) > 0
+            && p.targetUnitId != null && !emittedUnitIds.has(String(p.targetUnitId))
+            && Number.isFinite(p.x) && Number.isFinite(p.y)) {
+            emittedUnitIds.add(String(p.targetUnitId));
+            pushFloat({
+                kind: 'damage',
+                x: p.x,
+                y: p.y,
+                q: p.q,
+                r: p.r,
+                value: Math.round(p.attackDmg),
+                isCrit: Boolean(p.attackIsCrit ?? p.isCrit),
                 ...(impactDelay > 0 ? { delayMs: impactDelay } : {})
             });
         }
+        if (step.actionType === 'attack' && Number(p.counterDmg) > 0
+            && p.attackerUnitId != null && !emittedUnitIds.has(String(p.attackerUnitId))
+            && Number.isFinite(p.counterX ?? p.fromX) && Number.isFinite(p.counterY ?? p.fromY)) {
+            emittedUnitIds.add(String(p.attackerUnitId));
+            pushFloat({
+                kind: 'damage',
+                x: p.counterX ?? p.fromX,
+                y: p.counterY ?? p.fromY,
+                q: p.fromQ,
+                r: p.fromR,
+                value: Math.round(p.counterDmg),
+                isCrit: Boolean(p.counterIsCrit),
+                ...(impactDelay > 0 ? { delayMs: impactDelay } : {})
+            });
+        }
+        if (step.actionType === 'attack' && Number(p.smiteDmg) > 0 && Number.isFinite(p.x) && Number.isFinite(p.y)) {
+            pushFloat({
+                kind: 'damage',
+                x: p.x,
+                y: p.y,
+                q: p.q,
+                r: p.r,
+                value: Math.round(p.smiteDmg),
+                isTrueDmg: true,
+                delayMs: impactDelay + 120
+            });
+        }
+
         for (const ch of fxMeta.cityHpDeltas) {
-            synthesized.push({
+            pushFloat({
                 kind: ch.delta > 0 ? 'heal' : 'damage',
                 x: ch.tile.x,
                 y: ch.tile.y,
                 q: ch.tile.q,
                 r: ch.tile.r,
-                value: Math.abs(ch.delta),
+                value: Math.round(Math.abs(ch.delta)),
                 isCityDamage: ch.delta < 0,
                 isCityHeal: ch.delta > 0,
                 ...(impactDelay > 0 ? { delayMs: impactDelay } : {})
             });
         }
         if (p.dodged && Number.isFinite(p.x) && Number.isFinite(p.y)) {
-            synthesized.push({
+            pushFloat({
                 kind: 'damage', x: p.x, y: p.y, q: p.q, r: p.r, value: 0, text: '闪避',
                 ...(impactDelay > 0 ? { delayMs: impactDelay } : {})
             });
@@ -679,7 +985,8 @@ export function applyReplayStep(step, state, deps) {
         hpDeltas: [],
         cityHpDeltas: [],
         moraleChangedUnits: [],
-        capturedCities: []
+        capturedCities: [],
+        maxMoveMs: 0
     };
 
     applyChangesBucket(step.outcome?.changes, step, state, deps, preUnits, impactDelay, fxMeta);
@@ -698,11 +1005,27 @@ export function applyReplayStep(step, state, deps) {
     const enrichedPayload = buildEnrichedPayload(step, state, preUnits, fxMeta, impactDelay);
     fxCallback?.(step, enrichedPayload, fxMeta);
 
-    const delayMs = step.actionType === 'tacticalCard' && step.payload?.cardId !== 'airdrop'
-        ? Math.max(2000, impactDelay + 350)
+    const counterDelay = step.actionType === 'attack' && enrichedPayload.counterDmg > 0
+        ? (enrichedPayload.counterType === 'ru_katyusha' ? 750
+            : enrichedPayload.counterType === 'fr_heavy_cannon' ? 700
+            : enrichedPayload.counterType === 'us_marine' ? 260
+            : 220)
+        : 0;
+    const minStepMs = step.actionType === 'tacticalCard' && step.payload?.cardId !== 'airdrop'
+        ? 2100
         : step.actionType === 'endTurn'
             ? 850
-            : Math.max(520, impactDelay + 320);
+            : step.actionType === 'attack' || step.actionType === 'banzaiCharge'
+                ? 680
+                : step.actionType === 'recruit' || step.actionType === 'reinforce'
+                    ? 560
+                    : 480;
+    const delayMs = Math.max(
+        minStepMs,
+        Math.round((fxMeta.maxMoveMs || 0) + 220),
+        impactDelay + 360,
+        counterDelay + 360
+    );
 
     return { step, effects: enrichedPayload, fxMeta, delayMs };
 }
@@ -734,6 +1057,8 @@ export function createReplaySession({
         }
     };
 
+    const canSwitchPerspective = () => Boolean(gameState?.skirmishFog && !gameState?.campaignMode);
+
     const getStatus = () => ({
         active,
         paused,
@@ -742,7 +1067,8 @@ export function createReplaySession({
         totalSteps: steps.length,
         round: gameState?.turnCounter != null ? Math.floor(gameState.turnCounter / Math.max(1, (gameState.turnOrder || []).filter(k => k !== 'neutral').length)) + 1 : 1,
         viewCampKey: gameState?._replayViewCampKey || 'neutral',
-        isCampaign: !!gameState?.campaignMode
+        isCampaign: !!gameState?.campaignMode,
+        canSwitchPerspective: canSwitchPerspective()
     });
 
     const emitChange = () => {
@@ -819,7 +1145,7 @@ export function createReplaySession({
     };
 
     const setPerspective = (campKey) => {
-        if (!active || gameState?.campaignMode) return getStatus();
+        if (!active || !canSwitchPerspective()) return getStatus();
         const validKeys = new Set(['neutral', ...(gameState.turnOrder || []).filter(k => k !== 'neutral')]);
         if (!validKeys.has(campKey)) return getStatus();
         gameState._replayViewCampKey = campKey;
@@ -827,6 +1153,12 @@ export function createReplaySession({
         deps.invalidateBoard?.();
         emitChange();
         return getStatus();
+    };
+
+    const togglePerspective = (campKey) => {
+        if (!active || !canSwitchPerspective()) return getStatus();
+        const current = gameState._replayViewCampKey || 'neutral';
+        return setPerspective(current === campKey ? 'neutral' : campKey);
     };
 
     const stop = () => {
@@ -842,5 +1174,5 @@ export function createReplaySession({
         onExit?.();
     };
 
-    return { start, pause, resume, togglePause, setPerspective, stop, getStatus };
+    return { start, pause, resume, togglePause, setPerspective, togglePerspective, stop, getStatus };
 }

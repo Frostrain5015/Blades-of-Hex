@@ -164,7 +164,18 @@ function captureState(state) {
         camps[campKey] = {
             gold: Number(state.playerGold?.[campKey] || 0),
             handSize: Array.isArray(state.playerHands?.[campKey]) ? state.playerHands[campKey].length : 0,
-            cards: (state.playerHands?.[campKey] || []).map(card => typeof card === 'string' ? card : card?.id).filter(Boolean),
+            cards: (state.playerHands?.[campKey] || []).map(card => {
+                if (typeof card === 'string') return card;
+                if (!card?.id) return null;
+                if (card.commanderId || card._copy) {
+                    return {
+                        id: card.id,
+                        ...(card.commanderId ? { commanderId: card.commanderId } : {}),
+                        ...(card._copy ? { _copy: true } : {})
+                    };
+                }
+                return card.id;
+            }).filter(Boolean),
             kills: Number(state.killCount?.[campKey] || 0),
             surrendered: (state.surrenderedCamps || []).some(camp => keyOfCamp(camp) === campKey),
             controller: faction?.controller || 'unknown'
@@ -582,7 +593,11 @@ export function recordCommittedAction(state, {
     const actorKey = actorCampKey || (actionType === 'endTurn' ? session.lastSnapshot.currentCampKey : keyOfCamp(state.currentCamp));
     const changes = diffStates(session.lastSnapshot, after);
     const messages = newMessages(session.lastLogs, state.logHistory || []);
-    const floatTexts = Array.isArray(state?._pendingFloatTexts) && state._pendingFloatTexts.length > 0 ? sanitize(state._pendingFloatTexts) : null;
+    const pendingFloats = Array.isArray(state?._pendingFloatTexts) ? state._pendingFloatTexts : [];
+    const floatCursor = Number.isFinite(state?._recordedFloatCursor) ? Math.min(state._recordedFloatCursor, pendingFloats.length) : 0;
+    const freshFloats = pendingFloats.slice(floatCursor);
+    if (state) state._recordedFloatCursor = pendingFloats.length;
+    const floatTexts = freshFloats.length > 0 ? sanitize(freshFloats) : null;
     const item = {
         kind: 'action',
         actionId: `${session.log.matchId}:a${session.log.timeline.filter(entry => entry.kind === 'action').length + 1}`,
