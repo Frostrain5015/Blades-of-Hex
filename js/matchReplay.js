@@ -21,6 +21,7 @@ import { getStandardMap } from '../rules/standardMaps.js';
 import { applyHistoricalNeutralAppearance } from '../rules/historicalNeutral.js';
 import { syncCityHpMirrors } from '../rules/citySiege.js';
 import { ATTACK_PRESENTATION, classifyAttackPresentation, CARRIER_STRAFE_IMPACT_MS } from '../rules/attackPresentation.js';
+import { TACTICAL_CARD_CONFIG } from '../rules/cards.js';
 import { buildBoardFromConfig } from '../campaign/runtime/mapBuilder.js';
 import { resetMatchState, restoreMatchState } from '../engine/matchState.js';
 import { getCounter, setCounter } from './uid.js';
@@ -484,7 +485,7 @@ function parseSiteCoord(siteKey) {
     return { q: Number(match[1]), r: Number(match[2]) };
 }
 
-function applyChangesBucket(changes, step, state, deps, preUnits, impactDelay, fxMeta) {
+function applyChangesBucket(changes, step, state, deps, preUnits, impactDelay, fxMeta, { isDeferred = false } = {}) {
     if (!changes) return;
     const { UnitClass, computeCampBorders, invalidateBoard, forceDistrictFade } = deps;
     const now = performance.now();
@@ -675,12 +676,52 @@ function applyChangesBucket(changes, step, state, deps, preUnits, impactDelay, f
     }
 
     syncDeployedCommanderFlags(state);
+    const applyLegacyHandDelta = (key) => {
+        const hand = (state.playerHands[key] ||= []);
+        if (!isDeferred && step.actionType === 'tacticalCard' && key === step.actorCampKey
+            && p.cardId && !['diveStrafe', 'carpetBomb', 'airlift'].includes(p.cardId)) {
+            let removeIdx = -1;
+            if (p.cardId === 'commanderDeploy' && p.commander) {
+                removeIdx = hand.findIndex(c => c && typeof c === 'object' && c.id === 'commanderDeploy' && c.commanderId === p.commander);
+            }
+            if (removeIdx === -1) {
+                removeIdx = hand.findIndex(c => c === p.cardId || (c && typeof c === 'object' && c.id === p.cardId));
+            }
+            if (removeIdx !== -1) hand.splice(removeIdx, 1);
+        }
+        if (!isDeferred && step.actionType === 'drawCard' && key === step.actorCampKey && p.cardId) {
+            hand.push(p.cardId);
+        }
+        const campName = state.factions?.[key]?.name;
+        const msgSource = isDeferred ? [] : (step.outcome?.engineMessages || []);
+        for (const msg of msgSource) {
+            if (typeof msg !== 'string') continue;
+            if (campName && !msg.includes(campName) && !msg.includes(key)) continue;
+            const freeMatch = msg.match(/获得免费对策卡【([^】]+)】/);
+            const copyMatch = msg.match(/获得【([^】]+)】的复制/);
+            const cardName = freeMatch?.[1] || copyMatch?.[1];
+            if (!cardName) continue;
+            const entry = Object.entries(TACTICAL_CARD_CONFIG).find(([, cfg]) => cfg?.name === cardName);
+            if (!entry) continue;
+            hand.push(copyMatch ? { id: entry[0], _copy: true } : entry[0]);
+        }
+    };
+    const seenResourceKeys = new Set();
     for (const res of changes.resources || []) {
         const key = res.campKey;
+        seenResourceKeys.add(key);
         const c = res.changes || {};
         if (c.gold) state.playerGold[key] = Number(c.gold.after || 0);
         if (c.kills) state.killCount[key] = Number(c.kills.after || 0);
-        if (c.cards && Array.isArray(c.cards.after)) state.playerHands[key] = hydrateReplayHand(c.cards.after, key, state);
+        if (c.cards && Array.isArray(c.cards.after)) {
+            state.playerHands[key] = hydrateReplayHand(c.cards.after, key, state);
+        } else {
+            applyLegacyHandDelta(key);
+            if (c.handSize && Number.isFinite(c.handSize.after)) {
+                const hand = state.playerHands[key];
+                while (hand && hand.length > c.handSize.after) hand.pop();
+            }
+        }
         if (c.surrendered) {
             const camp = campFromKey(key, state);
             if (camp) {
@@ -688,6 +729,10 @@ function applyChangesBucket(changes, step, state, deps, preUnits, impactDelay, f
                 else if (!c.surrendered.after) state.surrenderedCamps = state.surrenderedCamps.filter(item => item !== camp);
             }
         }
+    }
+    if (!isDeferred && step.actorCampKey && !seenResourceKeys.has(step.actorCampKey)
+        && (step.actionType === 'tacticalCard' || step.actionType === 'drawCard')) {
+        applyLegacyHandDelta(step.actorCampKey);
     }
 
     for (const g of changes.global || []) {
@@ -989,9 +1034,9 @@ export function applyReplayStep(step, state, deps) {
         maxMoveMs: 0
     };
 
-    applyChangesBucket(step.outcome?.changes, step, state, deps, preUnits, impactDelay, fxMeta);
+    applyChangesBucket(step.outcome?.changes, step, state, deps, preUnits, impactDelay, fxMeta, { isDeferred: false });
     for (const deferred of step.outcome?.deferredEffects || []) {
-        applyChangesBucket(deferred?.changes, step, state, deps, preUnits, impactDelay, fxMeta);
+        applyChangesBucket(deferred?.changes, step, state, deps, preUnits, impactDelay, fxMeta, { isDeferred: true });
     }
 
     if (typeof logMessage === 'function') {

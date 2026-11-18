@@ -291,5 +291,60 @@ test('修复历史阵营色、双将领不重复、位移动画坐标与阵亡�
     const atkRes = applyReplayStep(steps.find(s => s.actionType === 'attack'), gameState, deps);
     assert.ok(Array.isArray(atkRes.effects.floatTexts) && atkRes.effects.floatTexts.length > 0, '击杀攻击仍应生成伤害浮字');
     assert.ok(atkRes.effects.floatTexts.every(ft => Number.isFinite(ft.timeLeft) && ft.value > 0), '合成浮字必须自带有限 timeLeft 防止 NaN 丢失显示');
+
+    // 验证旧日志无 c.cards 字段时：抽卡新增、用卡（含双将领部署卡与普通对策卡）准确从对应阵营手牌队列移除
+    log.timeline.push(
+        {
+            kind: 'action',
+            actionId: 'fake:deploy1',
+            sequence: log.timeline.length + 1,
+            actorCampKey: 'player1',
+            accepted: true,
+            actionType: 'tacticalCard',
+            payload: { cardId: 'commanderDeploy', commander: 'colonel', q: dest.q, r: dest.r },
+            outcome: {
+                changed: true,
+                changes: { resources: [{ campKey: 'player1', changes: { handSize: { before: 3, after: 2 } } }] },
+                engineMessages: []
+            }
+        },
+        {
+            kind: 'action',
+            actionId: 'fake:draw1',
+            sequence: log.timeline.length + 2,
+            actorCampKey: 'player1',
+            accepted: true,
+            actionType: 'drawCard',
+            payload: { cardId: 'heal', cost: 4 },
+            outcome: {
+                changed: true,
+                changes: { resources: [{ campKey: 'player1', changes: { handSize: { before: 2, after: 3 } } }] },
+                engineMessages: []
+            }
+        },
+        {
+            kind: 'action',
+            actionId: 'fake:cast1',
+            sequence: log.timeline.length + 3,
+            actorCampKey: 'player1',
+            accepted: true,
+            actionType: 'tacticalCard',
+            payload: { cardId: 'lightning', q: dest.q, r: dest.r, dmg: 44 },
+            outcome: {
+                changed: true,
+                changes: { resources: [{ campKey: 'player1', changes: { handSize: { before: 3, after: 2 } } }] },
+                engineMessages: []
+            }
+        }
+    );
+    buildReplayInitialState(log, gameState, deps);
+    for (const s of extractReplaySteps(log).slice(-3)) {
+        applyReplayStep(s, gameState, deps);
+    }
+    assert.deepEqual(
+        gameState.playerHands.player1,
+        [{ id: 'commanderDeploy', commanderId: 'necromancer' }, 'heal'],
+        '使用空军上校部署卡与雷击卡后均应从手牌消失，抽卡加入疗愈并保留未部署的亡灵术师卡'
+    );
     resetGameState();
 });

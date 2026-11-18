@@ -3100,12 +3100,152 @@ function _drawPokerCard(cctx, cx, cy, cardW, cardH, cfg, opts = {}) {
     cctx.restore();
 }
 
+function _resolveDeployMeta(cardEntry, campKey) {
+    const primaryKey = campKey === 'player1' ? 'commanderP1' : campKey === 'player2' ? 'commanderP2' : 'commanderP3';
+    const deployCmdId = (typeof cardEntry === 'object' ? cardEntry.commanderId : null) || gameState[primaryKey];
+    const deployedKey = deployCmdId && gameState[`${primaryKey}Secondary`] === deployCmdId
+        ? `${primaryKey}SecondaryDeployed`
+        : `${primaryKey}Deployed`;
+    return {
+        deployCmdId,
+        alreadyDeployed: Boolean(gameState[deployedKey])
+    };
+}
+
+function _drawObserverHands(cctx, W, H) {
+    const campKeys = (gameState.turnOrder || ['player1', 'player2'])
+        .filter(k => k !== 'neutral' && gameState.factions?.[k]?.active !== false);
+    if (campKeys.length === 0) return;
+
+    const cardW = 90, cardH = 130;
+    const topPad = 8, bottomPad = 8, rowGap = 10, labelH = 20;
+    const rowBudget = Math.floor((H - topPad - bottomPad - rowGap * (campKeys.length - 1)) / campKeys.length);
+    const availCardH = Math.max(54, rowBudget - labelH - 4);
+    const cardScale = Math.min(1, availCardH / cardH);
+    const scaledW = cardW * cardScale;
+    const scaledH = cardH * cardScale;
+    const currentKey = campToKey(gameState.currentCamp);
+
+    for (let rIdx = 0; rIdx < campKeys.length; rIdx++) {
+        const ck = campKeys[rIdx];
+        const faction = gameState.factions?.[ck];
+        const hand = gameState.playerHands?.[ck] || [];
+        const rowY = topPad + rIdx * (rowBudget + rowGap);
+        const flagColor = getFlagColors(faction?.colorId || faction?.color)?.main || '#d4af37';
+        const isActing = currentKey === ck;
+
+        // 阵营抬头行
+        cctx.save();
+        cctx.fillStyle = isActing ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.03)';
+        cctx.strokeStyle = isActing ? flagColor : 'rgba(255,255,255,0.1)';
+        cctx.lineWidth = isActing ? 1.4 : 1;
+        cctx.beginPath();
+        cctx.roundRect(6, rowY, W - 12, rowBudget, 8);
+        cctx.fill();
+        cctx.stroke();
+
+        // 阵营色点 + 名称
+        cctx.fillStyle = flagColor;
+        cctx.beginPath();
+        cctx.arc(17, rowY + labelH / 2 + 1, 4.5, 0, Math.PI * 2);
+        cctx.fill();
+
+        cctx.fillStyle = isActing ? '#f8e7bc' : 'rgba(235, 228, 214, 0.85)';
+        cctx.font = 'bold 12px "Microsoft YaHei", sans-serif';
+        cctx.textAlign = 'left';
+        cctx.textBaseline = 'middle';
+        cctx.fillText(faction?.name || ck, 26, rowY + labelH / 2 + 1);
+
+        cctx.textAlign = 'right';
+        cctx.font = '11px "Microsoft YaHei", sans-serif';
+        cctx.fillStyle = isActing ? '#f5cf72' : 'rgba(200, 195, 185, 0.55)';
+        cctx.fillText(isActing ? `行动中 · ${hand.length}张` : `${hand.length}张`, W - 14, rowY + labelH / 2 + 1);
+        cctx.restore();
+
+        const cardsTop = rowY + labelH + Math.max(2, Math.floor((rowBudget - labelH - scaledH) / 2));
+        if (hand.length === 0) {
+            cctx.save();
+            cctx.fillStyle = 'rgba(215, 210, 200, 0.35)';
+            cctx.font = '12px "Microsoft YaHei", sans-serif';
+            cctx.textAlign = 'center';
+            cctx.textBaseline = 'middle';
+            cctx.fillText('暂无手牌', W / 2, cardsTop + scaledH / 2);
+            cctx.restore();
+            continue;
+        }
+
+        const n = hand.length;
+        const maxSpan = Math.max(0, W - 24 - scaledW);
+        const stepX = n <= 1 ? 0 : Math.min(72 * cardScale, maxSpan / (n - 1));
+        const startX = 12 + scaledW / 2;
+        const cy = cardsTop + scaledH / 2;
+
+        for (let i = 0; i < n; i++) {
+            const cardEntry = hand[i];
+            const cardId = typeof cardEntry === 'object' ? cardEntry.id : cardEntry;
+            const isCopyCard = typeof cardEntry === 'object' && cardEntry._copy;
+            let cfg = TACTICAL_CARD_CONFIG[cardId] || COLONEL_CARDS[cardId];
+            if (!cfg) continue;
+            const isDeploy = cardId === 'commanderDeploy';
+            let deployCmdId = null;
+            let alreadyDeployed = false;
+            if (isDeploy) {
+                const meta = _resolveDeployMeta(cardEntry, ck);
+                deployCmdId = meta.deployCmdId;
+                alreadyDeployed = meta.alreadyDeployed;
+                const cmdCfg = COMMANDER_CONFIG[deployCmdId];
+                if (cmdCfg) cfg = { ...cfg, name: cmdCfg.name };
+            }
+            const isColCard = !!COLONEL_CARDS[cardId];
+            const cx = startX + (n - 1 - i) * stepX;
+            cctx.save();
+            cctx.translate(cx, cy);
+            cctx.scale(cardScale, cardScale);
+            _drawPokerCard(cctx, 0, 0, cardW, cardH, cfg, {
+                disabled: isDeploy && alreadyDeployed,
+                isTargeting: false,
+                isDeploy,
+                alreadyDeployed,
+                isHovered: false,
+                commanderId: deployCmdId,
+                isCopyCard,
+                goldCost: isColCard ? (COLONEL_CARD_GOLD[cardId] || 0) : 0
+            });
+            cctx.restore();
+        }
+    }
+}
+
 export function drawCardCanvas(now) {
     if (!cardCanvas || !cardCtx) return;
     if (gameState.campaignMode && !isMechanicEnabled(gameState, 'tacticalCards')) { cardCanvas.style.display = 'none'; return; }
+    if (gameState.commanderPhase !== 'done' || gameState.gameOver) { cardCanvas.style.display = 'none'; return; }
+
+    const isMultiHandObserver = Boolean(
+        gameState._replayMode
+        && !gameState.campaignMode
+        && (!gameState.skirmishFog || !gameState._replayViewCampKey || gameState._replayViewCampKey === 'neutral')
+    );
+
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const cssW = cardCanvas.clientWidth || 360;
+    const cssH = cardCanvas.clientHeight || 620;
+    if (cardCanvas.width !== cssW * dpr || cardCanvas.height !== cssH * dpr) {
+        cardCanvas.width = cssW * dpr; cardCanvas.height = cssH * dpr;
+    }
+    const cctx = cardCtx;
+    cctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    cctx.clearRect(0, 0, cssW, cssH);
+    const W = cssW, H = cssH;
+
+    if (isMultiHandObserver) {
+        cardCanvas.style.display = 'block';
+        _drawObserverHands(cctx, W, H);
+        return;
+    }
+
     const myCamp = _getMyCampForUI();
     if (!myCamp) { cardCanvas.style.display = 'none'; return; }
-    if (gameState.commanderPhase !== 'done' || gameState.gameOver) { cardCanvas.style.display = 'none'; return; }
 
     const campKey = campToKey(myCamp);
     const hand = gameState.playerHands[campKey] || [];
@@ -3130,18 +3270,6 @@ export function drawCardCanvas(now) {
     if (_drawPileArmed && now - _drawPileArmTime > DRAW_ARM_TIMEOUT) {
         _drawPileArmed = false;
     }
-
-    // ---- DPR ----
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const cssW = cardCanvas.clientWidth || 360;
-    const cssH = cardCanvas.clientHeight || 620;
-    if (cardCanvas.width !== cssW * dpr || cardCanvas.height !== cssH * dpr) {
-        cardCanvas.width = cssW * dpr; cardCanvas.height = cssH * dpr;
-    }
-    const cctx = cardCtx;
-    cctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    cctx.clearRect(0, 0, cssW, cssH);
-    const W = cssW, H = cssH;
     cardCanvas.style.display = 'block';
 
     // guard: reset draw pile state on turn change to prevent stale UI
@@ -3303,7 +3431,9 @@ export function drawCardCanvas(now) {
         // E4 上校空军卡：金币不足时禁用
         const goldCost = COLONEL_CARD_GOLD[cardId] || 0;
         const hasGold = !isColCard || (gameState.playerGold?.[campKey] || 0) >= goldCost;
-        const disabled = !canUse || (isDeploy && alreadyDeployed) || (isColCard && !hasGold);
+        const disabled = gameState._replayMode
+            ? (isDeploy && alreadyDeployed)
+            : (!canUse || (isDeploy && alreadyDeployed) || (isColCard && !hasGold));
         drawOpts.disabled = disabled;
         _drawPokerCard(cctx, x, y, cardW, cardH, cfg, drawOpts);
     }
