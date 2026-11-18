@@ -140,8 +140,23 @@ preview = resolveTargetingPreview(gs, {
 });
 assert.equal(isResolvedTargetingCandidate(preview, strafeCity), true, '扫射可指定HP>0的空敌城');
 assert.equal(isResolvedTargetingCandidate(preview, strafeUrban), true, '扫射可指定HP>0的敌城城郭格');
-assert.equal(isResolvedTargetingCandidate(preview, strafeCityDead), false, 'HP=0的破城不再是扫射目标');
+assert.equal(isResolvedTargetingCandidate(preview, strafeCityDead), true, 'HP=0的空破城可作为扫射目标');
 assert.equal(isResolvedTargetingCandidate(preview, strafeOwnCity), false, '己方城市不是扫射目标');
+const stukaEmptyPlain = tile(2, 0, { surface: 'plains' });
+const stukaEmptySea = tile(2, 1, { surface: 'water' });
+gs.tiles.push(stukaEmptyPlain, stukaEmptySea);
+gs.tileMap.set('2,0', stukaEmptyPlain);
+gs.tileMap.set('2,1', stukaEmptySea);
+for (const airCardId of ['air_command_strafe', 'air_command_stukaDiveBomb']) {
+    const singlePreview = resolveTargetingPreview(gs, {
+        cardId: airCardId, targeting: 'anyTileGlobal', launcherQ: 0, launcherR: 0
+    });
+    assert.equal(isResolvedTargetingCandidate(singlePreview, strafeCity), true, `${airCardId} 可指定HP>0的空敌城`);
+    assert.equal(isResolvedTargetingCandidate(singlePreview, strafeCityDead), true, `${airCardId} 可指定HP=0的空破城`);
+    assert.equal(isResolvedTargetingCandidate(singlePreview, stukaEmptyPlain), true, `${airCardId} 可指定空地`);
+    assert.equal(isResolvedTargetingCandidate(singlePreview, stukaEmptySea), true, `${airCardId} 可指定空海域`);
+    assert.equal(isResolvedTargetingCandidate(singlePreview, strafeOwnCity), false, `${airCardId} 禁止指定己方城市`);
+}
 
 gs = state([colonelTile, nearEnemy, farEnemy, nearEmpty, farEmpty], {
     _colonelDeployed: { player1: true }

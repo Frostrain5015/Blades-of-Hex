@@ -444,7 +444,9 @@ export function enumerateHybridCandidates(state, camp, helpers, world = null) {
                 const ok = kind === 'airdrop'
                     ? canAirCommandAirdropAt(tile)
                     : (kind === 'strafe' || kind === 'stukaDiveBomb')
-                        ? (!tile.unit || unitVisibleFn(tile.unit)) && canTargetWithSingleAirCommand(tile, camp, state, kind === 'stukaDiveBomb')
+                        ? (tile.unit
+                            ? unitVisibleFn(tile.unit) && canTargetWithSingleAirCommand(tile, camp, state, true)
+                            : (tile.isCity || tile.isUrban) && (Number(tile.hp) || 0) > 0 && canAttack(state, camp, tile.camp))
                         : true;
                 if (ok) {
                     candidates.push({

@@ -1824,11 +1824,13 @@ export function playStukaStrafe(tile, results, camp, options = null) {
     }, 660);
 }
 
-export function playAirCommandImpact(kind, results, tileMap, delayMs, { showDodges = false } = {}) {
+export function playAirCommandImpact(kind, results, tileMap, delayMs, { showDodges = false, detonatedMines = [] } = {}) {
     const strikes = results.map(hit => ({ ...hit, tile: tileMap.get(`${hit.q},${hit.r}`) })).filter(hit => hit.tile);
+    const mines = (detonatedMines || []).map(mine => ({ ...mine, tile: tileMap.get(`${mine.q},${mine.r}`) })).filter(mine => mine.tile);
     const isStrafe = kind === 'strafe' || kind === 'stukaDiveBomb';
     setTimeout(() => {
         let impact = false;
+        let mineDetonated = false;
         for (const { tile, dodged } of strikes) {
             if (dodged) {
                 if (showDodges) spawnDodgeShimmer(tile.x, tile.y);
@@ -1837,9 +1839,19 @@ export function playAirCommandImpact(kind, results, tileMap, delayMs, { showDodg
             impact = true;
             spawnExplosionParticles(tile.x, tile.y, '#ff8800', kind === 'stukaDiveBomb' ? 8 : isStrafe ? 15 : 10);
         }
+        for (const mine of mines) {
+            impact = true;
+            mineDetonated = true;
+            const { x, y } = mine.tile;
+            const isWater = mine.mineType === 'water';
+            spawnDirectionalParticles(x, y + 10, x, y - 50, '#ff4400', 20);
+            spawnDirectionalParticles(x, y + 10, x, y - 50, '#ffaa00', 12);
+            spawnExplosionParticles(x, y, isWater ? '#44aaff' : '#664400', 10);
+            spawnCommanderSkillEffect(x, y, isWater ? '⚓' : '💣', isWater ? '引爆水雷' : '引爆地雷', true, '#ff6622');
+        }
         if (!impact) return;
-        if (!isStrafe) playSound('explosion');
-        triggerScreenShake(kind === 'stukaDiveBomb' ? 5 : isStrafe ? 6 : 8, isStrafe ? 300 : 400);
+        if (!isStrafe || mineDetonated) playSound('explosion');
+        triggerScreenShake(mineDetonated ? 7 : kind === 'stukaDiveBomb' ? 5 : isStrafe ? 6 : 8, (isStrafe && !mineDetonated) ? 300 : 400);
     }, delayMs);
 }
 

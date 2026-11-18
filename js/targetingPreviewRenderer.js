@@ -559,8 +559,12 @@ export function drawAntiAirCoveragePreview(ctx, descriptor = {}) {
         ctx.restore();
     }
 
-    const keyedCells = cells.filter(cell => Number.isFinite(cell.q) && Number.isFinite(cell.r) && validPoint(cell.center));
-    const contours = buildHexRegionContours(keyedCells, fallbackSize);
+    const keyedCells = Array.isArray(descriptor.contours)
+        ? null
+        : cells.filter(cell => Number.isFinite(cell.q) && Number.isFinite(cell.r) && validPoint(cell.center));
+    const contours = Array.isArray(descriptor.contours)
+        ? descriptor.contours
+        : buildHexRegionContours(keyedCells, fallbackSize);
     const pulse = waveAt(descriptor.time, 3.6, descriptor.phase);
     strokeHexRegionContours(ctx, contours, {
         stroke: color,
@@ -636,6 +640,124 @@ function list(value) {
     return Array.isArray(value) ? value : [value];
 }
 
+function drawBatchedInactiveTileDeployments(ctx, descriptors) {
+    if (!descriptors.length) return 0;
+    const batches = new Map();
+    const fallbackSingles = [];
+    for (const descriptor of descriptors) {
+        if (descriptor.active || descriptor.showStructure) {
+            fallbackSingles.push(descriptor);
+            continue;
+        }
+        const points = pointsFor(descriptor, positive(descriptor.size, 30));
+        if (points.length < 3) continue;
+        const center = shapeCenter(descriptor, points);
+        const size = shapeSize(descriptor, points);
+        const color = colorFor('deployment', descriptor.color);
+        const alpha = Math.round(opacity(descriptor.alpha, 1) * 20) / 20;
+        if (alpha <= 0) continue;
+        const bucketKey = `${color}|${alpha}|${Math.round(size * 10)}`;
+        let bucket = batches.get(bucketKey);
+        if (!bucket) {
+            bucket = { color, alpha, size, entries: [] };
+            batches.set(bucketKey, bucket);
+        }
+        bucket.entries.push({ points: scaledPoints(points, 0.88), center });
+    }
+    let drawn = 0;
+    for (const bucket of batches.values()) {
+        const { color, alpha, size, entries } = bucket;
+        ctx.save();
+        ctx.globalAlpha *= alpha;
+        ctx.fillStyle = color;
+        ctx.strokeStyle = color;
+        ctx.shadowBlur = 0;
+        ctx.beginPath();
+        for (const entry of entries) appendPolygonPath(ctx, entry.points);
+        ctx.globalAlpha *= 0.085;
+        ctx.fill();
+        ctx.restore();
+
+        ctx.save();
+        ctx.globalAlpha *= alpha * 0.62;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = size * 0.036;
+        ctx.shadowBlur = 0;
+        ctx.setLineDash([size * 0.12, size * 0.105]);
+        ctx.lineDashOffset = 0;
+        ctx.beginPath();
+        for (const entry of entries) appendPolygonPath(ctx, entry.points);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        const half = size * 0.47;
+        const arm = size * 0.16;
+        ctx.beginPath();
+        for (const entry of entries) {
+            const { center } = entry;
+            for (const [sx, sy] of CORNERS) {
+                ctx.moveTo(center.x + sx * (half - arm), center.y + sy * half);
+                ctx.lineTo(center.x + sx * half, center.y + sy * half);
+                ctx.lineTo(center.x + sx * half, center.y + sy * (half - arm));
+            }
+        }
+        ctx.stroke();
+        ctx.restore();
+        drawn += entries.length;
+    }
+    for (const descriptor of fallbackSingles) drawn += Number(drawTileDeploymentPreview(ctx, descriptor));
+    return drawn;
+}
+
+function drawBatchedInactiveAreaCenters(ctx, descriptors) {
+    if (!descriptors.length) return 0;
+    const batches = new Map();
+    const activeSingles = [];
+    for (const descriptor of descriptors) {
+        if (descriptor.active) {
+            activeSingles.push(descriptor);
+            continue;
+        }
+        if (!validPoint(descriptor.center)) continue;
+        const size = positive(descriptor.size, 30);
+        const color = colorFor('area', descriptor.color);
+        const alpha = Math.round(opacity(descriptor.alpha, 1) * 20) / 20;
+        if (alpha <= 0) continue;
+        const bucketKey = `${color}|${alpha}|${Math.round(size * 10)}`;
+        let bucket = batches.get(bucketKey);
+        if (!bucket) {
+            bucket = { color, alpha, size, centers: [] };
+            batches.set(bucketKey, bucket);
+        }
+        bucket.centers.push(descriptor.center);
+    }
+    let drawn = 0;
+    for (const bucket of batches.values()) {
+        const { color, alpha, size, centers } = bucket;
+        const half = size * 0.34;
+        const arm = size * 0.11;
+        ctx.save();
+        ctx.globalAlpha *= alpha * 0.5;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = size * 0.03;
+        ctx.lineCap = 'square';
+        ctx.shadowBlur = 0;
+        ctx.beginPath();
+        for (const center of centers) {
+            for (const [sx, sy] of CORNERS) {
+                ctx.moveTo(center.x + sx * (half - arm), center.y + sy * half);
+                ctx.lineTo(center.x + sx * half, center.y + sy * half);
+                ctx.lineTo(center.x + sx * half, center.y + sy * (half - arm));
+            }
+        }
+        ctx.stroke();
+        ctx.restore();
+        drawn += centers.length;
+    }
+    for (const descriptor of activeSingles) drawn += Number(drawAreaCenterPreview(ctx, descriptor));
+    return drawn;
+}
+
 /**
  * Render a complete preview scene from immutable visual descriptors.
  * Draw order is coverage -> origins -> tile targets -> area centers -> units.
@@ -650,8 +772,14 @@ export function renderTargetingPreview(ctx, scene = {}) {
     try {
         if (scene.boardClip && !clipToBoard(ctx, scene.boardClip)) return drawn;
         for (const descriptor of list(scene.origins)) drawn += Number(drawHatchedOriginPreview(ctx, descriptor));
-        for (const descriptor of list(scene.tileDeployments)) drawn += Number(drawTileDeploymentPreview(ctx, descriptor));
-        for (const descriptor of list(scene.areaCenters)) drawn += Number(drawAreaCenterPreview(ctx, descriptor));
+        const tileDeployments = list(scene.tileDeployments);
+        drawn += tileDeployments.length > 1
+            ? drawBatchedInactiveTileDeployments(ctx, tileDeployments)
+            : tileDeployments.reduce((count, descriptor) => count + Number(drawTileDeploymentPreview(ctx, descriptor)), 0);
+        const areaCenters = list(scene.areaCenters);
+        drawn += areaCenters.length > 1
+            ? drawBatchedInactiveAreaCenters(ctx, areaCenters)
+            : areaCenters.reduce((count, descriptor) => count + Number(drawAreaCenterPreview(ctx, descriptor)), 0);
         for (const descriptor of list(scene.unitTargets)) drawn += Number(drawUnitTargetPreview(ctx, descriptor));
     } finally {
         ctx.restore();

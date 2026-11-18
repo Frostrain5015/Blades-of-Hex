@@ -8,16 +8,17 @@ import { getHistoricalCost, hasNegativeWeatherImmunity, isCampCulture } from './
 import { canAttack } from './diplomacy.js';
 import { isUnitVisibleToCamp } from './visibility.js';
 import { isNeutralAi } from './neutralDefense.js';
+import { isPlayableBoardTile } from './boardLayout.js';
 import astrologerDef from '../commander/astrologer.js';
 
 export const AIRFIELD_BASE_RANGE = 8;
 
 export const AIR_COMMAND_CONFIG = Object.freeze({
-    strafe: Object.freeze({ name: '扫射', icon: '✈️', cost: 4, range: AIRFIELD_BASE_RANGE, cooldown: 2, targeting: 'enemyGlobal', multiplier: 1, desc: '对单体目标造成空军伤害；目标已损失生命值的20%转化为额外攻击力，最多15点。' }),
-    bombing: Object.freeze({ name: '轰炸', icon: '💣', cost: 5, range: AIRFIELD_BASE_RANGE, cooldown: 2, targeting: 'anyTileGlobal', multiplier: 1, desc: '对目标及其相邻地块造成范围空军伤害（溅射伤害为原本的一半），命中要塞单位时无视敌人25%的防御力。' }),
+    strafe: Object.freeze({ name: '扫射', icon: '✈️', cost: 4, range: AIRFIELD_BASE_RANGE, cooldown: 2, targeting: 'anyTileGlobal', multiplier: 1, desc: '对目标造成空军伤害（可对空地/空城施放，引爆非己方地雷/水雷）；目标已损失生命值的20%转化为额外攻击力，最多15点。' }),
+    bombing: Object.freeze({ name: '轰炸', icon: '💣', cost: 5, range: AIRFIELD_BASE_RANGE, cooldown: 2, targeting: 'anyTileGlobal', multiplier: 1, desc: '对目标及其相邻地块造成范围空军伤害（溅射伤害为原本的一半），命中要塞单位时无视敌人25%的防御力，并引爆范围内非己方地雷/水雷。' }),
     airdrop: Object.freeze({ name: '空降', icon: '🪂', cost: 10, range: AIRFIELD_BASE_RANGE, cooldown: 3, targeting: 'emptyTile', multiplier: 0, desc: '在空地或无驻军的破城投放一名步兵，可直接占城。' }),
     recon: Object.freeze({ name: '侦察机', icon: '🔭', cost: 4, range: AIRFIELD_BASE_RANGE, cooldown: 2, targeting: 'anyTileGlobal', multiplier: 0, desc: '侦察目标区域并驱散迷雾（半径1~2格，持续1~2回合）。' }),
-    stukaDiveBomb: Object.freeze({ name: '斯图卡俯冲射击', icon: '🦅', cost: 2, range: AIRFIELD_BASE_RANGE, cooldown: 0, targeting: 'enemyGlobal', multiplier: 0.45, cultureId: 'de', desc: '俯冲扫射指定单体目标并附加「火海」。' })
+    stukaDiveBomb: Object.freeze({ name: '斯图卡俯冲射击', icon: '🦅', cost: 2, range: AIRFIELD_BASE_RANGE, cooldown: 0, targeting: 'anyTileGlobal', multiplier: 0.45, cultureId: 'de', desc: '俯冲扫射指定目标并附加「火海」（可对空地/空城施放，引爆非己方地雷/水雷）。' })
 });
 
 export const AIRFIELD_BASE_POWER = 50;
@@ -108,11 +109,14 @@ export function isAirfieldGrounded(cityTile, state) {
 }
 
 export function canTargetWithSingleAirCommand(tile, camp, state, unitOnly = false) {
-    if (!tile) return false;
+    if (!isPlayableBoardTile(tile)) return false;
     const target = tile.unit;
     if (target) return target._campaignTargetable !== false && canAttack(state, camp, target.camp)
         && isUnitVisibleToCamp(target, camp, state);
-    return !unitOnly && (tile.isCity || tile.isUrban) && (Number(tile.hp) || 0) > 0 && canAttack(state, camp, tile.camp);
+    if (unitOnly) return false;
+    // 空地/空城均可作为扫射/斯图卡目标（便于试探或扫除埋伏的非己方地雷/水雷），仅禁止误击己方完整主城
+    if (tile.isCity && !canAttack(state, camp, tile.camp)) return false;
+    return true;
 }
 
 export function getAirCommandCost(kind, cityTile, state) {

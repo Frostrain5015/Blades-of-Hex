@@ -21,7 +21,7 @@ import { collectIncomeVillages } from '../rules/income.js';
 import { DRONE_RANGE, DRONE_SIGNAL_RANGE, deployDrone, isDroneInSignal, refreshDroneSignal, _findTianyanUnit } from '../commander/tianyan.js';
 import { collectSnareSources, snareLayersFromSources } from '../commander/staller.js';
 import { digEngineerTrench, digEngineerFlak, beginEngineerBunkerConstruction, completeEngineerBunkerConstructions } from '../commander/engineer.js';
-import { gameState, updateButtonColors, updateUI, logMessage, clearselection, serializeState, deserializeState, rebuildTileMap, notify, updateRecruitCostDisplay, showTargetingBanner, hideTargetingBanner, resetGameState, seedMatchRng } from './state.js';
+import { gameState, updateButtonColors, updateUI, logMessage, clearselection, serializeState, deserializeState, rebuildTileMap, notify, updateRecruitCostDisplay, showTargetingBanner, hideTargetingBanner, resetGameState, seedMatchRng, getViewingCamp } from './state.js';
 import { isNetworkGame, sendAction, getMyRole, syncCommanderState, leaveRoom, listRooms, isMyTurn, getMyRoomId, getMatchSeed } from './network.js';
 import { neutralDriverRole } from '../protocol/messages.js';
 import { stopCampaignRuntime } from './campaignController.js';
@@ -4430,7 +4430,7 @@ function _resolveGroundNavalSiegeDamage(attacker, targetTile) {
 }
 
 /** 轰炸命中无驻军的敌方/中立城市：结构照抄 _resolveAirCommandDamage；空城无城墙固定减伤，只剩防空覆盖。 */
-function _resolveCityBombingSiegeDamage(basePower, multiplier, targetTile, launcherTile, { antiAirBypassPct = 0 } = {}) {
+function _resolveCityBombingSiegeDamage(basePower, multiplier, targetTile, launcherTile, { antiAirBypassPct = 0, allowAntiAirPierce = true } = {}) {
     const colonel = getAirfieldColonel(launcherTile);
     const commanderAttackBonus = getMountedCommanderAirAttackBonus(launcherTile.unit, basePower);
     const campKey = _campKey(launcherTile.camp);
@@ -4445,7 +4445,7 @@ function _resolveCityBombingSiegeDamage(basePower, multiplier, targetTile, launc
         state: gameState,
         bypassPct: antiAirBypassPct
     });
-    if (colonel) antiAir = Math.max(0, antiAir - COLONEL_ANTI_AIR_PIERCE);
+    if (allowAntiAirPierce && colonel) antiAir = Math.max(0, antiAir - COLONEL_ANTI_AIR_PIERCE);
     const reduction = Math.min(COMBAT_BALANCE.defense.maximumReduction, antiAir);
     return {
         damage: Math.max(1, Math.round(power * multiplier
@@ -4686,7 +4686,7 @@ function _executeAirCommand(kind, launcherTile, targetTile, aiPhase) {
     let destroyedFortification = null;
     let strikeAntiAir = 0;
     if ((kind === 'strafe' || kind === 'stukaDiveBomb')
-        && !canTargetWithSingleAirCommand(targetTile, launcherTile.camp, gameState, kind === 'stukaDiveBomb')) return false;
+        && !canTargetWithSingleAirCommand(targetTile, launcherTile.camp, gameState)) return false;
     if (kind === 'strafe') {
         const target = targetTile.unit;
         if (target) {
@@ -4699,7 +4699,11 @@ function _executeAirCommand(kind, launcherTile, targetTile, aiPhase) {
             strikeAntiAir = Math.min(COMBAT_BALANCE.defense.maximumReduction, result.antiAir || 0);
             results.push({ q: targetTile.q, r: targetTile.r, damage: result.damage, killed: false, isCrit: result.isCrit, isCitySiege: true });
         } else {
-            return false;
+            const colonel = getAirfieldColonel(launcherTile);
+            let rawAntiAir = getAntiAirReduction(targetTile, launcherTile.camp, gameState.tileMap, { state: gameState });
+            if (colonel) rawAntiAir = Math.max(0, rawAntiAir - COLONEL_ANTI_AIR_PIERCE);
+            strikeAntiAir = Math.min(COMBAT_BALANCE.defense.maximumReduction, rawAntiAir || 0);
+            results.push({ q: targetTile.q, r: targetTile.r, damage: 0, killed: false, isCrit: false, isEmptyStrike: true });
         }
         // 复用上校扫射动画：战机俯冲 + 机炮扫射曳光弹（除烧牌部分外）
         playSound('airstrike');
@@ -4733,6 +4737,9 @@ function _executeAirCommand(kind, launcherTile, targetTile, aiPhase) {
                 results.push({ q: tile.q, r: tile.r, damage: result.damage, isCrit: result.isCrit, isCitySiege: true });
             }
         }
+        if (results.length === 0) {
+            results.push({ q: targetTile.q, r: targetTile.r, damage: 0, killed: false, isCrit: false, isEmptyStrike: true });
+        }
         strikeAntiAir = Math.min(COMBAT_BALANCE.defense.maximumReduction, maxRawAntiAir);
         const engineerProtectedAirfield = targetTile.isCity
             && targetTile.installation?.type === 'airfield'
@@ -4749,9 +4756,19 @@ function _executeAirCommand(kind, launcherTile, targetTile, aiPhase) {
         playSound('airstrike');
     } else if (kind === 'stukaDiveBomb') {
         const target = targetTile.unit;
-        const result = _resolveAirCommandDamage(AIRFIELD_BASE_POWER, config.multiplier, target, launcherTile, { allowAntiAirPierce: false });
-        strikeAntiAir = Math.min(COMBAT_BALANCE.defense.maximumReduction, result.antiAir || 0);
-        results.push({ q: targetTile.q, r: targetTile.r, unitId: target.id, damage: result.damage, killed: false, isCrit: result.isCrit, dodged: !!result.dodged });
+        if (target) {
+            const result = _resolveAirCommandDamage(AIRFIELD_BASE_POWER, config.multiplier, target, launcherTile, { allowAntiAirPierce: false });
+            strikeAntiAir = Math.min(COMBAT_BALANCE.defense.maximumReduction, result.antiAir || 0);
+            results.push({ q: targetTile.q, r: targetTile.r, unitId: target.id, damage: result.damage, killed: false, isCrit: result.isCrit, dodged: !!result.dodged });
+        } else if ((targetTile.isCity || targetTile.isUrban) && targetTile.hp > 0 && canAttack(gameState, launcherTile.camp, targetTile.camp)) {
+            const result = _resolveCityBombingSiegeDamage(AIRFIELD_BASE_POWER, config.multiplier, targetTile, launcherTile, { allowAntiAirPierce: false });
+            strikeAntiAir = Math.min(COMBAT_BALANCE.defense.maximumReduction, result.antiAir || 0);
+            results.push({ q: targetTile.q, r: targetTile.r, damage: result.damage, killed: false, isCrit: result.isCrit, isCitySiege: true });
+        } else {
+            const rawAntiAir = getAntiAirReduction(targetTile, launcherTile.camp, gameState.tileMap, { state: gameState });
+            strikeAntiAir = Math.min(COMBAT_BALANCE.defense.maximumReduction, rawAntiAir || 0);
+            results.push({ q: targetTile.q, r: targetTile.r, damage: 0, killed: false, isCrit: false, isEmptyStrike: true });
+        }
         playSound('airstrike');
         playStukaStrafe(targetTile, results, launcherTile.camp, { antiAir: strikeAntiAir });
     } else if (kind === 'airdrop') {
@@ -4791,6 +4808,7 @@ function _executeAirCommand(kind, launcherTile, targetTile, aiPhase) {
 
     const impactDelay = AIR_COMMAND_IMPACT_DELAY_MS[kind];
     const fireSeaCoords = [];
+    const detonatedMines = [];
     const startedAt = performance.now();
     const impactAt = startedAt + (impactDelay || 0);
     if (Number.isFinite(impactDelay)) {
@@ -4827,10 +4845,27 @@ function _executeAirCommand(kind, launcherTile, targetTile, aiPhase) {
                     hit.hpDamage = 0;
                 }
             }
+            // 轰炸（覆盖7格）、扫射、斯图卡命中时，引爆打击范围内所有非己方布设的地雷/水雷
+            const strikeTiles = kind === 'bombing'
+                ? getTargetingAreaTiles(gameState, targetTile)
+                : (kind === 'strafe' || kind === 'stukaDiveBomb')
+                    ? [targetTile]
+                    : [];
+            for (const tile of strikeTiles) {
+                if (!tile?._minePlanted || tile._mineCampKey === airCampKey) continue;
+                const mineType = tile._mineType || 'land';
+                detonatedMines.push({ q: tile.q, r: tile.r, mineType, mineCampKey: tile._mineCampKey || null });
+                tile._minePlanted = false;
+                tile._mineCampKey = null;
+                tile._mineType = null;
+                const mineName = mineType === 'water' ? '水雷' : '地雷';
+                logMessage(`💥 ${launcherTile.camp.name}【${config.name}】引爆了(${tile.q},${tile.r})的${mineName}！`);
+            }
+            if (detonatedMines.length > 0) invalidateBoard();
             const texts = buildAirCommandDamageTexts(results, gameState.tileMap, startedAt);
             for (const entry of texts) enqueueFloatText(entry);
         });
-        playAirCommandImpact(kind, results, gameState.tileMap, impactDelay);
+        playAirCommandImpact(kind, results, gameState.tileMap, impactDelay, { detonatedMines });
         if (gameState.skirmishFog) _updateSkirmishFogAll();
     }
 
@@ -4862,6 +4897,7 @@ function _executeAirCommand(kind, launcherTile, targetTile, aiPhase) {
         readyRound: launcherTile.installation?.airCommandReadyRound?.[kind] ?? 0,
         destroyedFortification,
         fireSeaCoords,
+        detonatedMines,
         eagleSynergyEvents: Number.isFinite(impactDelay) ? gameState._pendingEagleSynergyEvents.splice(0) : [],
         antiAir: strikeAntiAir,
         results
@@ -5830,10 +5866,15 @@ function _executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) {
         }
         case 'landmine': {
             const mineName = result.mineType === 'water' ? '水雷' : '地雷';
-            logMessage(`💣【${mineName}】${myCamp.name}在(${targetTile.q},${targetTile.r})完成布设`);
-            setTimeout(() => {
-                spawnCommanderSkillEffect(x, y, result.mineType === 'water' ? '⚓' : '💣', mineName);
-            }, BURN_MS);
+            const canSeeMine = gameState.omniscientView === true || campToKey(getViewingCamp()) === campKey;
+            logMessage(canSeeMine
+                ? `💣【${mineName}】${myCamp.name}在(${targetTile.q},${targetTile.r})完成布设`
+                : `💣 ${myCamp.name}使用了【${TACTICAL_CARD_CONFIG.landmine?.name || '地雷/水雷'}】`);
+            if (canSeeMine) {
+                setTimeout(() => {
+                    spawnCommanderSkillEffect(x, y, result.mineType === 'water' ? '⚓' : '💣', mineName);
+                }, BURN_MS);
+            }
             break;
         }
         case 'poison': {
@@ -5933,7 +5974,14 @@ function _executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) {
                 if (getCardMeta(cardId).noCopy) continue;
                 hand.push({ id: cardId, _copy: true });
                 logMessage(`纵横家【连横】：${gameState.factions?.[ck]?.name || ck}获得【${TACTICAL_CARD_CONFIG[cardId]?.name || cardId}】的复制`);
-                spawnCardCopyEffect(targetTile.x, targetTile.y, 500, 375, cardId);
+                const hideMineCopyOrigin = cardId === 'landmine'
+                    && gameState.omniscientView !== true
+                    && campToKey(getViewingCamp()) !== campKey;
+                spawnCardCopyEffect(
+                    hideMineCopyOrigin ? 500 : targetTile.x,
+                    hideMineCopyOrigin ? 375 : targetTile.y,
+                    500, 375, cardId
+                );
                 spawnCommanderSkillEffect(t.x, t.y, '✨', '连横');
                 break;
             }

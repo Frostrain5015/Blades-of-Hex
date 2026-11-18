@@ -151,7 +151,7 @@ function isBaseTargetingCandidate(gameState, cardTargeting, tile, myCamp, source
         const launcher = sources.launcherTile;
         if (!launcher || hexDistance(launcher, tile) > getAirCommandRange(launcher)) return false;
         if (cardId === 'air_command_strafe' || cardId === 'air_command_stukaDiveBomb') {
-            return canTargetWithSingleAirCommand(tile, myCamp, gameState, cardId === 'air_command_stukaDiveBomb');
+            return canTargetWithSingleAirCommand(tile, myCamp, gameState);
         }
         if (cardId === 'air_command_airdrop') {
             return canAirCommandAirdropAt(tile);

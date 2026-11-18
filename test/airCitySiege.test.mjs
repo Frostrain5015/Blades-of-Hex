@@ -11,7 +11,7 @@ const { Unit } = await import('../js/Unit.js');
 const { SURFACE_KIND } = await import('../rules/surfaces.js');
 const { AIR_COMMAND_CONFIG, AIRFIELD_BASE_POWER } = await import('../rules/airCommands.js');
 const { AIRSTRIKE_FLIGHT, AIRSTRIKE_TARGET_PROGRESS, isUnitWaitingForAirdrop, shouldRenderAirstrikeEngineFire } = await import('../rules/attackPresentation.js');
-const { airstrikeEffects } = await import('../js/effects.js');
+const { iconEffects, airstrikeEffects } = await import('../js/effects.js');
 const { buildBattlefieldSnapshot } = await import('../js/rendering/battlefieldSnapshot.js');
 const { resolveTargetingPreview } = await import('../rules/targeting.js');
 const gl = await import('../js/gameLogic.js');
@@ -135,7 +135,7 @@ test('机场扫射同步提交空城结构伤害，伤害浮字延迟至弹着',
     assert.ok(airfield.installation.airCommandReadyRound.strafe > 0, '扫射应进入冷却');
 });
 
-test('机场扫射指令拒绝以空地/己方城市为目标', () => {
+test('机场扫射可瞄准空地但仍拒绝己方城市', () => {
     const airfield = new HexTile(0, 0);
     airfield.isCity = true;
     airfield.camp = P1;
@@ -150,9 +150,10 @@ test('机场扫射指令拒绝以空地/己方城市为目标', () => {
     ownCity.maxHp = 300;
     setupMatch([airfield, emptyPlain, ownCity]);
 
-    assert.equal(gl.executeAirCommand('strafe', airfield, emptyPlain), false, '空地不是合法扫射目标');
     assert.equal(gl.executeAirCommand('strafe', airfield, ownCity), false, '己方城市不是合法扫射目标');
     assert.equal(gameState.playerGold.player1, 100, '被拒绝的指令不应扣费');
+    assert.equal(gl.executeAirCommand('strafe', airfield, emptyPlain), true, '空地可作为合法扫射目标');
+    assert.equal(gameState.playerGold.player1, 100 - AIR_COMMAND_CONFIG.strafe.cost);
 });
 
 test('机场击杀保留阵营归因和动作 ID，随后进城保留轴坐标路线', () => {
@@ -412,4 +413,107 @@ test('航母与制海巡洋舰额外齐射接入 _resolveDamage 标准管线', (
     const salvo = cruiser.calculateDamage(enemyShip, 0, { baseMulti: 0.5, showDamageText: false });
     const full = cruiser.calculateDamage(enemyShip, 0, { baseMulti: 1, showDamageText: false });
     assert.ok(salvo.dmg > 0 && salvo.dmg < full.dmg, '制海巡洋舰半倍齐射应完整通过四乘区 _resolveDamage 管线'); gameState.rng = prevRng;
+});
+
+test('扫射、斯图卡、轰炸可对空地/空城施放并引爆非己方地雷与水雷，轰炸一次清扫7格雷区', () => {
+    const airfield = enemyCityTile(0, 0);
+    airfield.camp = P1;
+    airfield.installation = { type: 'airfield', status: 'ready' };
+
+    const enemyLandMine = new HexTile(2, 0);
+    enemyLandMine._minePlanted = true;
+    enemyLandMine._mineCampKey = 'player2';
+    enemyLandMine._mineType = 'land';
+
+    const breachedCityWaterMine = enemyCityTile(3, 0, 0);
+    breachedCityWaterMine.surface = SURFACE_KIND.WATER;
+    breachedCityWaterMine._minePlanted = true;
+    breachedCityWaterMine._mineCampKey = 'player2';
+    breachedCityWaterMine._mineType = 'water';
+
+    const bombCenter = new HexTile(5, 0);
+    bombCenter._minePlanted = true;
+    bombCenter._mineCampKey = 'player2';
+    bombCenter._mineType = 'land';
+
+    const bombNeighborEnemySea = waterTile(6, 0);
+    bombNeighborEnemySea._minePlanted = true;
+    bombNeighborEnemySea._mineCampKey = 'player2';
+    bombNeighborEnemySea._mineType = 'water';
+
+    const bombNeighborFriendlyMine = new HexTile(5, -1);
+    bombNeighborFriendlyMine._minePlanted = true;
+    bombNeighborFriendlyMine._mineCampKey = 'player1';
+    bombNeighborFriendlyMine._mineType = 'land';
+
+    setupMatch([airfield, enemyLandMine, breachedCityWaterMine, bombCenter, bombNeighborEnemySea, bombNeighborFriendlyMine]);
+    const previousMode = gameState.factionRuleMode;
+    P1.flagPreset = 'img/flags/germany-iron-cross.svg';
+    gameState.factionRuleMode = 'culture';
+    try {
+        startMatchRecording(gameState);
+        assert.equal(gl.executeAirCommand('strafe', airfield, enemyLandMine), true, '扫射空地应成功');
+        assert.equal(enemyLandMine._minePlanted, false, '扫射应引爆非己方地雷');
+        assert.equal(enemyLandMine._mineCampKey, null);
+
+        assert.equal(gl.executeAirCommand('stukaDiveBomb', airfield, breachedCityWaterMine), true, '斯图卡应可瞄准空破城施放');
+        assert.equal(breachedCityWaterMine._minePlanted, false, '斯图卡应引爆非己方水雷');
+
+        assert.equal(gl.executeAirCommand('bombing', airfield, bombCenter), true, '轰炸空地应成功');
+        assert.equal(bombCenter._minePlanted, false, '轰炸应引爆中心非己方地雷');
+        assert.equal(bombNeighborEnemySea._minePlanted, false, '轰炸应一并引爆相邻6格内的非己方水雷');
+        assert.equal(bombNeighborFriendlyMine._minePlanted, true, '轰炸不得误爆己方地雷');
+
+        const log = getCurrentMatchLog();
+        const airActions = log.timeline.filter(e => e.kind === 'action' && e.actionType === 'airCommand');
+        assert.equal(airActions[0].payload.detonatedMines.length, 1);
+        assert.equal(airActions[1].payload.detonatedMines[0].mineType, 'water');
+        assert.equal(airActions[2].payload.detonatedMines.length, 2);
+    } finally {
+        delete P1.flagPreset;
+        gameState.factionRuleMode = previousMode;
+    }
+});
+
+test('地雷/水雷部署时非己方视角看不到部署位置动画与坐标日志', async () => {
+    const city1 = enemyCityTile(0, 0);
+    city1.camp = P1;
+    const landTile = new HexTile(1, 0);
+    landTile.camp = P2;
+    const ownTile = new HexTile(-1, 0);
+    ownTile.camp = P1;
+    setupMatch([city1, landTile, ownTile]);
+    gameState.gameMode = 'pve';
+    gameState.aiOpponentCamp = P2;
+    P1.controller = 'human';
+    P2.controller = 'ai';
+    gameState.omniscientView = false;
+    gameState.logHistory = [];
+    iconEffects.length = 0;
+
+    // P2 AI 在己方地格布雷：人类视角（P1）不得看到布雷特效或坐标日志
+    gameState.currentCamp = P2;
+    gameState.playerHands.player2 = [{ id: 'landmine' }];
+    gameState.playerUsesThisTurn = { player1: 0, player2: 0 };
+    gameState.cardDiscardPile = [];
+    gameState.cardTargeting = { cardId: 'landmine', targeting: 'emptyFriendlyLandmine', handIndex: 0 };
+    gl.executeTacticalCard('landmine', landTile);
+    assert.equal(landTile._minePlanted, true);
+    await sleep(1700);
+    assert.equal(iconEffects.some(fx => fx.x === landTile.x && fx.y === landTile.y && (fx.label === '地雷' || fx.label === '水雷')), false,
+        'AI 布雷时人类视角不得出现地块定位动画');
+    assert.equal(gameState.logHistory.some(entry => entry.includes(`(${landTile.q},${landTile.r})`)), false,
+        'AI 布雷时日志不得泄漏坐标');
+
+    // P1 人类己方布雷：自己视角正常显示布雷动画与坐标日志
+    gameState.currentCamp = P1;
+    gameState.playerHands.player1 = [{ id: 'landmine' }];
+    gameState.cardTargeting = { cardId: 'landmine', targeting: 'emptyFriendlyLandmine', handIndex: 0 };
+    gl.executeTacticalCard('landmine', ownTile);
+    assert.equal(ownTile._minePlanted, true);
+    await sleep(1700);
+    assert.equal(iconEffects.some(fx => fx.x === ownTile.x && fx.y === ownTile.y && fx.label === '地雷'), true,
+        '己方布雷时己方视角应正常显示部署动画');
+    assert.equal(gameState.logHistory.some(entry => entry.includes(`(${ownTile.q},${ownTile.r})`)), true,
+        '己方布雷日志应包含坐标');
 });

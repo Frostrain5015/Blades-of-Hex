@@ -53,7 +53,7 @@ import { isMechanicEnabled } from '../rules/mechanics.js';
 import { campToKey, getFlagColors } from '../rules/camps.js';
 import { hexDistance } from '../rules/hex.js';
 import { getViewingCamp } from './state.js';
-import { getRoleCamp } from '../rules/diplomacy.js';
+import { canAttack, getRoleCamp } from '../rules/diplomacy.js';
 import { drawFxLayer, updateFxFns } from './fxRegistry.js';
 import { drawBattlefieldFlags } from './flagRenderer.js';
 import { drawUnitBadgeAboveFog, drawUnitFlagFinial, getUnitVisualPos, UNIT_BADGE_RADIUS, UNIT_HUD_OUTER_RADIUS } from './unitRenderer.js';
@@ -2287,20 +2287,55 @@ function _getTargetingBoardClipShapes(playableOnly = false) {
         .map(tile => _hexScreenShape(tile, playableOnly ? HEX_SIZE : HEX_SIZE * 1.01));
 }
 
-function _getResolvedTargetingPreview(myCamp) {
+function _getTargetingPreviewSession(myCamp) {
     const cardTargeting = gameState.cardTargeting;
     const campKey = campToKey(myCamp);
+    const tileCount = gameState.tiles?.length || 0;
+    const boardLayout = gameState.boardLayout;
     if (_targetingPreviewCache?.cardTargeting === cardTargeting
-        && _targetingPreviewCache.campKey === campKey) {
-        return _targetingPreviewCache.preview;
+        && _targetingPreviewCache.campKey === campKey
+        && _targetingPreviewCache.tileCount === tileCount
+        && _targetingPreviewCache.boardLayout === boardLayout) {
+        return _targetingPreviewCache;
     }
     const preview = resolveTargetingPreview(gameState, cardTargeting, {
         myCamp,
         hoveredTile: null,
         isTileVisible
     });
-    _targetingPreviewCache = { cardTargeting, campKey, preview };
-    return preview;
+    const boardClipShapes = _getTargetingBoardClipShapes(!!preview.air);
+    let airRangeContours = null;
+    if (preview.air?.rangeTileKeys?.size) {
+        const rangeCells = [...preview.air.rangeTileKeys]
+            .map(key => gameState.tileMap.get(key))
+            .filter(isPlayableBoardTile)
+            .map(tile => ({ q: tile.q, r: tile.r, center: tile }));
+        airRangeContours = buildHexRegionContours(rangeCells, HEX_SIZE);
+    }
+    let aaBaseCells = null;
+    let aaContours = null;
+    if (preview.air?.aaLayersByTileKey) {
+        aaBaseCells = [...preview.air.aaLayersByTileKey.entries()]
+            .map(([key, level]) => {
+                const tile = gameState.tileMap.get(key);
+                if (!tile) return null;
+                return { tile, ..._hexScreenShape(tile, HEX_SIZE), q: tile.q, r: tile.r, level };
+            })
+            .filter(Boolean);
+        aaContours = buildHexRegionContours(aaBaseCells, HEX_SIZE);
+    }
+    _targetingPreviewCache = {
+        cardTargeting,
+        campKey,
+        tileCount,
+        boardLayout,
+        preview,
+        boardClipShapes,
+        airRangeContours,
+        aaBaseCells,
+        aaContours
+    };
+    return _targetingPreviewCache;
 }
 
 function _targetingUnitKind(preview) {
@@ -2340,7 +2375,11 @@ function _signalRangeRegionOptions(now, alpha = 1) {
     };
 }
 
-function _drawAirRange(keys, now, alpha = 1) {
+function _drawAirRange(keys, now, alpha = 1, cachedContours = null) {
+    if (Array.isArray(cachedContours)) {
+        strokeHexRegionContours(ctx, cachedContours, _signalRangeRegionOptions(now, alpha));
+        return;
+    }
     const cells = [...keys].map(key => gameState.tileMap.get(key))
         .filter(isPlayableBoardTile)
         .map(tile => ({ q: tile.q, r: tile.r, center: tile }));
@@ -2434,13 +2473,14 @@ function drawCardTargetingPreview(now) {
     const cardTargeting = gameState.cardTargeting;
     if (!cardTargeting) return;
     const myCamp = isNetworkGame() ? getRoleCamp(gameState, getMyRole()) : gameState.currentCamp;
-    const preview = _getResolvedTargetingPreview(myCamp);
+    const session = _getTargetingPreviewSession(myCamp);
+    const preview = session.preview;
     const hovered = gameState.hoveredTile;
     const hoveredKey = targetingTileKey(hovered);
     const activeKey = hoveredKey && isPlayableBoardTile(hovered)
         && preview.candidateTileKeys.has(hoveredKey) ? hoveredKey : null;
     const time = now / 1000;
-    const boardClip = { shapes: _getTargetingBoardClipShapes(!!preview.air) };
+    const boardClip = { shapes: session.boardClipShapes };
     const colonelUnit = preview.air?.colonelOriginUnitId
         ? gameState.tiles.find(tile => tile.unit?.id === preview.air.colonelOriginUnitId)?.unit
         : null;
@@ -2453,12 +2493,11 @@ function drawCardTargetingPreview(now) {
     const scene = {
         boardClip,
         antiAir: preview.air ? {
-            cells: [...preview.air.aaLayersByTileKey.entries()].map(([key, level]) => {
-                const tile = gameState.tileMap.get(key);
-                if (!tile) return null;
-                const entry = _targetEntry(entryOriginTile, tile, now, entryStart);
-                return { ..._hexScreenShape(tile, HEX_SIZE), q: tile.q, r: tile.r, level, alpha: entry.alpha };
-            }).filter(Boolean),
+            cells: (session.aaBaseCells || []).map(cell => ({
+                ...cell,
+                alpha: _targetEntry(entryOriginTile, cell.tile, now, entryStart).alpha
+            })),
+            contours: session.aaContours,
             size: HEX_SIZE,
             alpha: 0.96 * groupEntry.alpha,
             time
@@ -2469,11 +2508,58 @@ function drawCardTargetingPreview(now) {
         unitTargets: []
     };
 
+    const isAirSingleStrike = preview.cardId === 'air_command_strafe' || preview.cardId === 'air_command_stukaDiveBomb';
+    const isAirAreaOrRecon = preview.cardId === 'air_command_bombing'
+        || preview.cardId === 'air_command_recon'
+        || preview.cardId === 'scout';
+
     for (const tile of preview.candidateTiles) {
         const key = targetingTileKey(tile);
         const active = key === activeKey;
         const phase = tile.q * 0.43 + tile.r * 0.29;
         const entry = _targetEntry(entryOriginTile, tile, now, entryStart);
+        if (isAirSingleStrike) {
+            if (tile.unit) {
+                scene.unitTargets.push({
+                    center: getUnitVisualPos(tile.unit),
+                    size: UNIT_HUD_OUTER_RADIUS * 1.72 * entry.scale,
+                    kind: _targetingUnitKind(preview),
+                    active,
+                    time,
+                    phase,
+                    alpha: entry.alpha
+                });
+            } else if (active || ((tile.isCity || tile.isUrban) && canAttack(gameState, myCamp, tile.camp))) {
+                scene.areaCenters.push({
+                    center: { x: tile.x, y: tile.y },
+                    size: HEX_SIZE * entry.scale,
+                    active,
+                    time,
+                    phase,
+                    color: '#e95b50',
+                    alpha: entry.alpha
+                });
+            }
+            continue;
+        }
+        if (isAirAreaOrRecon) {
+            // 轰炸/侦察的合法航程边界已由外部轮廓标识，画布内只高亮实际可打击目标与当前悬停中心，
+            // 避免全图 150+ 空地同时绘制准星导致帧率下降。
+            const isPriorityTarget = (tile.unit && canAttack(gameState, myCamp, tile.camp))
+                || ((tile.isCity || tile.isUrban) && canAttack(gameState, myCamp, tile.camp));
+            if (active || isPriorityTarget) {
+                scene.areaCenters.push({
+                    center: { x: tile.x, y: tile.y },
+                    size: HEX_SIZE * entry.scale,
+                    active,
+                    time,
+                    phase,
+                    color: (preview.cardId === 'scout' || preview.cardId === 'air_command_recon') ? '#9ad8ff' : '#e95b50',
+                    alpha: entry.alpha
+                });
+            }
+            continue;
+        }
         if (preview.shape === TARGET_SHAPES.UNIT && tile.unit) {
             scene.unitTargets.push({
                 center: getUnitVisualPos(tile.unit),
@@ -2587,7 +2673,7 @@ function drawCardTargetingPreview(now) {
     }
 
     if (preview.air?.rangeTileKeys.size) {
-        _drawAirRange(preview.air.rangeTileKeys, now, groupEntry.alpha);
+        _drawAirRange(preview.air.rangeTileKeys, now, groupEntry.alpha, session.airRangeContours);
     }
 
     _drawAirliftDestinationLink(preview, hovered);

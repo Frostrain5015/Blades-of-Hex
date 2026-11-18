@@ -135,4 +135,26 @@ for (const kind of TARGETING_PREVIEW_KINDS) {
     assert.equal(ctx.globalAlpha, 1, 'renderer should restore the caller context state');
 }
 
+{
+    const ctx = createContext();
+    const cells = [];
+    const tileDeployments = [];
+    const areaCenters = [];
+    for (let i = 0; i < 40; i++) {
+        const c = { x: 100 + i * 10, y: 100 };
+        cells.push({ center: c, size: 30, q: i, r: 0, level: 1 });
+        tileDeployments.push({ center: c, size: 30, active: i === 0, alpha: 1 });
+        areaCenters.push({ center: c, size: 30, active: i === 0, alpha: 1 });
+    }
+    const contours = buildHexRegionContours(cells, 30);
+    const drawn = renderTargetingPreview(ctx, freeze({
+        antiAir: { cells, contours, time: 1 },
+        tileDeployments,
+        areaCenters
+    }));
+    assert.equal(drawn, 120);
+    const strokes = ctx.calls.filter(call => call[0] === 'stroke').length;
+    assert.ok(strokes < 25, `Batched inactive tiles/centers should stay compact (got ${strokes} strokes for 80 targets)`);
+}
+
 console.log('targetingPreviewRenderer: ok');

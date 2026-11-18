@@ -601,7 +601,7 @@ test('德国文化：斯图卡无冷却、机场费用降低30%、火海附着�
     assert.equal(AIR_COMMAND_CONFIG.stukaDiveBomb.cooldown, 0);
     assert.equal(AIR_COMMAND_CONFIG.stukaDiveBomb.cultureId, 'de');
     assert.equal(CULTURE_CONFIG.de.tier2.summary.includes('机场建造费用降低30%'), true);
-    assert.equal(AIR_COMMAND_CONFIG.stukaDiveBomb.desc, '俯冲扫射指定单体目标并附加「火海」。');
+    assert.equal(AIR_COMMAND_CONFIG.stukaDiveBomb.desc, '俯冲扫射指定目标并附加「火海」（可对空地/空城施放，引爆非己方地雷/水雷）。');
 
     // Tier 2: 机场建造费用降低30%（10 -> 7金，建设规则联动）
     assert.equal(getCulturalAirfieldCost(10, state, de), 7);

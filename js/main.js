@@ -3576,7 +3576,7 @@ async function handleRemoteAction(msg) {
     _maybeResumeNetworkAiTurn();
 }
 
-function _playActionPresentation(actionType, e, { katyushaStartedAt = undefined, heavyVolleys = [], applyCardSideEffects = true } = {}) {
+function _playActionPresentation(actionType, e, { katyushaStartedAt = undefined, heavyVolleys = [], applyCardSideEffects = true, actorCampKey = null } = {}) {
     // 法式重炮回合初齐射的浮字已随快照后的弹道同时入队。
     if (e?.floatTexts && heavyVolleys.length === 0) {
         replayFloatTexts(e.floatTexts, { startedAt: katyushaStartedAt });
@@ -3917,7 +3917,14 @@ function _playActionPresentation(actionType, e, { katyushaStartedAt = undefined,
                             break;
                         }
                         case 'landmine':
-                            // 地雷位置不能暴露给对手；爆炸由 mineTrigger 在 move 中广播
+                            // 非己方视角不能暴露地雷布设位置；仅在录像回放的己方/全知视角显示布设标记
+                            if (gameState._replayMode && Number.isFinite(e.x) && Number.isFinite(e.y)) {
+                                const viewerKey = campToKey(getViewingCamp());
+                                if (gameState.omniscientView === true || (actorCampKey && viewerKey === actorCampKey)) {
+                                    const mineName = e.mineType === 'water' ? '水雷' : '地雷';
+                                    spawnCommanderSkillEffect(e.x, e.y, e.mineType === 'water' ? '⚓' : '💣', mineName);
+                                }
+                            }
                             break;
                         case 'scout': {
                             // 侦察揭示数据已通过 state 同步（scoutReveals + visibleTiles）
@@ -4262,7 +4269,10 @@ function _playActionPresentation(actionType, e, { katyushaStartedAt = undefined,
             }
             const impactDelay = AIR_COMMAND_IMPACT_DELAY_MS[e.kind];
             if (Number.isFinite(impactDelay)) {
-                playAirCommandImpact(e.kind, e.results || [], gameState.tileMap, impactDelay, { showDodges: true });
+                playAirCommandImpact(e.kind, e.results || [], gameState.tileMap, impactDelay, {
+                    showDodges: true,
+                    detonatedMines: e.detonatedMines || []
+                });
                 for (const event of e.eagleSynergyEvents || []) emit('fx:eagleSynergy', event);
             }
             break;
@@ -4477,7 +4487,8 @@ function startMatchReplay(log) {
                     && (effects?.attackerType === 'ru_katyusha' || effects?.counterType === 'ru_katyusha');
                 _playActionPresentation(step.actionType, effects, {
                     katyushaStartedAt: isKatyushaStep ? performance.now() : undefined,
-                    applyCardSideEffects: false
+                    applyCardSideEffects: false,
+                    actorCampKey: step.actorCampKey || null
                 });
             },
             onAfterStep: () => {
