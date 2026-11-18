@@ -410,7 +410,12 @@ export function createClientUiState() {
         inspectionTarget: null,
         // 联机：本地已确认但尚未被服务端快照收录的投降（revision 竞争时由 reconcile 重放）
         _localSurrenderPendingKey: null,
-        _localSurrenderRetries: 0
+        _localSurrenderRetries: 0,
+        // 录像回放状态（纯本地观战控制）
+        _replayMode: false,
+        _replayPaused: false,
+        _replayFinished: false,
+        _replayViewCampKey: null
     };
 }
 
@@ -452,6 +457,10 @@ export function resetClientUiState(ui) {
     ui.inspectionTarget = null;
     ui._localSurrenderPendingKey = null;
     ui._localSurrenderRetries = 0;
+    ui._replayMode = false;
+    ui._replayPaused = false;
+    ui._replayFinished = false;
+    ui._replayViewCampKey = null;
 }
 
 // ===== 序列化 / 快照（联机同步 + 断线重连用） =====================

@@ -1322,3 +1322,12 @@ export function buildMatchStatsDocument(document) {
     if (document.schema === 'blades-of-hex.match-log') return buildMatchStats(document);
     return null;
 }
+
+export function isReplayableMatchLog(log) {
+    return Boolean(
+        log
+        && log.schema === 'blades-of-hex.match-log'
+        && log.initialState
+        && Array.isArray(log.timeline)
+    );
+}

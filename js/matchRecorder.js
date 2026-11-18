@@ -11,6 +11,7 @@ import { campToKey } from '../rules/camps.js';
 import { getRound } from '../rules/turns.js';
 import { buildMatchStats, computeUnitMvpScore } from './matchStats.js';
 import { resolveAiDifficultyProfile } from '../ai/difficulty.js';
+import { serializeMatchState } from '../engine/matchState.js';
 
 export const MATCH_LOG_SCHEMA = 'blades-of-hex.match-log';
 export const MATCH_LOG_SCHEMA_VERSION = 1;
@@ -104,7 +105,15 @@ function compactUnit(unit, tile) {
         faith: Number(unit._faith || 0),
         smiteReady: unit._smiteReady === true,
         smiteCharged: unit._smiteCharged === true,
-        healingAura: Number(unit._healingAura || 0)
+        healingAura: Number(unit._healingAura || 0),
+        fireSea: Number(unit.fireSea || 0),
+        poisonTurns: Number(unit._poison?.turns || 0),
+        isNewRecruit: unit.isNewRecruit === true,
+        displaySpeed: Number(unit.displaySpeed ?? unit.config?.speed ?? 0),
+        followsCity: unit._followsCity ? { q: unit._followsCity.q, r: unit._followsCity.r } : null,
+        guerrillaHiddenThroughRound: unit._guerrillaHiddenThroughRound ?? null,
+        banzaiReadyRound: Number(unit._banzaiReadyRound || 0),
+        constructionScaffold: unit._constructionScaffold ? { ...unit._constructionScaffold } : null
     };
 }
 
@@ -132,10 +141,22 @@ function compactSite(tile) {
 function captureState(state) {
     const units = {};
     const sites = {};
+    const fortifications = {};
     for (const tile of state.tiles || []) {
         if (tile.unit) units[tile.unit.id] = compactUnit(tile.unit, tile);
         const site = compactSite(tile);
         if (site) sites[site.key] = site;
+        if (tile.fortification || tile._minePlanted) {
+            fortifications[`${tile.q},${tile.r}`] = {
+                q: tile.q, r: tile.r,
+                type: tile.fieldFortification?.type || tile.fortification || null,
+                campKey: tile.fieldFortification?.campKey || null,
+                ownerKnown: tile.fieldFortification?.ownerKnown === true,
+                mine: !!tile._minePlanted,
+                mineCampKey: tile._mineCampKey || null,
+                mineType: tile._mineType || null
+            };
+        }
     }
     const camps = {};
     for (const [campKey, faction] of Object.entries(state.factions || {})) {
@@ -159,9 +180,12 @@ function captureState(state) {
     return {
         units,
         sites,
+        fortifications,
         camps,
         visibleByCamp,
         weather: state.weather || 'clear',
+        riverGate: state.riverGate ? { ...state.riverGate } : null,
+        colonelAirStacks: state._colonelAirStacks ? { ...state._colonelAirStacks } : null,
         currentCampKey: keyOfCamp(state.currentCamp),
         turnCounter: Number(state.turnCounter || 0),
         round: getRound(state),
@@ -215,7 +239,7 @@ function hasChanged(left, right, fields) {
 function diffStates(before, after) {
     const result = {
         unitsAdded: [], unitsRemoved: [], unitsMoved: [], unitHp: [], unitState: [],
-        sitesChanged: [], resources: [], global: []
+        sitesChanged: [], fortificationsChanged: [], resources: [], global: []
     };
     for (const [id, unit] of Object.entries(after.units)) {
         const old = before.units[id];
@@ -233,13 +257,16 @@ function diffStates(before, after) {
             'campKey', 'shield', 'shieldTurns', 'morale', 'canAct', 'remainingMP',
             'rank', 'specializationKey', 'commanderId', 'isCommanderUnit', 'embarked',
             'activeSkillCD', 'activeSkillDur', 'berserkerQixue', 'faith',
-            'smiteReady', 'smiteCharged', 'healingAura'
+            'smiteReady', 'smiteCharged', 'healingAura', 'maxHp', 'fireSea', 'poisonTurns',
+            'isNewRecruit', 'displaySpeed', 'guerrillaHiddenThroughRound', 'banzaiReadyRound'
         ];
-        if (hasChanged(old, unit, stateFields)) {
+        const scaffoldChanged = JSON.stringify(old.constructionScaffold || null) !== JSON.stringify(unit.constructionScaffold || null);
+        if (hasChanged(old, unit, stateFields) || scaffoldChanged) {
             const changes = {};
             for (const field of stateFields) {
                 if (old[field] !== unit[field]) changes[field] = { before: old[field], after: unit[field] };
             }
+            if (scaffoldChanged) changes.constructionScaffold = { before: old.constructionScaffold || null, after: unit.constructionScaffold || null };
             result.unitState.push({ unitId: id, changes });
         }
     }
@@ -257,6 +284,14 @@ function diffStates(before, after) {
         }
         result.sitesChanged.push({ site: key, changes });
     }
+    for (const coord of new Set([...Object.keys(before.fortifications || {}), ...Object.keys(after.fortifications || {})])) {
+        const oldFort = before.fortifications?.[coord] || null;
+        const nextFort = after.fortifications?.[coord] || null;
+        if (JSON.stringify(oldFort) !== JSON.stringify(nextFort)) {
+            const sample = nextFort || oldFort;
+            result.fortificationsChanged.push({ q: sample.q, r: sample.r, before: oldFort, after: nextFort });
+        }
+    }
     for (const campKey of new Set([...Object.keys(before.camps), ...Object.keys(after.camps)])) {
         const old = before.camps[campKey] || {};
         const next = after.camps[campKey] || {};
@@ -265,10 +300,18 @@ function diffStates(before, after) {
         for (const field of fields) {
             if (old[field] !== next[field]) changes[field] = { before: old[field], after: next[field] };
         }
+        if (JSON.stringify(old.cards || []) !== JSON.stringify(next.cards || [])) {
+            changes.cards = { before: [...(old.cards || [])], after: [...(next.cards || [])] };
+        }
         if (Object.keys(changes).length) result.resources.push({ campKey, changes });
     }
     for (const field of ['weather', 'currentCampKey', 'turnCounter', 'round', 'gameOver', 'victoryCampKey']) {
         if (before[field] !== after[field]) result.global.push({ field, before: before[field], after: after[field] });
+    }
+    for (const field of ['riverGate', 'colonelAirStacks']) {
+        if (JSON.stringify(before[field] || null) !== JSON.stringify(after[field] || null)) {
+            result.global.push({ field, before: before[field] || null, after: after[field] || null });
+        }
     }
     for (const key of Object.keys(result)) if (Array.isArray(result[key]) && result[key].length === 0) delete result[key];
     return result;
@@ -432,7 +475,12 @@ function ensureRecording(state, metadata = {}) {
 }
 
 export function startMatchRecording(state, metadata = {}) {
+    if (state?._replayMode) return null;
     const snapshot = captureState(state);
+    let replaySnapshot = null;
+    if (state?.rng && Array.isArray(state?.ports) && state?.villageTiles && Array.isArray(state?.tiles) && state.tiles.length > 0) {
+        try { replaySnapshot = serializeMatchState(state); } catch (_) { replaySnapshot = null; }
+    }
     const aiCampKeys = Object.entries(state.factions || {})
         .filter(([campKey, faction]) => campKey !== 'neutral' && faction?.controller === 'ai')
         .map(([campKey]) => campKey);
@@ -501,7 +549,8 @@ export function startMatchRecording(state, metadata = {}) {
                 sites: Object.values(snapshot.sites),
                 resources: snapshot.camps,
                 weather: snapshot.weather,
-                firstCampKey: snapshot.currentCampKey
+                firstCampKey: snapshot.currentCampKey,
+                ...(replaySnapshot ? { replaySnapshot } : {})
             },
             timeline: [],
             finalState: null,
@@ -527,11 +576,13 @@ export function recordCommittedAction(state, {
     originRole = null,
     accepted = null
 } = {}) {
+    if (state?._replayMode) return null;
     const session = ensureRecording(state);
     const after = captureState(state);
     const actorKey = actorCampKey || (actionType === 'endTurn' ? session.lastSnapshot.currentCampKey : keyOfCamp(state.currentCamp));
     const changes = diffStates(session.lastSnapshot, after);
     const messages = newMessages(session.lastLogs, state.logHistory || []);
+    const floatTexts = Array.isArray(state?._pendingFloatTexts) && state._pendingFloatTexts.length > 0 ? sanitize(state._pendingFloatTexts) : null;
     const item = {
         kind: 'action',
         actionId: `${session.log.matchId}:a${session.log.timeline.filter(entry => entry.kind === 'action').length + 1}`,
@@ -550,7 +601,8 @@ export function recordCommittedAction(state, {
         outcome: {
             changed: Object.keys(changes).length > 0,
             changes,
-            engineMessages: messages
+            engineMessages: messages,
+            ...(floatTexts ? { floatTexts } : {})
         }
     };
     session.log.timeline.push(item);
@@ -583,7 +635,7 @@ export function resolvePendingLocalAction(actionType, accepted, details = {}) {
 }
 
 export function recordMatchEvent(state, eventType, payload = {}) {
-    if (!active) return null;
+    if (!active || state?._replayMode) return null;
     const item = {
         kind: 'event',
         sequence: active.log.timeline.length + 1,
@@ -666,6 +718,7 @@ function inferResultReason(state) {
 }
 
 export function finalizeMatchRecording(state, details = {}) {
+    if (state?._replayMode) return null;
     const session = ensureRecording(state);
     if (session.log.complete) {
         if (details.winnerCampKey !== undefined) session.log.result.winnerCampKey = details.winnerCampKey;

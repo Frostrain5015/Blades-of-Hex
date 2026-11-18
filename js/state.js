@@ -136,6 +136,9 @@ function _campKeyStr(camp) {
 
 // 返回当前客户端应使用的观察阵营（遭遇战/多人模式迷雾渲染用）
 export function getViewingCamp() {
+    if (gameState._replayMode && gameState._replayViewCampKey) {
+        return campFromKey(gameState._replayViewCampKey, gameState) || gameState.currentCamp;
+    }
     if (gameState.campaignMode && gameState.localPlayerCampKey) return campFromKey(gameState.localPlayerCampKey, gameState);
     if (isNetworkGame()) {
         const camp = getRoleCamp(gameState, getMyRole()) || gameState.currentCamp;
@@ -155,7 +158,9 @@ export function getViewingCamp() {
 // ===== UI 更新 =====================
 export function updateButtonColors() {
     const myCamp = _getMyCamp();
-    const displayCamp = isNetworkGame() ? myCamp : (gameState.gameMode === 'pve' ? _getHumanCamp() : gameState.currentCamp);
+    const displayCamp = gameState._replayMode
+        ? gameState.currentCamp
+        : (isNetworkGame() ? myCamp : (gameState.gameMode === 'pve' ? _getHumanCamp() : gameState.currentCamp));
     const campKey = campToKey(displayCamp);
     const panel = document.getElementById('commandPanel');
     if (panel) {
@@ -265,7 +270,7 @@ export function updateRecruitButtonStates() {
     const inCommanderSetup = gameState.commanderPhase === 'selection';
     const recruitmentDisabled = !isMechanicEnabled(gameState, 'recruitment')
         || gameState.currentCamp?.canRecruit === false;
-    if (opponentTurn || isNeutralTurn || isCampaignAiTurn || isSkirmishAiTurn
+    if (gameState._replayMode || opponentTurn || isNeutralTurn || isCampaignAiTurn || isSkirmishAiTurn
         || gameState.gameOver || inCommanderSetup || recruitmentDisabled) {
         for (const btn of Object.values(btns)) {
             if (btn) { btn.disabled = true; btn.classList.remove('available'); }
@@ -444,54 +449,73 @@ export function updateUI() {
     const isAIOpponentTurn = isCampaignAiTurn || isLocalControllerAiTurn
         || (gameState.gameMode === 'pve' && gameState.currentCamp === gameState.aiOpponentCamp);
     const inCommanderSetup = gameState.commanderPhase === 'selection';
-    const disableBtns = opponentTurn || isNeutralTurn || isAIOpponentTurn || gameState.gameOver || inCommanderSetup;
+    const isReplay = gameState._replayMode === true;
+    const disableBtns = isReplay || opponentTurn || isNeutralTurn || isAIOpponentTurn || gameState.gameOver || inCommanderSetup;
     ['endTurnBtn', ...RECRUITMENT_OPTIONS.map(option => option.buttonId)].forEach(id => {
         const btn = document.getElementById(id);
-        if (btn) btn.disabled = disableBtns || (id.startsWith('recruit') && !isMechanicEnabled(gameState, 'recruitment'));
+        if (!btn) return;
+        if (id === 'endTurnBtn' && isReplay) {
+            btn.disabled = false;
+            btn.textContent = gameState._replayFinished ? '重新回放' : (gameState._replayPaused ? '继续' : '暂停');
+            return;
+        }
+        if (id === 'endTurnBtn') btn.textContent = '结束回合';
+        btn.disabled = disableBtns || (id.startsWith('recruit') && !isMechanicEnabled(gameState, 'recruitment'));
     });
     const factionListBtn = document.getElementById('factionListBtn');
     if (factionListBtn) factionListBtn.style.display = gameState.campaignMode ? '' : 'none';
     const recruitSection = document.querySelector('.recruit-section');
     if (recruitSection) recruitSection.hidden = gameState.campaignMode && !isMechanicEnabled(gameState, 'recruitment');
-    // 投降/退出：PVE 模式下按钮改为"退出"，始终可用（AI 回合也可退出）
+    // 投降/退出：PVE 模式下按钮改为"退出"，回放模式下隐藏由右上角按钮负责退出
     const surrenderBtn = document.getElementById('surrenderBtn');
     if (surrenderBtn) {
-        const myCamp = _getMyCamp();
-        const alreadySurrendered = gameState.isThreePlayer && gameState.surrenderedCamps.includes(myCamp);
-        if (alreadySurrendered) {
-            surrenderBtn.textContent = '退出';
-            surrenderBtn.disabled = false;
-        } else if (gameState.gameMode === 'pve') {
-            surrenderBtn.textContent = '退出';
-            surrenderBtn.disabled = gameState.gameOver || inCommanderSetup;
+        if (isReplay) {
+            surrenderBtn.style.display = 'none';
         } else {
-            surrenderBtn.textContent = '投降';
-            // 只要没有投降过，就始终开放投降按钮（不限回合）
-            surrenderBtn.disabled = gameState.gameOver || inCommanderSetup;
+            surrenderBtn.style.display = '';
+            const myCamp = _getMyCamp();
+            const alreadySurrendered = gameState.isThreePlayer && gameState.surrenderedCamps.includes(myCamp);
+            if (alreadySurrendered) {
+                surrenderBtn.textContent = '退出';
+                surrenderBtn.disabled = false;
+            } else if (gameState.gameMode === 'pve') {
+                surrenderBtn.textContent = '退出';
+                surrenderBtn.disabled = gameState.gameOver || inCommanderSetup;
+            } else {
+                surrenderBtn.textContent = '投降';
+                // 只要没有投降过，就始终开放投降按钮（不限回合）
+                surrenderBtn.disabled = gameState.gameOver || inCommanderSetup;
+            }
         }
     }
     const banner = document.getElementById('opponentTurnBanner');
     if (banner) {
-        const myCamp = _getMyCamp();
-        const isSpectator = gameState.isThreePlayer && gameState.surrenderedCamps.includes(myCamp);
-        if (isSpectator) {
-            banner.innerHTML = '<span>👁</span><span>您已战败，观战中</span>';
-            banner.classList.add('visible');
+        if (isReplay) {
+            banner.classList.remove('visible');
         } else {
-            banner.innerHTML = '<span>⏳</span><span>等待对手行动...</span>';
-            if (opponentTurn || isNeutralTurn || isAIOpponentTurn) {
+            const myCamp = _getMyCamp();
+            const isSpectator = gameState.isThreePlayer && gameState.surrenderedCamps.includes(myCamp);
+            if (isSpectator) {
+                banner.innerHTML = '<span>👁</span><span>您已战败，观战中</span>';
                 banner.classList.add('visible');
             } else {
-                banner.classList.remove('visible');
+                banner.innerHTML = '<span>⏳</span><span>等待对手行动...</span>';
+                if (opponentTurn || isNeutralTurn || isAIOpponentTurn) {
+                    banner.classList.add('visible');
+                } else {
+                    banner.classList.remove('visible');
+                }
             }
         }
     }
 
+    const viewingKey = campToKey(getViewingCamp());
+    const fullMapReplayView = isReplay && viewingKey === 'neutral';
+    const fogHide1 = !fullMapReplayView && ((gameState.skirmishFog && viewingKey !== campaignGoldKey)
+        || (gameState.campaignMode && getRelation(gameState, getViewingCampKey(gameState), campaignGoldKey) === 'enemy'));
     const gold1Previous = gameState.previousGold[campaignGoldKey] ?? -1;
     if (newGold1 !== gold1Previous) {
         const delta1 = newGold1 - gold1Previous;
-        const fogHide1 = (gameState.skirmishFog && campToKey(getViewingCamp()) !== campaignGoldKey)
-            || (gameState.campaignMode && getRelation(gameState, getViewingCampKey(gameState), campaignGoldKey) === 'enemy');
         if (gold1El) animateCounter(gold1El, fogHide1 ? -1 : newGold1, n => n < 0 ? '???' : '$' + String(n));
         if (!fogHide1 && gold1El && typeof gsap !== 'undefined') {
             gsap.fromTo(gold1El, { scale: 0.85, textShadow: '0 0 20px rgba(255,215,0,0.9)' },
@@ -499,11 +523,13 @@ export function updateUI() {
         }
         if (!fogHide1 && gold1Previous >= 0) _spawnGoldDelta(gold1El, delta1);
         gameState.previousGold[campaignGoldKey] = newGold1;
+    } else if (isReplay && gold1El) {
+        gold1El.textContent = fogHide1 ? '???' : '$' + String(newGold1);
     }
+    const fogHide2 = !fullMapReplayView && ((gameState.skirmishFog && viewingKey !== 'player2')
+        || (gameState.campaignMode && getRelation(gameState, getViewingCampKey(gameState), 'player2') === 'enemy'));
     if (newGold2 !== gameState.previousGold.player2) {
         const delta2 = newGold2 - gameState.previousGold.player2;
-        const fogHide2 = (gameState.skirmishFog && campToKey(getViewingCamp()) !== 'player2')
-            || (gameState.campaignMode && getRelation(gameState, getViewingCampKey(gameState), 'player2') === 'enemy');
         if (gold2El) animateCounter(gold2El, fogHide2 ? -1 : newGold2, n => n < 0 ? '???' : '$' + String(n));
         if (!fogHide2 && gold2El && typeof gsap !== 'undefined') {
             gsap.fromTo(gold2El, { scale: 0.85, textShadow: '0 0 20px rgba(255,215,0,0.9)' },
@@ -511,11 +537,13 @@ export function updateUI() {
         }
         if (!fogHide2 && gameState.previousGold.player2 >= 0) _spawnGoldDelta(gold2El, delta2);
         gameState.previousGold.player2 = newGold2;
+    } else if (isReplay && gold2El) {
+        gold2El.textContent = fogHide2 ? '???' : '$' + String(newGold2);
     }
+    const fogHide3 = !fullMapReplayView && ((gameState.skirmishFog && viewingKey !== 'player3')
+        || (gameState.campaignMode && getRelation(gameState, getViewingCampKey(gameState), 'player3') === 'enemy'));
     if (newGold3 !== gameState.previousGold.player3) {
         const delta3 = newGold3 - gameState.previousGold.player3;
-        const fogHide3 = (gameState.skirmishFog && campToKey(getViewingCamp()) !== 'player3')
-            || (gameState.campaignMode && getRelation(gameState, getViewingCampKey(gameState), 'player3') === 'enemy');
         if (gold3El) animateCounter(gold3El, fogHide3 ? -1 : newGold3, n => n < 0 ? '???' : '$' + String(n));
         if (!fogHide3 && gold3El && typeof gsap !== 'undefined') {
             gsap.fromTo(gold3El, { scale: 0.85, textShadow: '0 0 20px rgba(255,215,0,0.9)' },
@@ -523,6 +551,8 @@ export function updateUI() {
         }
         if (!fogHide3 && gameState.previousGold.player3 >= 0) _spawnGoldDelta(gold3El, delta3);
         gameState.previousGold.player3 = newGold3;
+    } else if (isReplay && gold3El) {
+        gold3El.textContent = fogHide3 ? '???' : '$' + String(newGold3);
     }
 
     updateRecruitButtonStates();

@@ -634,6 +634,19 @@ export function rebindGameEvents() {
     _bindGameButtons();
 }
 
+let _replayEndTurnHandler = null;
+export function setReplayEndTurnHandler(fn) {
+    _replayEndTurnHandler = typeof fn === 'function' ? fn : null;
+}
+
+function _onEndTurnButtonClick() {
+    if (gameState._replayMode) {
+        _replayEndTurnHandler?.();
+        return;
+    }
+    endTurn();
+}
+
 function _bindGameButtons() {
     if (_initMapEventsBound) return;
     _initMapEventsBound = true;
@@ -645,8 +658,8 @@ function _bindGameButtons() {
     }
     const endTurnBtn = document.getElementById('endTurnBtn');
     if (endTurnBtn) {
-        endTurnBtn.removeEventListener('click', endTurn);
-        endTurnBtn.addEventListener('click', endTurn);
+        endTurnBtn.removeEventListener('click', _onEndTurnButtonClick);
+        endTurnBtn.addEventListener('click', _onEndTurnButtonClick);
     }
     document.getElementById('recruitInfantry').addEventListener('click', _onRecruitInfantry);
     document.getElementById('recruitCavalry').addEventListener('click', _onRecruitCavalry);
@@ -1766,7 +1779,7 @@ function resolveEndTurnPhase() {
 }
 
 export async function endTurn(options = {}) {
-    if (gameState.gameOver || _turnProcessing) return;
+    if (gameState._replayMode || gameState.gameOver || _turnProcessing) return;
     // 网络游戏中仅当前回合方可结束回合
     if (isNetworkGame() && !isMyTurn(gameState.currentCamp)) return;
     _turnProcessing = true;
@@ -2026,6 +2039,7 @@ export async function resumeNetworkAiTurnIfNeeded() {
 
 // ===== 招募 =====================
 export function recruitUnit(type) {
+    if (gameState._replayMode) return false;
     if (gameState.campaignMode && !isMechanicEnabled(gameState, 'recruitment')) { notify('本关尚未开放招募', 'info'); return; }
     if (gameState.currentCamp?.canRecruit === false) { notify('该阵营在本关禁止招募', 'info'); return; }
     if (gameState.gameOver) return;
@@ -2496,7 +2510,7 @@ export function moveUnit(unit, targetTile) {
         ? measure('moveUnit', () => _moveUnit(unit, targetTile)) : _moveUnit(unit, targetTile));
 }
 function _moveUnit(unit, targetTile) {
-    if (gameState.gameOver) return;
+    if (gameState._replayMode || gameState.gameOver) return;
     if (unit.camp !== gameState.currentCamp) return;
     const legalMoves = unit?.tile ? getMovableTiles(unit) : [];
     gameState.movableTiles = legalMoves;
@@ -2713,6 +2727,7 @@ function _moveUnit(unit, targetTile) {
 // strafe，伤害延迟到动画尾段结算）同一时序取向。时长常量见 rules/attackPresentation.js
 // 的 CARRIER_STRAFE_IMPACT_MS（联机重放共用）。
 export function attackUnit(attackerUnit, targetUnit, options) {
+    if (gameState._replayMode) return false;
     return perfEnabled() ? measure('attackUnit', () => _attackUnit(attackerUnit, targetUnit, options)) : _attackUnit(attackerUnit, targetUnit, options);
 }
 function enqueueAttackDamageText(entry, katyusha, shares) {
@@ -4470,7 +4485,7 @@ export function attackCityTile(attackerUnit, targetTile, options) {
         : _attackCityTile(attackerUnit, targetTile, options));
 }
 function _attackCityTile(attackerUnit, targetTile, options) {
-    if (gameState.gameOver || attackerUnit.camp !== gameState.currentCamp) return false;
+    if (gameState._replayMode || gameState.gameOver || attackerUnit.camp !== gameState.currentCamp) return false;
     if (!attackerUnit.canAct || !getAttackableTiles(attackerUnit, options).includes(targetTile)) {
         notify('无法攻城：超出射程或单位已行动', 'error');
         return false;
@@ -4643,6 +4658,7 @@ export function executeAirCommand(kind, launcherTile, targetTile, { aiPhase = nu
         : _executeAirCommand(kind, launcherTile, targetTile, aiPhase));
 }
 function _executeAirCommand(kind, launcherTile, targetTile, aiPhase) {
+    if (gameState._replayMode) return false;
     const config = AIR_COMMAND_CONFIG[kind];
     const availability = getAirCommandAvailability(kind, launcherTile, gameState);
     if (gameState.gameOver || !config || !availability.available || !isPlayableBoardTile(launcherTile) || !isPlayableBoardTile(targetTile)
@@ -5195,6 +5211,7 @@ export function executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) 
 }
 
 function _executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) {
+    if (gameState._replayMode) return;
     if (gameState.campaignMode && !isMechanicEnabled(gameState, 'tacticalCards')) { notify('本关尚未开放对策卡', 'info'); return; }
     // E4 空运第二段：直接执行空运（跳过正常卡牌验证）
     if (cardId === 'airlift_dest') {

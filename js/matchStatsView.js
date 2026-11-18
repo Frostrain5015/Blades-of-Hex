@@ -2,7 +2,7 @@ import { getFlagColors } from '../rules/camps.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
 import { NPC_DIALOGUE_PORTRAITS } from '../campaign/portraits.js';
 import { createFlagSvgUrl, createStandardFlagUrl, isStandardFlagEmoji } from '../rules/diplomacy.js';
-import { buildMatchStatsDocument, selectMvpUnits } from './matchStats.js';
+import { buildMatchStatsDocument, isReplayableMatchLog, selectMvpUnits } from './matchStats.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const FALLBACK_COLORS = ['#db574f', '#5688e8', '#55b875', '#c5994b', '#a56bd4', '#58b8b1'];
@@ -988,9 +988,10 @@ function renderBattleEvents(stats, container) {
     }).join('');
 }
 
-export function initMatchStatsPanel({ getLog, onMissing } = {}) {
+export function initMatchStatsPanel({ getLog, onMissing, onReplay } = {}) {
     const overlay = document.getElementById('matchStatsOverlay');
     const closeButton = document.getElementById('matchStatsCloseBtn');
+    const replayButton = document.getElementById('matchStatsReplayBtn');
     if (!overlay) return { open() {}, close() {} };
 
     const summary = document.getElementById('matchStatsSummary');
@@ -1006,8 +1007,16 @@ export function initMatchStatsPanel({ getLog, onMissing } = {}) {
     const battleEvents = document.getElementById('matchBattleEvents');
     const subtitle = document.getElementById('matchStatsSubtitle');
     let activeStats = null;
+    let activeSourceDocument = null;
     let controlMetric = 'controlShare';
     let previousFocus = null;
+
+    replayButton?.addEventListener('click', () => {
+        if (!activeSourceDocument || !isReplayableMatchLog(activeSourceDocument)) return;
+        const doc = activeSourceDocument;
+        close();
+        onReplay?.(doc);
+    });
 
     const renderUnits = () => {
         if (activeStats) renderUnitTable(activeStats, unitTable, unitMetric.value, unitCamp.value);
@@ -1034,6 +1043,10 @@ export function initMatchStatsPanel({ getLog, onMissing } = {}) {
         if (!activeStats) {
             onMissing?.();
             return false;
+        }
+        activeSourceDocument = sourceDocument;
+        if (replayButton) {
+            replayButton.hidden = !(typeof onReplay === 'function' && isReplayableMatchLog(sourceDocument));
         }
         previousFocus = document.activeElement;
         const winner = activeStats.camps.find(camp => camp.campKey === activeStats.result?.winnerCampKey);

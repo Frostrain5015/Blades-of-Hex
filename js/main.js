@@ -4,7 +4,7 @@ import { gameState, updateUI, setOnUIUpdate, logMessage, applyRemoteState, notif
 import { setGameStateRef as setHexTileGameStateRef } from './HexTile.js';
 import { setLogMessageRef, setGameStateRef, setIsNetworkGameRef } from './Unit.js';
 import { setLogMessageRef as setCiLogRef, setGameStateRef as setCiGameRef, setSpawnFxRef, setSpawnGoldenBeamRef, setSpawnOrbitBeamsRef, setClearOrbitBeamsRef, setSpawnBeamProjectilesRef, setSpawnHealingChainRef, setSpawnBloodDrainRef, setSpawnGongxinRippleRef, getCommander } from './commanderInterface.js';
-import { initMap, grantTurnStartIncome, triggerVictoryEffect, showInfo, updateDistrictColor, forceDistrictFade, resetConfirmActive, rebindGameEvents, setOnFogUpdated, reapColonelKill, reconcilePendingSurrender, startAirdropPresentation, getRiverGateSwitchMessage, BURN_MS } from './gameLogic.js';
+import { initMap, grantTurnStartIncome, triggerVictoryEffect, showInfo, updateDistrictColor, forceDistrictFade, resetConfirmActive, rebindGameEvents, setOnFogUpdated, reapColonelKill, reconcilePendingSurrender, startAirdropPresentation, getRiverGateSwitchMessage, setReplayEndTurnHandler, BURN_MS } from './gameLogic.js';
 import { renderGame, drawCardCanvas, isHumanTurnForInteractionHints, renderTerrainSnapshot } from './renderer.js';
 import { initInput, initKeyboard, initSettingsPanel, rebindInputEvents, rebindKeyboardEvents, syncBoardActionBar } from './input.js';
 import { connectToServer, setNetworkCallbacks, getMyRole, getMatchSeed, sendMessage, isNetworkGame, syncCommanderState, createRoom, joinRoom, listRooms, leaveRoom, sendReady, sendUnready, sendAddAi, sendRemoveAi, manualReconnect, sendChatMessage, roleToCamp } from './network.js';
@@ -39,8 +39,8 @@ import {
     clearTransientEffects,
     HEAVY_CANNON_IMPACT_MS, KATYUSHA_IMPACT_MS, KATYUSHA_IMPACT_TIMES, stageKatyushaHealth, spawnHeavyCannonShell, spawnKatyushaBarrage, spawnBanzaiDash, spawnDodgeShimmer
 } from './effects.js';
-import { isTileVisible } from './fogOfWar.js';
-import { HexTile } from './HexTile.js';
+import { isTileVisible, updateAllFogOfWar } from './fogOfWar.js';
+import { HexTile, computeCampBorders, computeDistrictBorders } from './HexTile.js';
 import { Unit } from './Unit.js';
 import './unitPresentationAdapter.js';
 import { playSound, initAudio, setMuted, startBattleBGM, stopBattleBGM, stopLobbyBGM } from './audio.js';
@@ -68,6 +68,7 @@ import {
 import { FACTION_RULE_MODE_LABELS } from '../rules/factionLabels.js';
 import { rollFactionTurnOrder } from '../rules/turns.js';
 import { downloadCurrentMatchLog, downloadCurrentMatchReview, getCurrentMatchLog, recordCommittedAction, resolvePendingLocalAction, startMatchRecording } from './matchRecorder.js';
+import { createReplaySession } from './matchReplay.js';
 import { initMatchStatsPanel } from './matchStatsView.js';
 import { ATTACK_PRESENTATION, CARRIER_STRAFE_IMPACT_MS, classifyAttackPresentation, getDiveStrafeMuzzlePosition } from '../rules/attackPresentation.js';
 import { createFlagPreview } from './flagRenderer.js';
@@ -449,6 +450,7 @@ window.addEventListener('orientationchange', () => setTimeout(fitCanvas, 200));
 window.addEventListener('beforeunload', (e) => {
     if (
         gameState &&
+        !gameState._replayMode &&
         !gameState.gameOver &&
         gameState.commanderPhase === 'done' &&
         document.getElementById('gameWrapper').style.display !== 'none'
@@ -978,7 +980,8 @@ for (const buttonId of ['exportFullMatchLogBtn', 'campaignExportFullMatchLogBtn'
 
 const matchStatsPanel = initMatchStatsPanel({
     getLog: getCurrentMatchLog,
-    onMissing: () => notify('当前没有可统计的对局日志', 'error')
+    onMissing: () => notify('当前没有可统计的对局日志', 'error'),
+    onReplay: log => startMatchReplay(log)
 });
 for (const buttonId of ['matchStatsBtn', 'campaignMatchStatsBtn']) {
     document.getElementById(buttonId)?.addEventListener('click', () => matchStatsPanel.open());
@@ -3548,11 +3551,20 @@ async function handleRemoteAction(msg) {
     }
 
     const e = msg.effects;
+    _playActionPresentation(msg.actionType, e, { katyushaStartedAt, heavyVolleys, applyCardSideEffects: true });
+
+    // 对手 endTurn 把回合推进到中立（或投降直切中立）：驱动方客户端在此接手执行中立 AI
+    _maybeResumeNeutralTurn();
+    // 对手 endTurn 把回合推进到 AI 占位席位：房主客户端在此接手驱动 AI 回合
+    _maybeResumeNetworkAiTurn();
+}
+
+function _playActionPresentation(actionType, e, { katyushaStartedAt = undefined, heavyVolleys = [], applyCardSideEffects = true } = {}) {
     // 法式重炮回合初齐射的浮字已随快照后的弹道同时入队。
     if (e?.floatTexts && heavyVolleys.length === 0) {
         replayFloatTexts(e.floatTexts, { startedAt: katyushaStartedAt });
     }
-    switch (msg.actionType) {
+    switch (actionType) {
         case 'move':
             playSound('move');
             if (e) {
@@ -3681,7 +3693,7 @@ async function handleRemoteAction(msg) {
                     switch (cardType) {
                         case 'lightning': {
                             const lt = e.q != null ? gameState.tileMap.get(`${e.q},${e.r}`) : gameState.tiles.find(t => t.x === e.x && t.y === e.y);
-                            if (lt && lt.unit && e.dmg) {
+                            if (applyCardSideEffects && lt && lt.unit && e.dmg) {
                                 // 统一伤害入口：真实伤害绕过护盾，击杀清理由 applyDamage 处理。
                                 // 伤害数字由 e.floatTexts 重放；弹着派生跳字（临终迸发/殉道等）
                                 // 两端各自推导（仅显示，不进广播捕获，避免漏进下次广播变幽灵跳字）
@@ -3717,7 +3729,7 @@ async function handleRemoteAction(msg) {
                             break;
                         case 'shield': {
                             const st = e.q != null ? gameState.tileMap.get(`${e.q},${e.r}`) : gameState.tiles.find(t => t.x === e.x && t.y === e.y);
-                            if (st && st.unit) {
+                            if (applyCardSideEffects && st && st.unit) {
                                 st.unit._shield += 50;
                                 st.unit._shieldMax = Math.max(st.unit._shieldMax, st.unit._shield);
                                 st.unit._shieldTurns = 3;
@@ -3737,7 +3749,7 @@ async function handleRemoteAction(msg) {
                             break;
                         case 'forceMarch': {
                             const fm = e.q != null ? gameState.tileMap.get(`${e.q},${e.r}`) : gameState.tiles.find(t => t.x === e.x && t.y === e.y);
-                            if (fm && fm.unit) {
+                            if (applyCardSideEffects && fm && fm.unit) {
                                 fm.unit.canAct = true;
                                 fm.unit.remainingMP += 2;
                             }
@@ -3757,7 +3769,7 @@ async function handleRemoteAction(msg) {
                                         if (!tile) continue;
                                         const tickDmg = r.ticks?.[tickIndex] || 0;
                                         if (tickDmg <= 0) continue;
-                                        if (tile.unit) {
+                                        if (applyCardSideEffects && tile.unit) {
                                             const dc = tile.unit.camp;
                                             const killed = tile.unit.applyDamage(tickDmg, { source: 'ranged' });
                                             if (killed) {
@@ -3766,7 +3778,7 @@ async function handleRemoteAction(msg) {
                                             }
                                         }
                                         // 远端重放：无驻军的城市/城郭格在最终段结算结构伤害
-                                        if (r.isCitySiege && isFinal && !tile.unit
+                                        if (applyCardSideEffects && r.isCitySiege && isFinal && !tile.unit
                                             && (tile.isCity || tile.isUrban) && (Number(tile.hp) || 0) > 0) {
                                             damageCityPool(tile, r.dmg, gameState.tileMap);
                                         }
@@ -3822,7 +3834,7 @@ async function handleRemoteAction(msg) {
                                 // 伤害数字由 e.floatTexts 重放；弹着派生跳字两端各自推导（仅显示，不进广播捕获）
                                 setFloatTextCaptureSuppressed(true);
                                 try {
-                                    if (dt && dt.unit && e.dmg) {
+                                    if (applyCardSideEffects && dt && dt.unit && e.dmg) {
                                         const dc = dt.unit.camp;
                                         const _isCmdR = !!dt.unit.commander;
                                         // 鹰链：上校空军卡为延迟结算路径，出卡方即当前回合阵营
@@ -3856,7 +3868,7 @@ async function handleRemoteAction(msg) {
                                         if (!tile) continue;
                                         spawnExplosionParticles(tile.x, tile.y, '#ff8800', 10);
                                         // 仅对有单位的地块结算伤害（空地不显示伤害数字）
-                                        if (tile.unit && r.dmg) {
+                                        if (applyCardSideEffects && tile.unit && r.dmg) {
                                             const dc = tile.unit.camp;
                                             const _isCmdR = !!tile.unit.commander;
                                             // 鹰链：上校空军卡为延迟结算路径，出卡方即当前回合阵营
@@ -4266,7 +4278,7 @@ async function handleRemoteAction(msg) {
             const target = e.targetId
                 ? gameState.tiles.find(tile => tile.unit?.id === e.targetId)
                 : gameState.tileMap.get(`${e.q},${e.r}`);
-            if (target) spawnCommanderSkillEffect(target.x, target.y, msg.actionType === 'fieldRepair' ? '🛠️' : '🏗️', msg.actionType === 'fieldRepair' ? '战地抢修' : '建设');
+            if (target) spawnCommanderSkillEffect(target.x, target.y, actionType === 'fieldRepair' ? '🛠️' : '🏗️', actionType === 'fieldRepair' ? '战地抢修' : '建设');
             break;
         }
         case 'chooseSpecialization': {
@@ -4306,20 +4318,24 @@ async function handleRemoteAction(msg) {
                 if (skillUnit && skillUnit.commander) {
                     const cmdCfg = getCommander(skillUnit.commander);
                     if (cmdCfg && cmdCfg.activeSkill) {
-                        // 技能结算可能产生治疗/护盾浮字：已由 e.floatTexts 重放，抑制本地产出
-                        setFloatTextsSuppressed(true);
-                        try {
-                            cmdCfg.activeSkill.onActivate(skillUnit, {
-                                gameState, logMessage,
-                                spawnFx: spawnCommanderSkillEffect,
-                                spawnOrbitBeams: spawnPaladinOrbitBeams,
-                                isReplay: true
-                            });
-                        } finally {
-                            setFloatTextsSuppressed(false);
+                        if (applyCardSideEffects) {
+                            // 技能结算可能产生治疗/护盾浮字：已由 e.floatTexts 重放，抑制本地产出
+                            setFloatTextsSuppressed(true);
+                            try {
+                                cmdCfg.activeSkill.onActivate(skillUnit, {
+                                    gameState, logMessage,
+                                    spawnFx: spawnCommanderSkillEffect,
+                                    spawnOrbitBeams: spawnPaladinOrbitBeams,
+                                    isReplay: true
+                                });
+                            } finally {
+                                setFloatTextsSuppressed(false);
+                            }
+                            skillUnit.activeSkillDur = cmdCfg.activeSkill.duration;
+                            skillUnit.activeSkillCD = cmdCfg.activeSkill.cooldown;
+                        } else if (skillUnit.tile) {
+                            spawnCommanderSkillEffect(skillUnit.tile.x, skillUnit.tile.y, undefined, cmdCfg.activeSkill.name);
                         }
-                        skillUnit.activeSkillDur = cmdCfg.activeSkill.duration;
-                        skillUnit.activeSkillCD = cmdCfg.activeSkill.cooldown;
                     }
                 }
             }
@@ -4327,7 +4343,7 @@ async function handleRemoteAction(msg) {
         }
     }
     // 重放晋升特效
-    if (msg.actionType === 'attack' || msg.actionType === 'move') {
+    if (actionType === 'attack' || actionType === 'move') {
         if (e && e.rankUps) {
             for (const ru of e.rankUps) {
                 const unit = gameState.tiles.find(tile => tile.unit?.id === ru.unitId)?.unit;
@@ -4343,9 +4359,179 @@ async function handleRemoteAction(msg) {
             spawnPaladinOrbitBeams(tile.unit.id, tile.x, tile.y, count);
         }
     }
+}
 
-    // 对手 endTurn 把回合推进到中立（或投降直切中立）：驱动方客户端在此接手执行中立 AI
-    _maybeResumeNeutralTurn();
-    // 对手 endTurn 把回合推进到 AI 占位席位：房主客户端在此接手驱动 AI 回合
-    _maybeResumeNetworkAiTurn();
+// ==== 录像回放系统 =====================
+let _activeReplaySession = null;
+
+function _renderReplayObserverBar(status) {
+    const exitBtn = document.getElementById('replayExitBtn');
+    const observerBar = document.getElementById('replayObserverBar');
+    const progressEl = document.getElementById('replayProgressLabel');
+    const groupEl = document.getElementById('replayPerspectiveGroup');
+    if (exitBtn) exitBtn.style.display = status?.active ? '' : 'none';
+    if (!observerBar) return;
+    observerBar.style.display = status?.active ? 'flex' : 'none';
+    if (!status?.active) return;
+
+    if (progressEl) {
+        const suffix = status.paused ? ' · 已暂停' : status.finished ? ' · 已结束' : '';
+        progressEl.textContent = `录像回放 ${status.currentStep}/${status.totalSteps}${suffix}`;
+    }
+    if (!groupEl) return;
+    if (status.isCampaign) {
+        groupEl.hidden = true;
+        groupEl.innerHTML = '';
+        return;
+    }
+    groupEl.hidden = false;
+    const options = [
+        { key: 'neutral', label: '全图视角', color: '#d4af37' },
+        ...(gameState.turnOrder || [])
+            .filter(key => key !== 'neutral' && gameState.factions?.[key]?.active !== false)
+            .map(key => ({
+                key,
+                label: gameState.factions?.[key]?.name || key,
+                color: gameState.factions?.[key]?.color || '#aaa'
+            }))
+    ];
+    groupEl.innerHTML = '';
+    for (const opt of options) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'replay-perspective-btn' + (status.viewCampKey === opt.key ? ' active' : '');
+        btn.innerHTML = `<span class="replay-perspective-dot" style="background:${opt.color}"></span><span>${opt.label}</span>`;
+        btn.addEventListener('click', () => _activeReplaySession?.setPerspective(opt.key));
+        groupEl.appendChild(btn);
+    }
+}
+
+function startMatchReplay(log) {
+    try {
+        _activeReplaySession?.stop();
+        _campaignController?.stop?.();
+        _stopHeroCarousel();
+        stopLobbyBGM();
+        stopBattleBGM();
+        clearTransientEffects();
+
+        let sessionRef = null;
+        sessionRef = createReplaySession({
+            log,
+            gameState,
+            deps: {
+                HexTileClass: HexTile,
+                UnitClass: Unit,
+                computeCampBorders,
+                computeDistrictBorders,
+                updateAllFogOfWar,
+                invalidateBoard,
+                forceDistrictFade,
+                logMessage
+            },
+            onBeforeStart: status => {
+                _activeReplaySession = sessionRef;
+                _deploymentStarted = true;
+                document.getElementById('lobbyOverlay').style.display = 'none';
+                document.getElementById('campaignResultOverlay')?.classList.remove('show');
+                const vo = document.getElementById('victoryOverlay');
+                if (vo) {
+                    vo.classList.remove('show');
+                    vo.style.opacity = '';
+                    vo.style.backgroundColor = '';
+                }
+                document.getElementById('commanderOverlay')?.classList.remove('show');
+                document.getElementById('backToVictoryBtn').style.display = 'none';
+                document.getElementById('networkIndicator').style.display = 'none';
+                document.getElementById('gameWrapper').style.display = '';
+                document.body.style.pointerEvents = '';
+                dismissToast();
+
+                applyTopbarLayout();
+                fitCanvas();
+                loadCommanderFx(gameState).catch(err => console.warn('[replay] 将领特效加载失败:', err));
+                preloadPortraits();
+                initInput();
+                rebindGameEvents();
+                initKeyboard();
+                initSettingsPanel();
+                setReplayEndTurnHandler(() => _activeReplaySession?.togglePause());
+                setOnFogUpdated(updateCampEmblems);
+                updateCampEmblems();
+                _initCampFlagPreviews();
+                updateChatAvailability();
+                updateUI();
+                updateButtonColors();
+                _renderReplayObserverBar(status);
+                renderGame();
+                startBattleBGM();
+                notify(status.isCampaign ? '开始战役录像回放' : '开始遭遇战录像回放（可切换右上观察视角）', 'info');
+            },
+            onPlayFx: (step, effects, fxMeta) => {
+                if (step.actionType === 'airCommand' && effects?.kind === 'airdrop') {
+                    const tile = gameState.tileMap.get(`${effects.targetQ},${effects.targetR}`);
+                    if (tile?.unit) startAirdropPresentation(tile);
+                }
+                if (step.actionType === 'tacticalCard' && effects?.cardId === 'airdrop') {
+                    const tile = effects.q != null ? gameState.tileMap.get(`${effects.q},${effects.r}`) : null;
+                    spawnCardUseEffect('airdrop', LOGICAL_W / 2, LOGICAL_H / 2, false, 0, 0, effects.burnDisplayName || null);
+                    if (tile?.unit) startAirdropPresentation(tile, { delayMs: BURN_MS });
+                }
+                for (const unit of fxMeta?.moraleChangedUnits || []) {
+                    spawnMoraleEffect(unit);
+                }
+                _playActionPresentation(step.actionType, effects, { applyCardSideEffects: false });
+            },
+            onAfterStep: () => {
+                updateUI();
+                updateButtonColors();
+                syncBoardActionBar();
+                updateCampEmblems();
+                renderGame();
+            },
+            onStateChange: status => {
+                updateUI();
+                updateButtonColors();
+                updateCampEmblems();
+                syncBoardActionBar();
+                _renderReplayObserverBar(status);
+                renderGame();
+            },
+            onComplete: status => {
+                updateUI();
+                _renderReplayObserverBar(status);
+                notify('录像回放已完成，可点击“重新回放”或右上角退出回放', 'success');
+            },
+            onExit: () => {
+                _activeReplaySession = null;
+                _deploymentStarted = false;
+                setReplayEndTurnHandler(null);
+                clearTransientEffects();
+                stopBattleBGM();
+                _renderReplayObserverBar({ active: false });
+                resetGameState();
+                updateUI();
+                updateChatAvailability();
+                document.getElementById('gameWrapper').style.display = 'none';
+                document.getElementById('lobbyOverlay').style.display = '';
+                showHome();
+            }
+        });
+        sessionRef.start();
+    } catch (error) {
+        console.warn('[replay] 启动录像回放失败:', error);
+        notify('录像文件格式不完整，无法启动回放', 'error');
+    }
+}
+
+document.getElementById('replayExitBtn')?.addEventListener('click', () => {
+    _activeReplaySession?.stop();
+});
+
+for (const [cardId, campKey] of [['campCard1', 'player1'], ['campCard2', 'player2'], ['campCard3', 'player3']]) {
+    document.getElementById(cardId)?.addEventListener('click', () => {
+        if (gameState._replayMode && !gameState.campaignMode && _activeReplaySession) {
+            _activeReplaySession.setPerspective(campKey);
+        }
+    });
 }

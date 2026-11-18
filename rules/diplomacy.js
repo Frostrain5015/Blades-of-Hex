@@ -525,6 +525,7 @@ export function canAssist(state, campA, campB) {
 }
 
 export function getViewingCampKey(state) {
+    if (state?._replayMode && state._replayViewCampKey) return state._replayViewCampKey;
     return normalizeCampKey(state?.localPlayerCampKey, state) || getFactionKeys(state)[0] || 'player1';
 }
 

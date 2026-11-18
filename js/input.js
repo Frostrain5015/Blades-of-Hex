@@ -196,7 +196,7 @@ function _getInputTargetingPreview(cardTargeting, myCamp) {
 }
 
 function _isLocalActionTurn() {
-    if (gameState.gameOver || campToKey(gameState.currentCamp) === 'neutral') return false;
+    if (gameState._replayMode || gameState.gameOver || campToKey(gameState.currentCamp) === 'neutral') return false;
     const myCamp = _getMyCampInput();
     if (!myCamp) return false;
     if (isNetworkGame()) return _sameCampInput(gameState.currentCamp, myCamp) && isMyTurn(gameState.currentCamp);
@@ -443,7 +443,9 @@ function _timedMemo(cache, key, compute, ms = 300) {
 const _engineerRepairMemo = {};
 const _fellowRobeMemo = {};
 
-function _collectBoardActions(unit, tile = null) {    const actions = [];
+function _collectBoardActions(unit, tile = null) {
+    if (gameState._replayMode) return [];
+    const actions = [];
     const gate = getRiverGate(gameState);
     if (gate && tile?.q === gate.q && tile.r === gate.r && _isLocalActionCamp(tile.camp)) {
         const northOpen = getRiverGateOpenLane(gameState) === 'north';
@@ -974,7 +976,7 @@ function _handleCardCanvasClick(e) {
     const campKey = _campKeyInput(myCamp);
     const hand = gameState.playerHands[campKey] || [];
     const isNeutralTurn = !isNetworkGame() && campToKey(gameState.currentCamp) === 'neutral';
-    if (isNeutralTurn) return;
+    if (gameState._replayMode || isNeutralTurn) return;
 
     const cardW = 90, cardH = 130, peekW = 72;
     const pileW = cardW, pileH = cardH, pileX = W - pileW - 8, pileY = 8;
@@ -2942,7 +2944,7 @@ export function initKeyboard() {
             return;
         }
 
-        if (!gameState.gameOver) {
+        if (!gameState.gameOver && !gameState._replayMode) {
             if (e.key === 'e' || e.key === 'Enter') {
                 e.preventDefault();
                 if (_isLocalActionTurn()) endTurn();

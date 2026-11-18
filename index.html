@@ -353,6 +353,7 @@
                 </div>
                 <button class="tool-btn" id="chatToggleBtn" title="聊天 (Ctrl+Enter)" style="display:none">💬</button>
                 <button class="tool-btn" id="factionListBtn" title="外交菜单" style="display:none">🤝</button>
+                <button class="tool-btn replay-exit-btn" id="replayExitBtn" title="退出回放" style="display:none">退出回放</button>
                 <button class="tool-btn" id="settingsBtn" title="设置">⚙</button>
             </div>
 
@@ -408,6 +409,10 @@
                     <div id="boardDetailDesc" class="board-detail-desc"></div>
                     <div id="boardDetailStatus" class="board-detail-status"></div>
                 </section>
+                <div id="replayObserverBar" class="replay-observer-bar" aria-live="polite" style="display:none">
+                    <span class="replay-badge" id="replayProgressLabel">录像回放</span>
+                    <div id="replayPerspectiveGroup" class="replay-perspective-group"></div>
+                </div>
                 <div id="opponentTurnBanner" class="top-banner">
                     <span>⏳</span><span>等待对手行动...</span>
                 </div>
@@ -536,7 +541,10 @@
                 <h2 id="matchStatsTitle">对局统计</h2>
                 <p id="matchStatsSubtitle"></p>
             </div>
-            <button id="matchStatsCloseBtn" type="button" aria-label="关闭对局统计">×</button>
+            <div class="match-stats-header-actions">
+                <button id="matchStatsReplayBtn" class="match-stats-replay-btn" type="button" hidden>▶ 回放</button>
+                <button id="matchStatsCloseBtn" type="button" aria-label="关闭对局统计">×</button>
+            </div>
         </header>
         <div class="match-stats-scroll">
             <div id="matchStatsSummary" class="match-stats-summary"></div>
