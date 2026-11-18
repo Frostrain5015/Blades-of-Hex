@@ -292,7 +292,7 @@ export function selectEngineerFortificationAction(gameState, aiCamp, {
             && tile.terrain !== 'mountain'
             && hexDistance(engineer.tile, tile) === 1
             && isKnownTile(tile)
-            && !hasSameTypeBuildingWithin(gameState, tile, 'mgNest'));
+            && !hasSameTypeBuildingWithin(gameState, tile, 'mgNest', engineer.camp));
         if (candidates.length > 0) {
             candidates.sort((a, b) => {
                 const da = Math.min(...hostiles.map(h => hexDistance(a, h)));

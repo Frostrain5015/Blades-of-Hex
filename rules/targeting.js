@@ -195,7 +195,7 @@ function isBaseTargetingCandidate(gameState, cardTargeting, tile, myCamp, source
             && !tile.isCity
             && !tile.isVillage
             && hexDistance(source.tile, tile) === 1
-            && !hasSameTypeBuildingWithin(gameState, tile, 'mgNest');
+            && !hasSameTypeBuildingWithin(gameState, tile, 'mgNest', myCamp);
     }
     if (cardId === 'build_bunker') {
         return canBuildBunkerAt(myCamp, tile, gameState);
@@ -249,7 +249,7 @@ function isBaseTargetingCandidate(gameState, cardTargeting, tile, myCamp, source
         if (cardId === 'airdrop' && (tile.isCity || tile.isUrban)
             && (Number(tile.hp) || 0) > 0 && canAttack(gameState, myCamp, tile.camp)) return false;
         // 战术卡部署碉堡同样受同类防御建筑间距约束
-        if (cardId === 'mgNest' && hasSameTypeBuildingWithin(gameState, tile, 'mgNest')) return false;
+        if (cardId === 'mgNest' && hasSameTypeBuildingWithin(gameState, tile, 'mgNest', myCamp)) return false;
         return true;
     }
     if (targeting === 'emptyFriendlyNonCityNonMountain') {

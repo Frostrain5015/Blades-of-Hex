@@ -43,7 +43,7 @@ import { canReinforceAtTile, computeHealGoldCost } from '../rules/healing.js';
 import { canSwitchRiverGate, getRiverGate, getRiverGateOpenLane } from '../rules/riverGate.js';
 import { getSpecialization, getSpecializationOptions, getUnitBaseType, getUnitDisplayName, getAttackRangeCap, getMinimumAttackRange, resolveUnitRankProfile, UNBRANCHED_UNIT_REWARDS } from '../rules/units.js';
 import { getAntiAirReduction } from '../rules/antiAir.js';
-import { CONSTRUCTION_CONFIG, canBuildAirfieldAt, canBuildBunkerAt, canBuildFieldFortificationAt, canFieldRepair, constructionCost, findConstructionEngineer, isFieldRepairTarget } from '../rules/construction.js';
+import { CONSTRUCTION_CONFIG, canBuildAirfieldAt, canFieldRepair, constructionCost, findConstructionEngineer, isFieldRepairTarget } from '../rules/construction.js';
 import { measure, perfEnabled } from './perf.js';
 import { AIR_COMMAND_CONFIG, getAirCommandAvailability, getAirCommandCost, getAirCommandRange, getAirfieldColonel, getVisibleAirCommandKinds } from '../rules/airCommands.js';
 import { isUnitVisibleToCamp } from '../rules/visibility.js';
@@ -3225,12 +3225,11 @@ function _showConstructionChoice() {
     ];
     for (const definition of definitions) {
         const cost = constructionCost(definition.kind, engineer, null, gameState);
-        const structurallyAvailable = definition.kind === 'shoreBattery'
-            ? resolveTargetingPreview(gameState, { cardId: definition.cardId, targeting: 'emptyTile' },
-                { myCamp: camp, isTileVisible }).candidateTiles.length > 0
-            : definition.kind === 'bunker'
-                ? gameState.tiles.some(tile => canBuildBunkerAt(camp, tile, gameState))
-                : gameState.tiles.some(tile => canBuildFieldFortificationAt(tile, definition.kind, camp, gameState));
+        const structurallyAvailable = resolveTargetingPreview(
+            gameState,
+            { cardId: definition.cardId, targeting: 'emptyTile' },
+            { myCamp: camp, isTileVisible }
+        ).candidateTiles.length > 0;
         const available = structurallyAvailable && gold >= cost;
         const card = document.createElement('button');
         card.type = 'button';

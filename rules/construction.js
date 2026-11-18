@@ -26,21 +26,25 @@ export function isOrdinaryGroundBuilder(unit) {
 }
 
 /**
- * 同类防御建筑间距：siteTile 的 minDist 半径内已存在同类建筑（含建造中脚手架，
- * 其单位类型与完工建筑相同）时返回 true。标准地图的预置岸防炮不占新建间距。
+ * 同类防御建筑间距：siteTile 的 minDist 半径内已存在同阵营同类建筑（含建造中脚手架，
+ * 其单位类型与完工建筑相同）时返回 true。敌方/中立建筑不占用本方间距；标准地图的预置要塞炮不占新建间距。
  */
-export function hasSameTypeBuildingWithin(state, siteTile, unitType, minDist = DEFENSE_BUILDING_MIN_DISTANCE) {
+export function hasSameTypeBuildingWithin(state, siteTile, unitType, campOrMinDist = null, minDist = DEFENSE_BUILDING_MIN_DISTANCE) {
     if (!siteTile) return false;
+    const distanceLimit = typeof campOrMinDist === 'number' ? campOrMinDist : minDist;
+    const hasCamp = campOrMinDist != null && typeof campOrMinDist !== 'number';
+    const campKey = hasCamp ? campToKey(campOrMinDist) : null;
     const presetUnits = unitType === 'shoreBattery' && !state?.campaignMode
         ? getStandardMap(state?.isThreePlayer ? 3 : 2, state?.standardMapId).initialUnits
         : [];
     for (const tile of state?.tiles || []) {
         if (tile === siteTile) continue;
         if (tile.unit?.type !== unitType || tile.unit.hp <= 0) continue;
+        if (campKey && campToKey(tile.unit.camp) !== campKey) continue;
         // 兼容既有快照：地图初始炮位不带建造时写入的 _isImmobile 标记。
         if (!tile.unit._isImmobile && presetUnits.some(unit => unit.type === unitType
             && unit.q === tile.q && unit.r === tile.r)) continue;
-        if (hexDistance(tile, siteTile) < minDist) return true;
+        if (hexDistance(tile, siteTile) < distanceLimit) return true;
     }
     return false;
 }
@@ -82,7 +86,8 @@ export function canBuildFieldFortificationAt(targetTile, kind, camp, state, occu
     if (!isMechanicEnabled(state, 'fortifications')
         || (kind !== 'trench' && kind !== 'flak')
         || !isCurrentConstructionCamp(camp, state)
-        || !targetTile || !isLandTile(targetTile)
+        || !targetTile || targetTile.renderOnly === true || targetTile.playable === false
+        || !isLandTile(targetTile)
         || targetTile.fieldFortification || targetTile.fortification) return false;
     const campKey = campToKey(camp);
     return campToKey(targetTile.camp) === campKey
@@ -93,7 +98,8 @@ export function canBuildFieldFortificationAt(targetTile, kind, camp, state, occu
 export function canBuildDefenseBuildingAt(targetTile, camp, state) {
     if (!isMechanicEnabled(state, 'fortifications')
         || !isCurrentConstructionCamp(camp, state)
-        || !targetTile || !isLandTile(targetTile)
+        || !targetTile || targetTile.renderOnly === true || targetTile.playable === false
+        || !isLandTile(targetTile)
         || targetTile.unit || targetTile.isCity || targetTile.isVillage || targetTile.isPort
         || targetTile.fieldFortification || targetTile.fortification) return false;
     return campToKey(targetTile.camp) === campToKey(camp)
@@ -110,7 +116,7 @@ export function canBuildFieldFortification(unit, kind, state) {
 export function canBuildBunkerAt(builderOrCamp, targetTile, state) {
     const camp = builderOrCamp?.camp || builderOrCamp;
     return canBuildDefenseBuildingAt(targetTile, camp, state)
-        && !hasSameTypeBuildingWithin(state, targetTile, 'mgNest');
+        && !hasSameTypeBuildingWithin(state, targetTile, 'mgNest', camp);
 }
 
 export function canBuildShoreBatteryAt(targetTile, camp, state) {
@@ -118,7 +124,7 @@ export function canBuildShoreBatteryAt(targetTile, camp, state) {
         && canBuildDefenseBuildingAt(targetTile, camp, state)
         && isCoastalLandTile(targetTile, state)
         && canBuildShoreBattery(state, camp)
-        && !hasSameTypeBuildingWithin(state, targetTile, 'shoreBattery');
+        && !hasSameTypeBuildingWithin(state, targetTile, 'shoreBattery', camp);
 }
 
 export function getAirfieldCap(state, camp) {

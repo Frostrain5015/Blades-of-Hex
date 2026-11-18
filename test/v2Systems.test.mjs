@@ -205,6 +205,51 @@ test('常驻建设规则：防御建筑覆盖己方行政区，非己方行政�
     assert.equal(canBuildBunkerAt(camp, enemyAtSix, state), false, '防御建筑不得覆盖已有地形工事');
 });
 
+test('敌方碉堡与敌方要塞炮不占用己方同类防御建筑 7 格间距，己方建筑仍受间距约束', () => {
+    const camp = { id: 'player1' };
+    const enemy = { id: 'player2' };
+    const enemyCoast = { q: 0, r: 0, s: 0, surface: 'land', playable: true, camp: enemy, unit: null };
+    const water = { q: 1, r: 0, s: -1, surface: 'shallowWater', playable: true, camp: null, unit: null };
+    const ownCoast = { q: 2, r: 0, s: -2, surface: 'land', playable: true, camp, unit: null };
+    const ownInlandNearEnemy = { q: 1, r: -1, s: 0, surface: 'land', playable: true, camp, unit: null };
+    const ownCoastNear = { q: 8, r: 0, s: -8, surface: 'land', playable: true, camp, unit: null };
+    const waterNear = { q: 8, r: 1, s: -9, surface: 'shallowWater', playable: true, camp: null, unit: null };
+    const ownCoastalFar = { q: 9, r: 0, s: -9, surface: 'land', playable: true, camp, unit: null };
+    const waterFar = { q: 10, r: 0, s: -10, surface: 'shallowWater', playable: true, camp: null, unit: null };
+    const enemyNestTile = { q: 3, r: -1, s: -2, surface: 'land', playable: true, camp: enemy, unit: { type: 'mgNest', hp: 200, camp: enemy, _isImmobile: true } };
+    enemyCoast.unit = { type: 'shoreBattery', hp: 150, camp: enemy, _isImmobile: true };
+    const tiles = [enemyCoast, water, ownCoast, ownInlandNearEnemy, ownCoastNear, waterNear, ownCoastalFar, waterFar, enemyNestTile];
+    const state = {
+        currentCamp: camp,
+        campaignMode: true,
+        mechanics: { fortifications: true },
+        tiles,
+        tileMap: new Map(tiles.map(t => [`${t.q},${t.r}`, t])),
+        turnCounter: 0,
+        turnOrder: ['player1', 'player2'],
+        shoreBatteryBuiltRound: {}
+    };
+
+    // 敌方碉堡/要塞炮 7 格内的己方格仍可建造
+    assert.equal(canBuildBunkerAt(camp, ownInlandNearEnemy, state), true);
+    assert.equal(canBuildShoreBatteryAt(ownCoast, camp, state), true);
+    const bunkerPreview = resolveTargetingPreview(state, { cardId: 'build_bunker', targeting: 'emptyTile' }, { myCamp: camp });
+    assert.equal(bunkerPreview.candidateTileKeys.has('1,-1'), true);
+    const mgCardPreview = resolveTargetingPreview(state, { cardId: 'mgNest', targeting: 'emptyFriendlyNonCity' }, { myCamp: camp });
+    assert.equal(mgCardPreview.candidateTileKeys.has('1,-1'), true);
+    const sbPreview = resolveTargetingPreview(state, { cardId: 'build_shore_battery', targeting: 'emptyTile' }, { myCamp: camp });
+    assert.equal(sbPreview.candidateTileKeys.has('2,0'), true);
+
+    // 己方已建碉堡/要塞炮仍受 7 格同类间距限制（距离 <7 禁用，>=7 允许）
+    assert.equal(canBuildShoreBatteryAt(ownCoastNear, camp, state), true);
+    ownInlandNearEnemy.unit = { type: 'mgNest', hp: 200, camp, _isImmobile: true };
+    assert.equal(canBuildBunkerAt(camp, ownCoast, state), false);
+    assert.equal(canBuildBunkerAt(camp, ownCoastalFar, state), true);
+    ownCoast.unit = { type: 'shoreBattery', hp: 150, camp, _isImmobile: true };
+    assert.equal(canBuildShoreBatteryAt(ownCoastNear, camp, state), false);
+    assert.equal(canBuildShoreBatteryAt(ownCoastalFar, camp, state), true);
+});
+
 test('战役 schema 接受机场、军衔专精和精确专精数量条件', () => {
     const level = createDefaultLevel();
     level.factions[0].airfieldCap = 1;
