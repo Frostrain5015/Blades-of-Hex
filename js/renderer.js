@@ -81,10 +81,16 @@ import {
     targetingTileKey
 } from '../rules/targeting.js';
 import {
+    clipToBoard,
+    drawAirViewAaSourceBadge,
+    drawAirViewAirfieldMarker,
+    drawAirViewOverlapHatches,
+    drawAntiAirCoveragePreview,
     drawHologramMotif,
     renderTargetingPreview,
     strokeHexRegionContours
 } from './targetingPreviewRenderer.js';
+import { resolveAirViewState } from '../rules/airView.js';
 import { buildHexRegionContours } from './rendering/hexRegionContours.js';
 import { isPlayableBoardTile } from '../rules/boardLayout.js';
 import { resolveMovementTileReveal } from './movementRegionAnimation.js';
@@ -696,6 +702,9 @@ function _renderGame() {
     // ── 将领特效图层：overSkillFx（技能特效之后；圣骑士剑环前半圈）──
     drawFxLayer('overSkillFx', ctx, now);
 
+    // 统一空军视图叠加层（不限制己方回合）
+    drawAirViewOverlay(now);
+
     // 范围光圈
     drawRangeApertures(now);
 
@@ -1184,27 +1193,41 @@ function _renderGame() {
 const _aaFlakCoverageCache = new Map(); // key -> { at, tiles }
 const _AA_FLAK_CACHE_MS = 200;
 
-function _aaFlakSourceTiles(targetTile, friendlyCamp, airspace = false) {
-    const key = `${targetTile.q},${targetTile.r}|${friendlyCamp?.id ?? friendlyCamp ?? ''}|${airspace ? 1 : 0}`;
+function _aaFlakSourceTiles(targetTile, friendlyCamp, airspace = false, isArea = false) {
+    const key = `${targetTile.q},${targetTile.r}|${friendlyCamp?.id ?? friendlyCamp ?? ''}|${airspace ? 1 : 0}|${isArea ? 1 : 0}`;
     const now = performance.now();
     const hit = _aaFlakCoverageCache.get(key);
     if (hit && now - hit.at < _AA_FLAK_CACHE_MS) return hit.tiles;
-    const coverage = resolveAntiAirCoverage(targetTile, friendlyCamp, gameState.tileMap, {
-        state: gameState,
-        includeSources: true,
-        airspace
-    });
-    const sourceKeys = new Set(coverage.sources.map(source => source.tileKey));
+    const sampleTiles = isArea ? getTargetingAreaTiles(gameState, targetTile) : [targetTile];
+    const sourceKeys = new Set();
+    for (const sampleTile of sampleTiles) {
+        if (!sampleTile) continue;
+        const coverage = resolveAntiAirCoverage(sampleTile, friendlyCamp, gameState.tileMap, {
+            state: gameState,
+            includeSources: true,
+            airspace
+        });
+        for (const source of coverage.sources || []) {
+            if (source?.tileKey) sourceKeys.add(source.tileKey);
+        }
+    }
     const tiles = [...sourceKeys].map(k => gameState.tileMap.get(k)).filter(Boolean);
     if (_aaFlakCoverageCache.size > 64) _aaFlakCoverageCache.clear();
     _aaFlakCoverageCache.set(key, { at: now, tiles });
     return tiles;
 }
 
-function _renderAAFlak(planeX, planeY, targetQ, targetR, t, seed, friendlyCamp, airspace = false) {
-    const targetTile = gameState.tileMap.get(`${targetQ},${targetR}`);
-    if (!targetTile) return;
-    const _sources = _aaFlakSourceTiles(targetTile, friendlyCamp, airspace);
+function _renderAAFlak(planeX, planeY, targetQ, targetR, t, seed, friendlyCamp, airspace = false, fx = null) {
+    let _sources = null;
+    if (Array.isArray(fx?.aaSources)) {
+        _sources = fx.aaSources
+            .map(src => gameState.tileMap?.get(`${src.q},${src.r}`))
+            .filter(Boolean);
+    } else {
+        const targetTile = gameState.tileMap?.get(`${targetQ},${targetR}`);
+        if (!targetTile) return;
+        _sources = _aaFlakSourceTiles(targetTile, friendlyCamp, airspace, fx?.type === 'carpetBomb');
+    }
     for (const _t of _sources) {
         ctx.save();
         const sx2 = _t.x, sy2 = _t.y;
@@ -1445,7 +1468,7 @@ function drawAirstrikeEffects(now) {
             }
 
             if (t >= 0.12 && t <= 0.85) {
-                _renderAAFlak(px, py, fx.q, fx.r, t, (fx.x | 0) * 11 + (fx.y | 0) * 17, _ac);
+                _renderAAFlak(px, py, fx.q, fx.r, t, (fx.x | 0) * 11 + (fx.y | 0) * 17, _ac, false, fx);
             }
 
             continue;
@@ -1485,7 +1508,7 @@ function drawAirstrikeEffects(now) {
             // 通用防空炮火：AA单位向俯冲战机射曳光弹流
             const flakStart = 0.12, flakEnd = 0.85;
             if (t >= flakStart && t <= flakEnd) {
-                _renderAAFlak(px, py, fx.q, fx.r, t, fxSeed, _ac);
+                _renderAAFlak(px, py, fx.q, fx.r, t, fxSeed, _ac, false, fx);
             }
 
             continue;
@@ -1541,7 +1564,7 @@ function drawAirstrikeEffects(now) {
 
         // 通用防空炮火（地毯轰炸 + 普通空袭 + 空降）
         if (fx.q != null && t > 0.15 && t < 0.85) {
-            _renderAAFlak(planeX, planeY, fx.q, fx.r, t, fxSeed, _ac, isAirdrop);
+            _renderAAFlak(planeX, planeY, fx.q, fx.r, t, fxSeed, _ac, isAirdrop, fx);
         }
 
         // sequential drops: release times relative to when plane passes over target
@@ -2416,36 +2439,279 @@ function _drawTargetingRegion(keys, now, options = {}) {
     ctx.restore();
 }
 
-function _drawAntiAirSourceMarkers(preview, now, entryAlpha = 1) {
-    const sourceKeys = new Set();
-    for (const sources of preview.air?.aaSourcesByTileKey?.values?.() || []) {
-        for (const source of sources) sourceKeys.add(source.tileKey);
+let _airViewCache = null;
+let _airViewFadeAlpha = 0;
+let _airViewLastNow = 0;
+const _airViewHoverRangeAlphas = new Map();
+
+function _buildAirViewSignature(viewerCamp) {
+    const viewerKey = campToKey(viewerCamp);
+    const diplomacySig = ['player1', 'player2', 'player3', 'neutral']
+        .map(key => gameState.diplomacy?.[viewerKey]?.[key] || '')
+        .join(',');
+    const visChars = [];
+    const tileTokens = [];
+    const fog = !!gameState.skirmishFog;
+    const tiles = gameState.tiles || [];
+    for (let i = 0, len = tiles.length; i < len; i++) {
+        const tile = tiles[i];
+        if (!isPlayableBoardTile(tile)) continue;
+        const vis = fog ? (isTileVisible(tile, viewerCamp, gameState) ? 1 : 0) : 1;
+        visChars.push(vis);
+        const af = tile.installation?.type === 'airfield' ? tile.installation.status || 'ready' : '';
+        const fort = tile.fieldFortification?.type || tile.fortification?.type || tile.fortification || '';
+        const fortCamp = tile.fieldFortification?.campKey || '';
+        const u = tile.unit;
+        if (!af && !fort && !u) continue;
+        const unitToken = u
+            ? `${u.id}:${u.hp > 0 ? 1 : 0}:${campToKey(u.camp)}:${u.type}:${u.specializationKey || ''}:${u.commander || ''}:${u._rank ?? u.rank ?? 0}:${u._commanderSuppressed ? 1 : 0}:${isUnitVisibleToCamp(u, viewerCamp, gameState) ? 1 : 0}`
+            : '';
+        tileTokens.push(`${tile.q},${tile.r},${campToKey(tile.camp)},${af},${fort}:${fortCamp},${unitToken}`);
     }
-    for (const key of sourceKeys) {
-        const tile = gameState.tileMap.get(key);
-        if (!tile) continue;
-        const wave = (Math.sin(now / 460 + tile.q * 0.5) + 1) / 2;
+    return [
+        viewerKey,
+        gameState.boardLayout || '',
+        tiles.length,
+        gameState.turnNumber || 0,
+        campToKey(gameState.currentCamp),
+        fog ? 1 : 0,
+        gameState.weather || '',
+        isMechanicEnabled(gameState, 'fortifications') ? 1 : 0,
+        isMechanicEnabled(gameState, 'airCommands') ? 1 : 0,
+        diplomacySig,
+        visChars.join(''),
+        tileTokens.join(';')
+    ].join('|');
+}
+
+function _getAirViewSession(viewerCamp) {
+    const signature = _buildAirViewSignature(viewerCamp);
+    if (_airViewCache?.signature === signature) return _airViewCache;
+
+    const data = resolveAirViewState(gameState, viewerCamp, { isTileVisible });
+    const boardClipShapes = _getTargetingBoardClipShapes(true);
+    const hostileCells = data.hostileCells.map(cell => ({
+        tile: cell.tile,
+        ..._hexScreenShape(cell.tile, HEX_SIZE),
+        q: cell.q,
+        r: cell.r,
+        level: cell.level
+    }));
+    const friendlyCells = data.friendlyCells.map(cell => ({
+        tile: cell.tile,
+        ..._hexScreenShape(cell.tile, HEX_SIZE),
+        q: cell.q,
+        r: cell.r,
+        level: cell.level
+    }));
+    const overlapCells = data.overlapCells.map(cell => ({
+        tile: cell.tile,
+        ..._hexScreenShape(cell.tile, HEX_SIZE),
+        q: cell.q,
+        r: cell.r
+    }));
+    const hostileContours = buildHexRegionContours(hostileCells, HEX_SIZE);
+    const friendlyContours = buildHexRegionContours(friendlyCells, HEX_SIZE);
+
+    const playableTiles = (gameState.tiles || []).filter(isPlayableBoardTile);
+    const airfieldRanges = new Map();
+    for (const af of data.airfields) {
+        const rangeTiles = playableTiles.filter(tile => hexDistance(af.tile, tile) <= af.range);
+        const cells = rangeTiles.map(tile => ({ q: tile.q, r: tile.r, center: tile }));
+        airfieldRanges.set(af.key, {
+            af,
+            tiles: rangeTiles,
+            contours: buildHexRegionContours(cells, HEX_SIZE)
+        });
+    }
+
+    _airViewCache = {
+        signature,
+        data,
+        boardClipShapes,
+        hostileCells,
+        hostileContours,
+        friendlyCells,
+        friendlyContours,
+        overlapCells,
+        airfieldRanges
+    };
+    return _airViewCache;
+}
+
+function _drawUnifiedAirViewLayer(now, session, options = {}) {
+    const alpha = Math.max(0, Math.min(1, options.alpha ?? 1));
+    if (alpha <= 0.005 || !session) return;
+
+    const friendlyWeight = Math.max(0, Math.min(1, options.friendlyWeight ?? 1));
+    const launcherKey = options.launcherKey ?? null;
+    const drawHoverRanges = options.drawHoverRanges === true;
+    const dt = options.dt || 0;
+    const hoveredKey = options.hoveredKey ?? null;
+    const reducedMotion = !!settings.reducedMotion;
+    const time = reducedMotion ? 0 : now / 1000;
+    const pulse = reducedMotion ? 0.5 : (Math.sin(now / 340) + 1) / 2;
+
+    if (session.boardClipShapes?.length) {
         ctx.save();
-        ctx.translate(tile.x, tile.y - HEX_SIZE * 0.77);
-        ctx.fillStyle = '#ff6e61';
-        ctx.strokeStyle = '#ffe0dc';
-        ctx.lineWidth = 1.1;
-        ctx.globalAlpha = entryAlpha * (0.78 + wave * 0.2);
-        ctx.shadowColor = '#ff4636';
-        ctx.shadowBlur = 4 + wave * 3;
-        ctx.beginPath();
-        ctx.moveTo(0, -4.5);
-        ctx.lineTo(5.5, 4.3);
-        ctx.lineTo(-5.5, 4.3);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(0, -1.8);
-        ctx.lineTo(0, 1.4);
-        ctx.stroke();
+        if (clipToBoard(ctx, { shapes: session.boardClipShapes })) {
+            ctx.fillStyle = `rgba(8, 17, 21, ${(0.25 * alpha).toFixed(3)})`;
+            ctx.fillRect(-20, -20, LOGICAL_W + 40, LOGICAL_H + 40);
+        }
         ctx.restore();
     }
+
+    if (session.hostileCells.length) {
+        drawAntiAirCoveragePreview(ctx, {
+            cells: session.hostileCells,
+            contours: session.hostileContours,
+            size: HEX_SIZE,
+            color: '#ff4636',
+            innerColor: 'rgba(255, 215, 197, 0.68)',
+            glowColor: '#ff3c2f',
+            levelTwoAlpha: 0.21,
+            alpha,
+            time
+        });
+    }
+
+    if (friendlyWeight > 0.01 && session.friendlyCells.length) {
+        drawAntiAirCoveragePreview(ctx, {
+            cells: session.friendlyCells,
+            contours: session.friendlyContours,
+            size: HEX_SIZE,
+            color: '#28d97c',
+            innerColor: 'rgba(215, 255, 232, 0.72)',
+            glowColor: '#18c96e',
+            insetPx: 1.5,
+            levelTwoAlpha: 0.21,
+            alpha: alpha * friendlyWeight,
+            time
+        });
+    }
+
+    if (friendlyWeight > 0.01 && session.overlapCells.length) {
+        drawAirViewOverlapHatches(ctx, {
+            cells: session.overlapCells,
+            size: HEX_SIZE,
+            alpha: alpha * Math.min(1, friendlyWeight + 0.15)
+        });
+    }
+
+    for (const af of session.data.airfields) {
+        drawAirViewAirfieldMarker(ctx, {
+            center: af.tile,
+            size: HEX_SIZE,
+            isFriendly: af.isFriendly,
+            isReady: af.status === 'ready',
+            isLauncher: launcherKey !== null && af.key === launcherKey,
+            time,
+            phase: af.q * 0.7,
+            alpha,
+            reducedMotion
+        });
+    }
+
+    for (const src of session.data.hostileSourceTiles) {
+        drawAirViewAaSourceBadge(ctx, {
+            center: src.tile,
+            size: HEX_SIZE,
+            isFriendly: false,
+            time,
+            phase: src.tile.q * 0.55,
+            alpha,
+            reducedMotion
+        });
+    }
+
+    if (friendlyWeight > 0.01) {
+        for (const src of session.data.friendlySourceTiles) {
+            drawAirViewAaSourceBadge(ctx, {
+                center: src.tile,
+                size: HEX_SIZE,
+                isFriendly: true,
+                time,
+                phase: src.tile.q * 0.55,
+                alpha: alpha * friendlyWeight,
+                reducedMotion
+            });
+        }
+    }
+
+    if (drawHoverRanges) {
+        for (const key of _airViewHoverRangeAlphas.keys()) {
+            if (!session.airfieldRanges.has(key)) _airViewHoverRangeAlphas.delete(key);
+        }
+        for (const [key, entry] of session.airfieldRanges.entries()) {
+            const active = hoveredKey === key;
+            let curAlpha = _airViewHoverRangeAlphas.get(key) || 0;
+            if (reducedMotion) {
+                curAlpha = active ? 1 : 0;
+            } else {
+                curAlpha = active
+                    ? Math.min(1, curAlpha + dt / 0.18)
+                    : Math.max(0, curAlpha - dt / 0.22);
+            }
+            if (curAlpha > 0) _airViewHoverRangeAlphas.set(key, curAlpha);
+            else _airViewHoverRangeAlphas.delete(key);
+            if (curAlpha <= 0.005) continue;
+
+            const eased = curAlpha * (2 - curAlpha);
+            ctx.save();
+            ctx.beginPath();
+            for (const tile of entry.tiles) hexPath(ctx, tile.x, tile.y, HEX_SIZE * 0.992);
+            ctx.fillStyle = entry.af.isFriendly ? '#28d97c' : '#ff4636';
+            ctx.globalAlpha = alpha * 0.04 * eased;
+            ctx.fill();
+            ctx.restore();
+
+            strokeHexRegionContours(ctx, entry.contours, {
+                stroke: entry.af.isFriendly ? 'rgba(95, 238, 176, 0.84)' : 'rgba(255, 130, 120, 0.84)',
+                lineWidth: 2.5,
+                inner: 'rgba(240, 252, 255, 0.60)',
+                innerWidth: 0.95,
+                glow: entry.af.isFriendly ? 'rgba(40, 217, 124, 0.62)' : 'rgba(255, 70, 54, 0.62)',
+                glowBlur: reducedMotion ? 8 : 7 + pulse * 4,
+                alpha: alpha * eased * (0.86 + pulse * 0.14)
+            });
+        }
+    } else {
+        _airViewHoverRangeAlphas.clear();
+    }
+}
+
+function drawAirViewOverlay(now) {
+    const dt = _airViewLastNow ? Math.min(0.05, Math.max(0, (now - _airViewLastNow) / 1000)) : 0.016;
+    _airViewLastNow = now;
+    const wantOpen = !!gameState.airViewActive
+        && !gameState.cardTargeting
+        && !gameState.gameOver
+        && isMechanicEnabled(gameState, 'airCommands');
+
+    if (settings.reducedMotion) {
+        _airViewFadeAlpha = wantOpen ? 1 : 0;
+    } else {
+        _airViewFadeAlpha = wantOpen
+            ? Math.min(1, _airViewFadeAlpha + dt / 0.18)
+            : Math.max(0, _airViewFadeAlpha - dt / 0.18);
+    }
+    if (_airViewFadeAlpha <= 0.005) {
+        _airViewHoverRangeAlphas.clear();
+        return;
+    }
+
+    const viewerCamp = getViewingCamp();
+    const session = _getAirViewSession(viewerCamp);
+    const eased = _airViewFadeAlpha * (2 - _airViewFadeAlpha);
+    const hoveredKey = targetingTileKey(gameState.hoveredTile);
+    _drawUnifiedAirViewLayer(now, session, {
+        friendlyWeight: 1,
+        alpha: eased,
+        launcherKey: null,
+        drawHoverRanges: wantOpen,
+        dt,
+        hoveredKey
+    });
 }
 
 function _drawAirliftDestinationLink(preview, hoveredTile) {
@@ -2492,16 +2758,7 @@ function drawCardTargetingPreview(now) {
     const groupEntry = _targetEntry(entryOriginTile, entryOriginTile || gameState.tiles[0], now, entryStart);
     const scene = {
         boardClip,
-        antiAir: preview.air ? {
-            cells: (session.aaBaseCells || []).map(cell => ({
-                ...cell,
-                alpha: _targetEntry(entryOriginTile, cell.tile, now, entryStart).alpha
-            })),
-            contours: session.aaContours,
-            size: HEX_SIZE,
-            alpha: 0.96 * groupEntry.alpha,
-            time
-        } : null,
+        antiAir: null,
         origins: [],
         tileDeployments: [],
         areaCenters: [],
@@ -2620,6 +2877,19 @@ function drawCardTargetingPreview(now) {
         }
     }
 
+    if (preview.air) {
+        const airSession = _getAirViewSession(myCamp);
+        const launcherKey = Number.isFinite(cardTargeting.launcherQ) && Number.isFinite(cardTargeting.launcherR)
+            ? `${cardTargeting.launcherQ},${cardTargeting.launcherR}`
+            : null;
+        _drawUnifiedAirViewLayer(now, airSession, {
+            friendlyWeight: 0.35,
+            alpha: 0.96 * groupEntry.alpha,
+            launcherKey,
+            drawHoverRanges: false
+        });
+    }
+
     renderTargetingPreview(ctx, scene);
 
     // 上校专属卡才有真实棋盘起点；普通空袭/空降不得伪造飞机位置。
@@ -2654,12 +2924,18 @@ function drawCardTargetingPreview(now) {
     }
 
     if (activeKey && (preview.cardId === 'carpetBomb'
-        || preview.cardId === 'air_command_bombing' || preview.cardId === 'scout')) {
+        || preview.cardId === 'air_command_bombing'
+        || preview.cardId === 'air_command_recon'
+        || preview.cardId === 'scout')) {
         const affected = getTargetingAreaTiles(gameState, hovered);
         if (preview.air) {
             const cells = affected.map(tile => ({ q: tile.q, r: tile.r, center: tile }));
             const contours = buildHexRegionContours(cells, HEX_SIZE);
-            strokeHexRegionContours(ctx, contours, {
+            const isRecon = preview.cardId === 'air_command_recon';
+            strokeHexRegionContours(ctx, contours, isRecon ? {
+                stroke: '#7fd4ff', lineWidth: 2.1, inner: '#dff7ff', innerWidth: 0.8,
+                glow: '#3ec3ff', glowBlur: 6, alpha: groupEntry.alpha
+            } : {
                 stroke: '#ffc36d', lineWidth: 2.1, inner: '#fff0c7', innerWidth: 0.8,
                 glow: '#f58c49', glowBlur: 6, alpha: groupEntry.alpha
             });
@@ -2677,7 +2953,6 @@ function drawCardTargetingPreview(now) {
     }
 
     _drawAirliftDestinationLink(preview, hovered);
-    _drawAntiAirSourceMarkers(preview, now, groupEntry.alpha);
 }
 
 function _drawDeselectingActionPreview(now) {

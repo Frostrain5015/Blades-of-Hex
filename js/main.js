@@ -4246,7 +4246,7 @@ function _playActionPresentation(actionType, e, { katyushaStartedAt = undefined,
             const launcherCamp = gameState.tileMap.get(`${e.launcherQ},${e.launcherR}`)?.camp || null;
             if (e.kind === 'strafe') {
                 // 复用上校扫射动画：战机俯冲 + 机炮扫射曳光弹（除烧牌部分外）
-                spawnAirstrikeEffect(target.x, target.y, e.results || [], 'diveStrafe', target.q, target.r, null, null, launcherCamp, performance.now(), { antiAir: e.antiAir });
+                spawnAirstrikeEffect(target.x, target.y, e.results || [], 'diveStrafe', target.q, target.r, null, null, launcherCamp, performance.now(), { antiAir: e.antiAir, aaSources: e.aaSources });
                 playSound('airstrike');
                 setTimeout(() => {
                     playSound('machinegun');
@@ -4259,10 +4259,10 @@ function _playActionPresentation(actionType, e, { katyushaStartedAt = undefined,
                     }
                 }, 600);
             } else if (e.kind === 'bombing') {
-                spawnAirstrikeEffect(target.x, target.y, e.results || [], 'carpetBomb', target.q, target.r, null, null, launcherCamp, performance.now(), { antiAir: e.antiAir });
+                spawnAirstrikeEffect(target.x, target.y, e.results || [], 'carpetBomb', target.q, target.r, null, null, launcherCamp, performance.now(), { antiAir: e.antiAir, aaSources: e.aaSources });
                 playSound('airstrike');
             } else if (e.kind === 'stukaDiveBomb') {
-                playStukaStrafe(target, e.results || [], launcherCamp, { antiAir: e.antiAir });
+                playStukaStrafe(target, e.results || [], launcherCamp, { antiAir: e.antiAir, aaSources: e.aaSources });
                 playSound('airstrike');
             } else if (e.kind === 'recon') {
                 spawnCommanderSkillEffect(target.x, target.y, '🔭', '侦察机');

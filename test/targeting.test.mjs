@@ -111,9 +111,10 @@ assert.equal(preview.air.rangeTileKeys.has('8,0'), true, '机场基础航程圈�
 assert.equal(preview.air.rangeTileKeys.has('9,0'), false, '机场基础航程圈不应越过 8 格');
 
 {
-    const sea = tile(1, 0, { surface: 'deepWater', fortification: 'flak' });
-    const filler = tile(1, -1, { isVisualFiller: true, renderOnly: true, playable: false, fortification: 'flak' });
-    const map = state([airfield, sea, filler]);
+    const sea = tile(1, 0, { surface: 'deepWater', fortification: 'flak', unit: unit('sea-guard', camps.player2) });
+    const filler = tile(1, -1, { isVisualFiller: true, renderOnly: true, playable: false, fortification: 'flak', unit: unit('filler-guard', camps.player2) });
+    const unmannedFlak = tile(2, 0, { fortification: 'flak' });
+    const map = state([airfield, sea, filler, unmannedFlak]);
     const bombing = { cardId: 'air_command_bombing', launcherQ: 0, launcherR: 0 };
     const bombingPreview = resolveTargetingPreview(map, bombing, { hoveredTile: sea });
     assert.equal(isResolvedTargetingCandidate(bombingPreview, sea), true, '可玩深海仍可选作轰炸中心');
@@ -121,7 +122,9 @@ assert.equal(preview.air.rangeTileKeys.has('9,0'), false, '机场基础航程圈
     assert.equal(bombingPreview.air.rangeTileKeys.has('1,-1'), false);
     assert.equal(bombingPreview.air.aaLayersByTileKey.has('1,-1'), false);
     assert.equal(bombingPreview.air.aaLayersByTileKey.has('1,0'), true);
-    assert.deepEqual([...bombingPreview.affectedTileKeys].sort(), ['0,0', '1,0']);
+    assert.equal(bombingPreview.air.aaLayersByTileKey.has('2,0'), false, '无单位驻守的高射机枪不提供防空覆盖');
+    assert.deepEqual([...bombingPreview.affectedTileKeys].sort(), ['0,0', '1,0', '2,0']);
+
 }
 
 // 机场扫射可指定无驻军但HP>0的敌方/中立空城市（削减城市HP）

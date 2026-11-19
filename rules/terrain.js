@@ -25,7 +25,7 @@ export const FORTIFICATION_CONFIG = (() => {
         iconFont: `14px ${EMOJI_FONT_STACK}`
     };
     trench.desc = `对近战与炮击（炮兵/碉堡/舰炮）攻击防御力提高${percent(trench.defenseBonus)}`;
-    flak.desc = `为本格单位提供${percent(flak.antiAirReduction)}防空火力`;
+    flak.desc = `有单位驻守时为本格单位提供${percent(flak.antiAirReduction)}防空火力`;
     return deepFreeze({ trench, flak });
 })();
 

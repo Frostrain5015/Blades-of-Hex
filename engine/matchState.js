@@ -400,6 +400,7 @@ export function createClientUiState() {
         deselectOrigin: null,
         cardStackExpanded: false,
         cardTargeting: null,
+        airViewActive: false,
         _prevVisibleTiles: { player1: new Set(), player2: new Set(), player3: new Set() },
         _fogTransitionStart: 0,
         _fogPresentationHolds: {},
@@ -450,6 +451,7 @@ export function resetClientUiState(ui) {
     ui.deselectOrigin = null;
     ui.cardStackExpanded = false;
     ui.cardTargeting = null;
+    ui.airViewActive = false;
     ui._prevVisibleTiles = { player1: new Set(), player2: new Set(), player3: new Set() };
     ui._fogTransitionStart = 0;
     ui._fogPresentationHolds = {};

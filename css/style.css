@@ -2836,6 +2836,10 @@ body {
     outline-offset: 2px;
 }
 
+.canvas-action-button.is-active {
+    box-shadow: 0 0 0 2px rgba(104, 242, 194, 0.36), 0 4px 14px rgba(24, 201, 110, 0.44), inset 0 1px rgba(255, 255, 255, 0.24);
+}
+
 .canvas-action-button:disabled,
 .canvas-action-button.is-disabled {
     background: #4d4d4d;

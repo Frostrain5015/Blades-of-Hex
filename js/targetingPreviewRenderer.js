@@ -519,12 +519,56 @@ function drawHatchLines(ctx, bounds, spacing, reverse = false) {
     }
 }
 
+function appendRoundRectPath(ctx, x, y, width, height, radius) {
+    const r = Math.max(0, Math.min(radius, width / 2, height / 2));
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + width - r, y);
+    ctx.quadraticCurveTo(x + width, y, x + width, y + r);
+    ctx.lineTo(x + width, y + height - r);
+    ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+    ctx.lineTo(x + r, y + height);
+    ctx.quadraticCurveTo(x, y + height, x, y + height - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+}
+
+function insetContour(contour, insetPx) {
+    const count = Array.isArray(contour) ? contour.length : 0;
+    if (count < 3 || !Number.isFinite(insetPx) || insetPx <= 0) return contour;
+    return contour.map((pt, index) => {
+        const prev = contour[(index - 1 + count) % count];
+        const next = contour[(index + 1) % count];
+        const dx1 = pt.x - prev.x;
+        const dy1 = pt.y - prev.y;
+        const dx2 = next.x - pt.x;
+        const dy2 = next.y - pt.y;
+        const len1 = Math.hypot(dx1, dy1);
+        const len2 = Math.hypot(dx2, dy2);
+        if (len1 <= 1e-6 || len2 <= 1e-6) return pt;
+        const n1x = -dy1 / len1;
+        const n1y = dx1 / len1;
+        const n2x = -dy2 / len2;
+        const n2y = dx2 / len2;
+        const bx = n1x + n2x;
+        const by = n1y + n2y;
+        const denom = Math.max(0.4, 1 + n1x * n2x + n1y * n2y);
+        return {
+            x: pt.x + (insetPx * bx) / denom,
+            y: pt.y + (insetPx * by) / denom
+        };
+    });
+}
+
 export function strokeHexRegionContours(ctx, contours, style) {
     if (!contours.length) return;
+    const insetPx = finite(style?.insetPx, 0);
     ctx.save();
     ctx.globalAlpha *= style.alpha ?? 1;
     ctx.beginPath();
-    for (const contour of contours) appendPolygonPath(ctx, contour);
+    for (const contour of contours) {
+        appendPolygonPath(ctx, insetPx > 0 ? insetContour(contour, insetPx) : contour);
+    }
     ctx.lineJoin = 'round';
     ctx.setLineDash([]);
     ctx.strokeStyle = style.stroke;
@@ -544,6 +588,9 @@ export function drawAntiAirCoveragePreview(ctx, descriptor = {}) {
     const fallbackSize = positive(descriptor.size, 30);
     const color = colorFor('antiAir', descriptor.color);
     const groupAlpha = opacity(descriptor.alpha, 1);
+    const levelOneAlpha = opacity(descriptor.levelOneAlpha, 0.11);
+    const levelTwoAlpha = opacity(descriptor.levelTwoAlpha, 0.20);
+    const insetPx = finite(descriptor.insetPx, 0);
     if (!cells.length) return 0;
 
     for (const level of [1, 2]) {
@@ -554,7 +601,7 @@ export function drawAntiAirCoveragePreview(ctx, descriptor = {}) {
             appendPolygonPath(ctx, scaledPoints(pointsFor(cell, fallbackSize), 0.998));
         }
         ctx.fillStyle = descriptor.fillColor || color;
-        ctx.globalAlpha *= groupAlpha * (level === 1 ? 0.11 : 0.20);
+        ctx.globalAlpha *= groupAlpha * (level === 1 ? levelOneAlpha : levelTwoAlpha);
         ctx.fill();
         ctx.restore();
     }
@@ -569,13 +616,255 @@ export function drawAntiAirCoveragePreview(ctx, descriptor = {}) {
     strokeHexRegionContours(ctx, contours, {
         stroke: color,
         lineWidth: Math.max(5.4, fallbackSize * 0.13),
-        inner: 'rgba(255,215,197,0.64)',
+        inner: descriptor.innerColor || 'rgba(255,215,197,0.64)',
         innerWidth: 1.4,
-        glow: '#ff3c2f',
+        glow: descriptor.glowColor || '#ff3c2f',
         glowBlur: 7 + pulse * 4,
-        alpha: groupAlpha * (0.86 + pulse * 0.14)
+        alpha: groupAlpha * (0.86 + pulse * 0.14),
+        insetPx
     });
     return cells.length;
+}
+
+/**
+ * Draw alternating diagonal green/red stripes inside cells covered by both friendly and hostile AA.
+ */
+export function drawAirViewOverlapHatches(ctx, descriptor = {}) {
+    const cells = Array.isArray(descriptor.cells) ? descriptor.cells : [];
+    if (!cells.length) return 0;
+    const fallbackSize = positive(descriptor.size, 30);
+    const groupAlpha = opacity(descriptor.alpha, 1);
+    if (groupAlpha <= 0) return 0;
+
+    const greenColor = descriptor.greenColor || 'rgba(40, 217, 124, 0.28)';
+    const redColor = descriptor.redColor || 'rgba(255, 70, 54, 0.28)';
+    const stripeWidth = positive(descriptor.stripeWidth, 3.2);
+    const spacing = positive(descriptor.spacing, 14);
+
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+
+    ctx.save();
+    ctx.globalAlpha *= groupAlpha;
+    ctx.beginPath();
+    let appended = false;
+    for (const cell of cells) {
+        const points = scaledPoints(pointsFor(cell, fallbackSize), 0.95);
+        if (!appendPolygonPath(ctx, points)) continue;
+        appended = true;
+        for (const pt of points) {
+            if (pt.x < minX) minX = pt.x;
+            if (pt.y < minY) minY = pt.y;
+            if (pt.x > maxX) maxX = pt.x;
+            if (pt.y > maxY) maxY = pt.y;
+        }
+    }
+    if (!appended) {
+        ctx.restore();
+        return 0;
+    }
+    ctx.clip();
+
+    const padY = fallbackSize;
+    const topY = minY - padY;
+    const bottomY = maxY + padY;
+    const height = Math.max(1, bottomY - topY);
+    const shiftX = height * 0.7;
+    const startX = minX - fallbackSize - shiftX;
+    const endX = maxX + fallbackSize + shiftX;
+
+    ctx.lineWidth = stripeWidth;
+    ctx.lineCap = 'butt';
+    for (const parity of [0, 1]) {
+        ctx.strokeStyle = parity === 0 ? greenColor : redColor;
+        ctx.beginPath();
+        let stripeIndex = 0;
+        for (let x = startX; x <= endX; x += spacing, stripeIndex++) {
+            if (stripeIndex % 2 !== parity) continue;
+            ctx.moveTo(x, topY);
+            ctx.lineTo(x - shiftX, bottomY);
+        }
+        ctx.stroke();
+    }
+
+    ctx.restore();
+    return cells.length;
+}
+
+/**
+ * Draw centered high-contrast airfield beacon (`🛫`) with optional building/launcher state.
+ */
+export function drawAirViewAirfieldMarker(ctx, descriptor = {}) {
+    if (!validPoint(descriptor.center)) return false;
+    const size = positive(descriptor.size, 30);
+    const isFriendly = descriptor.isFriendly !== false;
+    const isReady = descriptor.isReady !== false;
+    const isLauncher = descriptor.isLauncher === true;
+    const reducedMotion = descriptor.reducedMotion === true;
+    const time = reducedMotion ? 0 : finite(descriptor.time, 0);
+    const wave = reducedMotion ? 0.5 : waveAt(time, 2.75, descriptor.phase);
+
+    const baseColor = isLauncher ? '#7ae8ff' : (isFriendly ? '#2be88a' : '#ff4d40');
+    const glowColor = isLauncher ? '#4dd2ff' : (isFriendly ? '#16c96e' : '#ff3224');
+    const bgColor = isFriendly ? 'rgba(11, 46, 30, 0.90)' : 'rgba(54, 14, 14, 0.90)';
+    const ringColor = isLauncher ? '#ebfcff' : (isFriendly ? '#c8ffdf' : '#ffd8d4');
+    const { x, y } = descriptor.center;
+    const radius = Math.max(15.5, size * 0.55);
+
+    ctx.save();
+    applyDescriptorAlpha(ctx, descriptor);
+    const baseAlpha = ctx.globalAlpha;
+
+    if (isLauncher) {
+        ctx.save();
+        ctx.strokeStyle = '#7ae8ff';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 5]);
+        ctx.lineDashOffset = reducedMotion ? 0 : -(time * 22);
+        ctx.globalAlpha = baseAlpha * 0.92;
+        ctx.beginPath();
+        ctx.arc(x, y, radius + 6.5, 0, TAU);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.restore();
+    }
+
+    if (!reducedMotion) {
+        const radarT = ((time / 1.5) + (isFriendly ? 0 : 0.5)) % 1;
+        ctx.beginPath();
+        ctx.arc(x, y, radius + radarT * 11, 0, TAU);
+        ctx.strokeStyle = baseColor;
+        ctx.lineWidth = 1.6;
+        ctx.globalAlpha = baseAlpha * (1 - radarT) * 0.55;
+        ctx.stroke();
+    }
+
+    ctx.globalAlpha = baseAlpha;
+    ctx.shadowColor = glowColor;
+    ctx.shadowBlur = (isLauncher ? 13 : 9) + wave * 5;
+    ctx.fillStyle = bgColor;
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, TAU);
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = baseColor;
+    ctx.lineWidth = isLauncher ? 2.8 : 2.5;
+    if (!isReady) ctx.setLineDash([4, 3]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.strokeStyle = ringColor;
+    ctx.lineWidth = 0.9;
+    ctx.globalAlpha = baseAlpha * 0.75;
+    ctx.beginPath();
+    ctx.arc(x, y, radius - 2.6, 0, TAU);
+    ctx.stroke();
+
+    ctx.globalAlpha = baseAlpha;
+    ctx.font = '17px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('🛫', x, y + 0.5);
+
+    if (isLauncher) {
+        ctx.fillStyle = '#0c232b';
+        ctx.strokeStyle = '#7ae8ff';
+        ctx.lineWidth = 1.1;
+        ctx.beginPath();
+        appendRoundRectPath(ctx, x - 14, y + 12, 28, 12, 4);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = '#bff6ff';
+        ctx.font = 'bold 9px sans-serif';
+        ctx.fillText('出击', x, y + 18.5);
+    } else if (!isReady) {
+        ctx.font = 'bold 9px sans-serif';
+        ctx.fillStyle = '#ffe596';
+        ctx.fillText('建', x + radius * 0.65, y + radius * 0.7);
+    }
+
+    ctx.restore();
+    return true;
+}
+
+/**
+ * Draw top-right translucent floating badge with twin AA cannon vector glyph (Scheme A).
+ */
+export function drawAirViewAaSourceBadge(ctx, descriptor = {}) {
+    if (!validPoint(descriptor.center)) return false;
+    const size = positive(descriptor.size, 30);
+    const isFriendly = descriptor.isFriendly === true;
+    const reducedMotion = descriptor.reducedMotion === true;
+    const time = reducedMotion ? 0 : finite(descriptor.time, 0);
+    const wave = reducedMotion ? 0.5 : waveAt(time, 2.38, descriptor.phase);
+
+    const x = descriptor.center.x + size * 0.44;
+    const y = descriptor.center.y - size * 0.42;
+    const radius = Math.max(11.5, size * 0.39);
+    const baseColor = isFriendly ? '#2be88a' : '#ff4d40';
+    const glowColor = isFriendly ? '#16c96e' : '#ff3224';
+    const bgColor = isFriendly ? 'rgba(11, 46, 30, 0.64)' : 'rgba(54, 14, 14, 0.64)';
+    const ringColor = isFriendly ? '#c8ffdf' : '#ffd8d4';
+    const scale = radius * 0.58;
+
+    ctx.save();
+    applyDescriptorAlpha(ctx, descriptor);
+    const baseAlpha = ctx.globalAlpha;
+
+    ctx.globalAlpha = baseAlpha * 0.90;
+    ctx.shadowColor = glowColor;
+    ctx.shadowBlur = reducedMotion ? 7 : 7 + wave * 4;
+    ctx.fillStyle = bgColor;
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, TAU);
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = baseColor;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.strokeStyle = ringColor;
+    ctx.lineWidth = 0.9;
+    ctx.globalAlpha = baseAlpha * 0.68;
+    ctx.beginPath();
+    ctx.arc(x, y, radius - 2.4, 0, TAU);
+    ctx.stroke();
+
+    ctx.translate(x, y);
+    ctx.globalAlpha = baseAlpha * 0.96;
+    ctx.strokeStyle = ringColor;
+    ctx.fillStyle = ringColor;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = Math.max(1.7, radius * 0.145);
+    ctx.beginPath();
+    ctx.moveTo(-scale * 0.12, scale * 0.36);
+    ctx.lineTo(-scale * 0.78, -scale * 0.62);
+    ctx.moveTo(scale * 0.32, scale * 0.24);
+    ctx.lineTo(-scale * 0.32, -scale * 0.72);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(scale * 0.15, scale * 0.42, scale * 0.36, Math.PI, 0);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.lineWidth = Math.max(1.4, radius * 0.11);
+    ctx.beginPath();
+    ctx.moveTo(-scale * 0.46, scale * 0.54);
+    ctx.lineTo(scale * 0.74, scale * 0.54);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(-scale * 0.82, -scale * 0.72, Math.max(1.1, radius * 0.085), 0, TAU);
+    ctx.fill();
+
+    ctx.restore();
+    return true;
 }
 
 /** Draw the accepted circular, diagonally-hatched action-origin marker. */

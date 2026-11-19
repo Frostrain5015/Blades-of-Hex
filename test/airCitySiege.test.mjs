@@ -517,3 +517,72 @@ test('地雷/水雷部署时非己方视角看不到部署位置动画与坐标�
     assert.equal(gameState.logHistory.some(entry => entry.includes(`(${ownTile.q},${ownTile.r})`)), true,
         '己方布雷日志应包含坐标');
 });
+
+test('轰炸具防空火力的中立城市或中立防空部队时，无论是否邻格溅射或当场摧毁/击杀都保留防空子弹流来源', () => {
+    const NEU = { id: 'neutral', name: '中立', color: '#888888' };
+    const airfield = enemyCityTile(0, 0);
+    airfield.camp = P1;
+    airfield.installation = { type: 'airfield', status: 'ready' };
+
+    const neutralFlakCity = new HexTile(3, 0);
+    neutralFlakCity.isCity = true;
+    neutralFlakCity.camp = NEU;
+    neutralFlakCity.hp = 300;
+    neutralFlakCity.maxHp = 300;
+    neutralFlakCity.fortification = 'flak';
+    neutralFlakCity.fieldFortification = { type: 'flak', campKey: 'neutral', ownerKnown: true };
+
+    const unmannedNeutralFlak = new HexTile(1, 1);
+    unmannedNeutralFlak.camp = NEU;
+    unmannedNeutralFlak.fortification = 'flak';
+    unmannedNeutralFlak.fieldFortification = { type: 'flak', campKey: 'neutral', ownerKnown: true };
+
+    const adjacentPlain = new HexTile(2, 0);
+    adjacentPlain.camp = NEU;
+
+    const neutralAaTile = new HexTile(5, 0);
+    neutralAaTile.camp = NEU;
+
+    setupMatch([airfield, neutralFlakCity, unmannedNeutralFlak, adjacentPlain, neutralAaTile]);
+    gameState.factions.neutral = NEU;
+    gameState.diplomacy.player1.neutral = 'neutral';
+    gameState.diplomacy.player2.neutral = 'neutral';
+    gameState.diplomacy.neutral = { player1: 'neutral', player2: 'neutral' };
+
+    new Unit('infantry', NEU, neutralFlakCity);
+
+    const neutralAaUnit = new Unit('archer', NEU, neutralAaTile);
+    neutralAaUnit._rank = 1;
+    neutralAaUnit.specializationKey = 'antiAirArtillery';
+    neutralAaUnit.hp = 1; // 轰炸当场击杀，验证击杀前仍保留防空子弹流来源
+
+    // 0) 无人驻守的中立高射机枪不产生防空源
+    airstrikeEffects.length = 0;
+    assert.equal(gl.executeAirCommand('bombing', airfield, unmannedNeutralFlak), true);
+    assert.equal(airstrikeEffects.at(-1)?.aaSources?.some(s => s.q === 1 && s.r === 1), false,
+        '无单位驻守的中立高射机枪不视为有效防空设施');
+
+    // 1) 轰炸邻格（中立高射机枪城市位于7格溅射范围内）：仍捕获该中立城市为防空源
+    airfield.installation.airCommandReadyRound.bombing = 0;
+    airstrikeEffects.length = 0;
+    assert.equal(gl.executeAirCommand('bombing', airfield, adjacentPlain), true);
+    assert.ok(airstrikeEffects.at(-1)?.aaSources?.some(s => s.q === 3 && s.r === 0),
+        '轰炸邻格溅射中立防空城市时应包含该中立城市的防空源');
+
+    // 2) 直接轰炸中立防空城市且触发 30% 工事摧毁：摧毁前已捕获防空源
+    airfield.installation.airCommandReadyRound.bombing = 0;
+    gameState.rng = { range: (min, max) => (min + max) / 2, chance: () => true, pick: arr => arr[0], getState: () => 1, setState() {} };
+    airstrikeEffects.length = 0;
+    assert.equal(gl.executeAirCommand('bombing', airfield, neutralFlakCity), true);
+    assert.equal(neutralFlakCity.fortification, null, '测试前提：本次轰炸摧毁了中立高射机枪');
+    assert.ok(airstrikeEffects.at(-1)?.aaSources?.some(s => s.q === 3 && s.r === 0),
+        '即使高射机枪在本次轰炸中被摧毁，动画仍应播放防空子弹流');
+
+    // 3) 轰炸中立防空部队并当场击杀：击杀前已捕获防空源
+    airfield.installation.airCommandReadyRound.bombing = 0;
+    airstrikeEffects.length = 0;
+    assert.equal(gl.executeAirCommand('bombing', airfield, neutralAaTile), true);
+    assert.equal(neutralAaTile.unit, null, '测试前提：中立防空部队已被当场击杀');
+    assert.ok(airstrikeEffects.at(-1)?.aaSources?.some(s => s.q === 5 && s.r === 0),
+        '即使中立防空部队被当场击杀，动画仍应播放防空子弹流');
+});

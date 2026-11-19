@@ -108,7 +108,8 @@ import { isPlayableBoardTile } from '../rules/boardLayout.js';
 import {
     ANTI_AIR_RADIUS,
     getAntiAirReduction,
-    isAntiAirUnit as isAntiAirUnitRule
+    isAntiAirUnit as isAntiAirUnitRule,
+    resolveAntiAirCoverage
 } from '../rules/antiAir.js';
 import {
     areCommanderMechanicsSuppressed,
@@ -4552,8 +4553,9 @@ function _attackCityTile(attackerUnit, targetTile, options) {
     const attackPresentation = classifyAttackPresentation(attackerUnit);
     const isCrit = result.isCrit;
     if (attackPresentation === ATTACK_PRESENTATION.FIRE_AIR_STRAFE) {
+        const siegeAaSources = _collectAirStrikeAaSources([targetTile], attackerUnit.camp);
         playSound('airstrike');
-        spawnAirstrikeEffect(toX, toY, [{ q: targetTile.q, r: targetTile.r, dmg: result.damage }], 'diveStrafe', targetTile.q, targetTile.r, null, null, attackerUnit.camp, performance.now(), { antiAir: result.antiAir });
+        spawnAirstrikeEffect(toX, toY, [{ q: targetTile.q, r: targetTile.r, dmg: result.damage }], 'diveStrafe', targetTile.q, targetTile.r, null, null, attackerUnit.camp, performance.now(), { antiAir: result.antiAir, aaSources: siegeAaSources });
         setTimeout(() => {
             playSound('machinegun');
             for (let i = 0; i < 12; i++) {
@@ -4640,7 +4642,26 @@ function _attackCityTile(attackerUnit, targetTile, options) {
     return true;
 }
 
-export function startAirdropPresentation(tile, { delayMs = 0, onLand } = {}) {
+function _collectAirStrikeAaSources(tiles, attackingCamp, { airspace = false } = {}) {
+    const seen = new Set();
+    const sources = [];
+    for (const tile of tiles || []) {
+        if (!tile) continue;
+        const cov = resolveAntiAirCoverage(tile, attackingCamp, gameState.tileMap, {
+            state: gameState,
+            includeSources: true,
+            airspace
+        });
+        for (const src of cov.sources || []) {
+            if (!src?.tileKey || seen.has(src.tileKey)) continue;
+            seen.add(src.tileKey);
+            sources.push({ q: src.q, r: src.r });
+        }
+    }
+    return sources;
+}
+
+export function startAirdropPresentation(tile, { delayMs = 0, onLand, aaSources = null } = {}) {
     const { x, y, q, r, unit } = tile;
     const key = `${q},${r}`;
     const startTime = performance.now() + delayMs;
@@ -4649,7 +4670,7 @@ export function startAirdropPresentation(tile, { delayMs = 0, onLand } = {}) {
     // continue to use the unit already present in match state.
     unit._airdropLandAt = landAt;
     unit._airdropWaiting = false;
-    spawnAirstrikeEffect(x, y, [], 'airdrop', q, r, null, null, unit.camp, startTime);
+    spawnAirstrikeEffect(x, y, [], 'airdrop', q, r, null, null, unit.camp, startTime, aaSources ? { aaSources } : null);
     if (delayMs) setTimeout(() => playSound('airstrike'), delayMs);
     else playSound('airstrike');
     setTimeout(() => {
@@ -4685,9 +4706,11 @@ function _executeAirCommand(kind, launcherTile, targetTile, aiPhase) {
     const commandCost = getAirCommandCost(kind, launcherTile, gameState);
     let destroyedFortification = null;
     let strikeAntiAir = 0;
+    let aaSources = [];
     if ((kind === 'strafe' || kind === 'stukaDiveBomb')
         && !canTargetWithSingleAirCommand(targetTile, launcherTile.camp, gameState)) return false;
     if (kind === 'strafe') {
+        aaSources = _collectAirStrikeAaSources([targetTile], launcherTile.camp);
         const target = targetTile.unit;
         if (target) {
             const result = _resolveAirCommandDamage(AIRFIELD_BASE_POWER, 1, target, launcherTile, { missingHpBonus: true });
@@ -4707,7 +4730,7 @@ function _executeAirCommand(kind, launcherTile, targetTile, aiPhase) {
         }
         // 复用上校扫射动画：战机俯冲 + 机炮扫射曳光弹（除烧牌部分外）
         playSound('airstrike');
-        spawnAirstrikeEffect(targetTile.x, targetTile.y, results, 'diveStrafe', targetTile.q, targetTile.r, null, null, launcherTile.camp, performance.now(), { antiAir: strikeAntiAir });
+        spawnAirstrikeEffect(targetTile.x, targetTile.y, results, 'diveStrafe', targetTile.q, targetTile.r, null, null, launcherTile.camp, performance.now(), { antiAir: strikeAntiAir, aaSources });
         setTimeout(() => {
             playSound('machinegun');
             const tx = targetTile.x, ty = targetTile.y;
@@ -4723,6 +4746,7 @@ function _executeAirCommand(kind, launcherTile, targetTile, aiPhase) {
         let maxRawAntiAir = getAntiAirReduction(targetTile, launcherTile.camp, gameState.tileMap, { state: gameState });
         if (colonel) maxRawAntiAir = Math.max(0, maxRawAntiAir - COLONEL_ANTI_AIR_PIERCE);
         const affected = getTargetingAreaTiles(gameState, targetTile);
+        aaSources = _collectAirStrikeAaSources(affected, launcherTile.camp);
         for (let index = 0; index < affected.length; index++) {
             const tile = affected[index];
             const target = tile.unit;
@@ -4752,9 +4776,10 @@ function _executeAirCommand(kind, launcherTile, targetTile, aiPhase) {
             targetTile.fieldFortification = null;
             invalidateBoard();
         }
-        spawnAirstrikeEffect(targetTile.x, targetTile.y, results, 'carpetBomb', targetTile.q, targetTile.r, null, null, launcherTile.camp, performance.now(), { antiAir: strikeAntiAir });
+        spawnAirstrikeEffect(targetTile.x, targetTile.y, results, 'carpetBomb', targetTile.q, targetTile.r, null, null, launcherTile.camp, performance.now(), { antiAir: strikeAntiAir, aaSources });
         playSound('airstrike');
     } else if (kind === 'stukaDiveBomb') {
+        aaSources = _collectAirStrikeAaSources([targetTile], launcherTile.camp);
         const target = targetTile.unit;
         if (target) {
             const result = _resolveAirCommandDamage(AIRFIELD_BASE_POWER, config.multiplier, target, launcherTile, { allowAntiAirPierce: false });
@@ -4770,9 +4795,10 @@ function _executeAirCommand(kind, launcherTile, targetTile, aiPhase) {
             results.push({ q: targetTile.q, r: targetTile.r, damage: 0, killed: false, isCrit: false, isEmptyStrike: true });
         }
         playSound('airstrike');
-        playStukaStrafe(targetTile, results, launcherTile.camp, { antiAir: strikeAntiAir });
+        playStukaStrafe(targetTile, results, launcherTile.camp, { antiAir: strikeAntiAir, aaSources });
     } else if (kind === 'airdrop') {
         if (!canAirCommandAirdropAt(targetTile) || !isVisibleForAction(targetTile, launcherTile.camp, gameState)) return false;
+        aaSources = _collectAirStrikeAaSources([targetTile], launcherTile.camp, { airspace: true });
         const colonel = getAirfieldColonel(launcherTile);
         let antiAir = getAntiAirReduction(targetTile, launcherTile.camp, gameState.tileMap, { state: gameState, airspace: true });
         if (colonel) antiAir = Math.max(0, antiAir - COLONEL_ANTI_AIR_PIERCE);
@@ -4788,7 +4814,7 @@ function _executeAirCommand(kind, launcherTile, targetTile, aiPhase) {
         unit.canAct = false;
         unit.remainingMP = 0;
         results.push({ q: targetTile.q, r: targetTile.r, unitId: unit.id, hp: unit.hp, aaDamage: hpLoss, antiAir: landingReduction });
-        startAirdropPresentation(targetTile);
+        startAirdropPresentation(targetTile, { aaSources });
     } else if (kind === 'recon') {
         if (!gameState.skirmishFog || gameState.campaignMode) return false;
         const antiAir = getAntiAirReduction(targetTile, launcherTile.camp, gameState.tileMap, { state: gameState });
@@ -4900,6 +4926,7 @@ function _executeAirCommand(kind, launcherTile, targetTile, aiPhase) {
         detonatedMines,
         eagleSynergyEvents: Number.isFinite(impactDelay) ? gameState._pendingEagleSynergyEvents.splice(0) : [],
         antiAir: strikeAntiAir,
+        aaSources,
         results
     });
     return true;
@@ -5723,8 +5750,9 @@ function _executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) {
                 x, y, q: targetTile.q, r: targetTile.r,
                 value: result.dmg, timeLeft: 900, delayMs: BURN_MS + 1000
             });
+            const aaSources = _collectAirStrikeAaSources([targetTile], myCamp);
             setTimeout(() => {
-                spawnAirstrikeEffect(x, y, [{ q: targetTile.q, r: targetTile.r, dmg: result.dmg }], 'diveStrafe', targetTile.q, targetTile.r, null, null, myCamp, performance.now(), { antiAir: result.antiAir });
+                spawnAirstrikeEffect(x, y, [{ q: targetTile.q, r: targetTile.r, dmg: result.dmg }], 'diveStrafe', targetTile.q, targetTile.r, null, null, myCamp, performance.now(), { antiAir: result.antiAir, aaSources });
                 playSound('airstrike');
                 // 单条弹道持续射出~5发追踪曳光弹，每发单独计算飞机位置
                 setTimeout(() => {
@@ -5783,8 +5811,9 @@ function _executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) {
                     value: r.dmg, timeLeft: 900, delayMs: BURN_MS + 1400
                 });
             }
+            const aaSources = _collectAirStrikeAaSources(getTargetingAreaTiles(gameState, targetTile), myCamp);
             setTimeout(() => {
-                spawnAirstrikeEffect(x, y, cResults, 'carpetBomb', targetTile.q, targetTile.r, null, null, myCamp, performance.now(), { antiAir: result.antiAir });
+                spawnAirstrikeEffect(x, y, cResults, 'carpetBomb', targetTile.q, targetTile.r, null, null, myCamp, performance.now(), { antiAir: result.antiAir, aaSources });
                 playSound('airstrike');
                 setTimeout(() => withCardCause(() => {
                     playSound('explosion');

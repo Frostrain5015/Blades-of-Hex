@@ -46,25 +46,36 @@ test('only explicit specialization or commander ability provides mobile AA', () 
     assert.equal(isAntiAirUnit(makeUnit('infantry', P2, { commander: 'staller' })), true);
 });
 
-test('legacy ownerless flak remains a 30% self-tile compatibility source', () => {
-    const target = makeTile(0, 0, { fortification: 'flak' });
+test('legacy ownerless flak requires a living defending operator to provide 30% self-tile AA', () => {
+    const unmanned = makeTile(0, 0, { fortification: 'flak' });
+    assert.equal(getAntiAirReduction(unmanned, P1, makeMap(unmanned), { state: state() }), 0);
+
+    const target = makeTile(0, 0, { fortification: 'flak', unit: makeUnit('infantry', P2) });
     const result = resolveAntiAirCoverage(target, P1, makeMap(target), { state: state(), includeSources: true });
     assert.equal(result.reduction, FLAK_SELF_REDUCTION);
     assert.equal(result.sources.length, 1);
     assert.equal(result.sources[0].ownerKnown, false);
 });
 
-test('owned flak protects its owner and allies but never the attacker', () => {
+test('owned flak protects its occupied owner and allies but never the attacker or unmanned tiles', () => {
     const fort = { type: 'flak', campKey: 'player3', ownerKnown: true };
-    const allyTarget = makeTile(0, 0, { camp: P2, fieldFortification: fort });
+    const unmannedAlly = makeTile(0, 0, { camp: P2, fieldFortification: fort });
+    assert.equal(getAntiAirReduction(unmannedAlly, P1, makeMap(unmannedAlly), { state: state() }), 0);
+    const deadGarrison = makeTile(0, 0, { camp: P2, fieldFortification: fort, unit: makeUnit('infantry', P2, { hp: 0 }) });
+    assert.equal(getAntiAirReduction(deadGarrison, P1, makeMap(deadGarrison), { state: state() }), 0);
+    const allyTarget = makeTile(0, 0, { camp: P2, fieldFortification: fort, unit: makeUnit('infantry', P2) });
     assert.equal(getAntiAirReduction(allyTarget, P1, makeMap(allyTarget), { state: state() }), 0.30);
     assert.equal(getAntiAirReduction(allyTarget, P3, makeMap(allyTarget), { state: state() }), 0);
-    const hostileTarget = makeTile(0, 0, { camp: P1, fieldFortification: fort });
+    const hostileTarget = makeTile(0, 0, { camp: P1, fieldFortification: fort, unit: makeUnit('infantry', P1) });
     assert.equal(getAntiAirReduction(hostileTarget, P2, makeMap(hostileTarget), { state: state() }), 0);
 });
 
 test('AA percentages add directly, strengthen at rank 3 and are not layer-capped', () => {
-    const target = makeTile(0, 0, { camp: P2, fieldFortification: { type: 'flak', campKey: 'player2', ownerKnown: true } });
+    const target = makeTile(0, 0, {
+        camp: P2,
+        unit: makeUnit('infantry', P2),
+        fieldFortification: { type: 'flak', campKey: 'player2', ownerKnown: true }
+    });
     const artillery = makeTile(1, 0, { unit: makeUnit('archer', P2, { specializationKey: 'antiAirArtillery' }) });
     const destroyer = makeTile(0, 1, { camp: P3, unit: makeUnit('destroyer', P3, { specializationKey: 'antiAirDestroyer', _rank: 3 }) });
     const result = resolveAntiAirCoverage(target, P1, makeMap(target, artillery, destroyer), { state: state(), includeSources: true });
@@ -73,7 +84,11 @@ test('AA percentages add directly, strengthen at rank 3 and are not layer-capped
 });
 
 test('radius, faction relation and mechanic gates filter sources', () => {
-    const target = makeTile(0, 0, { camp: P2, fieldFortification: { type: 'flak', campKey: 'player2', ownerKnown: true } });
+    const target = makeTile(0, 0, {
+        camp: P2,
+        unit: makeUnit('infantry', P2),
+        fieldFortification: { type: 'flak', campKey: 'player2', ownerKnown: true }
+    });
     const friendly = makeTile(ANTI_AIR_RADIUS, 0, { unit: makeUnit('archer', P2, { specializationKey: 'antiAirArtillery' }) });
     const enemy = makeTile(0, 1, { camp: P1, unit: makeUnit('archer', P1, { specializationKey: 'antiAirArtillery' }) });
     const tooFar = makeTile(ANTI_AIR_RADIUS + 1, 0, { unit: makeUnit('destroyer', P2, { specializationKey: 'antiAirDestroyer' }) });
@@ -84,16 +99,19 @@ test('radius, faction relation and mechanic gates filter sources', () => {
     assert.equal(result.sources[0].unitId, friendly.unit.id);
 });
 
-test('airspace mode ignores placed attacker unit and resolves hostile AA even on neutral or own tiles', () => {
+test('airspace mode ignores placed attacker unit and unmanned enemy flak yields 0 AA', () => {
     const map = makeMap(
         makeTile(0, 0, { camp: P1, unit: makeUnit('infantry', P1) }),
         makeTile(1, 0, { camp: P2, unit: makeUnit('archer', P2, { specializationKey: 'antiAirArtillery' }) }),
-        makeTile(5, 0, { camp: null, unit: makeUnit('infantry', P1), fieldFortification: { type: 'flak', campKey: 'player2', ownerKnown: true } })
+        makeTile(5, 0, { camp: null, unit: makeUnit('infantry', P1), fieldFortification: { type: 'flak', campKey: 'player2', ownerKnown: true } }),
+        makeTile(6, 0, { camp: null, fieldFortification: { type: 'flak', campKey: 'player2', ownerKnown: true } })
     );
     const ownTileWithPlacedUnit = map.get('0,0');
-    const neutralTileWithHostileFlak = map.get('5,0');
+    const neutralTileWithHostileFlakAndAttacker = map.get('5,0');
+    const unmannedEnemyFlak = map.get('6,0');
 
     assert.equal(getAntiAirReduction(ownTileWithPlacedUnit, P1, map, { state: state() }), 0);
     assert.equal(getAntiAirReduction(ownTileWithPlacedUnit, P1, map, { state: state(), airspace: true }), 0.35);
-    assert.equal(getAntiAirReduction(neutralTileWithHostileFlak, P1, map, { state: state(), airspace: true }), 0.30);
+    assert.equal(getAntiAirReduction(neutralTileWithHostileFlakAndAttacker, P1, map, { state: state(), airspace: true }), 0);
+    assert.equal(getAntiAirReduction(unmannedEnemyFlak, P1, map, { state: state(), airspace: true }), 0);
 });

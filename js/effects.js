@@ -1801,12 +1801,16 @@ export function spawnAirstrikeEffect(cx, cy, results, type = 'airstrike', q = nu
     const explicitAntiAir = options?.antiAir != null && Number.isFinite(Number(options.antiAir))
         ? Number(options.antiAir)
         : null;
+    const explicitAaSources = Array.isArray(options?.aaSources)
+        ? options.aaSources.filter(s => Number.isFinite(s?.q) && Number.isFinite(s?.r)).map(s => ({ q: s.q, r: s.r }))
+        : null;
     airstrikeEffects.push({
         x: cx, y: cy, fromX, fromY, q, r, results, type,
         startTime,
         duration: type === 'diveStrafe' ? 1500 : type === 'stukaStrafe' ? 1650 : AIRSTRIKE_FLIGHT.durationMs,
         camp,
-        antiAir: explicitAntiAir
+        antiAir: explicitAntiAir,
+        aaSources: explicitAaSources
     });
 }
 

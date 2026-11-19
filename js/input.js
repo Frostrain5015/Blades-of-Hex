@@ -123,6 +123,16 @@ const BOARD_ACTION_THEMES = {
         background: 'linear-gradient(135deg, #8c6a2e, #554019)',
         hover: 'linear-gradient(135deg, #aa843d, #705423)',
         border: '#e2c56e'
+    },
+    airView: {
+        background: 'linear-gradient(135deg, #1b6578, #104351)',
+        hover: 'linear-gradient(135deg, #258299, #16596b)',
+        border: '#72d9ec'
+    },
+    airViewActive: {
+        background: 'linear-gradient(135deg, #229880, #126253)',
+        hover: 'linear-gradient(135deg, #2bb498, #197967)',
+        border: '#68f2c2'
     }
 };
 
@@ -452,6 +462,22 @@ function _collectBoardActions(unit, tile = null) {
             canUse, reason: canUse ? '' : (localTurn ? '本轮已调闸' : '非己方回合'), theme: 'specialization'
         });
     }
+    if (!unit && !tile && !gameState.cardTargeting
+        && gameState.commanderPhase === 'done'
+        && isMechanicEnabled(gameState, 'airCommands')) {
+        const active = !!gameState.airViewActive;
+        actions.push({
+            key: 'air-view:toggle',
+            buttonId: 'boardAirViewToggle',
+            kind: 'toggleAirView',
+            icon: '🛫',
+            label: active ? '关闭空军视图' : '空军视图',
+            canUse: !gameState.gameOver,
+            active,
+            reason: gameState.gameOver ? '对局已结束' : '',
+            theme: active ? 'airViewActive' : 'airView'
+        });
+    }
     if (isMechanicEnabled(gameState, 'fortifications') && gameState.commanderPhase === 'done') {
         const hasOtherTargeting = !!gameState.cardTargeting
             && !gameState.cardTargeting.cardId?.startsWith('build_');
@@ -670,6 +696,7 @@ function _renderBoardActionQueue(actions) {
         action.duration || 0,
         action.cooldown || 0,
         action.canUse,
+        action.active ? 1 : 0,
         action.reason,
         action.theme
     ].join(':')).join('|');
@@ -692,7 +719,13 @@ function _renderBoardActionQueue(actions) {
         // 保持禁用技能可悬浮查看，因此使用语义禁用并在执行层拦截点击。
         button.disabled = false;
         button.classList.toggle('is-disabled', !action.canUse);
+        button.classList.toggle('is-active', !!action.active);
         button.setAttribute('aria-disabled', action.canUse ? 'false' : 'true');
+        if (action.kind === 'toggleAirView') {
+            button.setAttribute('aria-pressed', action.active ? 'true' : 'false');
+        } else {
+            button.removeAttribute('aria-pressed');
+        }
         button.removeAttribute('title');
         button.setAttribute('aria-label', _formatBoardActionTitle(action));
         button.dataset.boardActionKey = action.key;
@@ -739,6 +772,12 @@ function _syncBoardActionBar() {
 }
 
 function _activateBoardAction(action) {
+    if (action.kind === 'toggleAirView') {
+        if (gameState.gameOver) return;
+        gameState.airViewActive = !gameState.airViewActive;
+        syncBoardActionBar();
+        return;
+    }
     if (action.kind === 'riverGate') {
         const tile = gameState.tileMap.get(`${action.tileQ},${action.tileR}`);
         if (!_isLocalActionTurn() || !executeRiverGateSwitch(tile)) return;
@@ -765,6 +804,7 @@ function _activateBoardAction(action) {
         const launcher = gameState.tileMap.get(`${action.tileQ},${action.tileR}`);
         const availability = getAirCommandAvailability(action.airKind, launcher, gameState);
         if (!availability.available) return;
+        gameState.airViewActive = false;
         clearselection();
         showTargetingBanner(`请选择${AIR_COMMAND_CONFIG[action.airKind].name}目标`);
         gameState.cardTargeting = {
@@ -796,6 +836,7 @@ function _activateBoardAction(action) {
             cancelCardTargeting();
             return;
         }
+        gameState.airViewActive = false;
         showTargetingBanner('请选择万岁冲锋目标（2格内敌军）');
         gameState.cardTargeting = {
             cardId: 'banzai_charge',
@@ -813,6 +854,7 @@ function _activateBoardAction(action) {
             cancelCardTargeting();
             return;
         }
+        gameState.airViewActive = false;
         showTargetingBanner('请选择目标');
         gameState.cardTargeting = { cardId: 'drone_suicide', targeting: 'anyTileGlobal', handIndex: -1, droneId: unit.id, startedAt: performance.now() };
         updateUI();
@@ -821,6 +863,7 @@ function _activateBoardAction(action) {
 
     if (action.kind === 'guerrillaConcealment') {
         if (_isLocalActionUnit(unit)) {
+            gameState.airViewActive = false;
             cancelCardTargeting();
             executeGuerrillaConcealment(unit);
         }
@@ -864,6 +907,7 @@ function _activateBoardAction(action) {
         return;
     }
     if (action.kind === 'buildBunker') {
+        gameState.airViewActive = false;
         clearselection();
         showTargetingBanner('请选择相邻的己方空地');
         gameState.cardTargeting = {
@@ -874,6 +918,7 @@ function _activateBoardAction(action) {
         return;
     }
     if (action.kind === 'fieldRepair') {
+        gameState.airViewActive = false;
         clearselection();
         showTargetingBanner('请选择相邻的受损建筑');
         gameState.cardTargeting = {
@@ -915,6 +960,7 @@ function _activateBoardAction(action) {
         }
         if (unit._pendingDroneDeploy) {
             unit._pendingDroneDeploy = false;
+            gameState.airViewActive = false;
             clearselection();
             showTargetingBanner('请选择目标');
             gameState.cardTargeting = { cardId: 'drone_deploy', targeting: 'emptyTile', handIndex: -1, startedAt: performance.now() };
@@ -951,6 +997,7 @@ function _beginEngineerBunkerTargeting(unit) {
         return;
     }
 
+    gameState.airViewActive = false;
     clearselection();
     showTargetingBanner('请选择目标');
     gameState.cardTargeting = { cardId: 'engineer_bunker', targeting: 'emptyTile', handIndex: -1, engineerUnitId: unit.id, startedAt: performance.now() };
@@ -1051,6 +1098,7 @@ function _handleCardCanvasClick(e) {
                     notify('雾天停飞，无法使用空军卡', 'error'); return;
                 }
             }
+            gameState.airViewActive = false;
             if (gameState.selectedUnit) deselectUnit(); else clearselection();
             hideSelectionHud();
             gameState.selectedTile = null;
@@ -1953,6 +2001,15 @@ function _describeBoardAction(action) {
             kicker: '机场空军指令', kind: 'action', action
         };
     }
+    if (action.kind === 'toggleAirView') {
+        return {
+            key: action.key, icon: action.icon, label: '空军视图',
+            desc: '在棋盘上标记己方（绿）与非己方（红）的机场位置及有效防空火力覆盖；悬停任意机场可预览其航程。',
+            color: BOARD_ACTION_THEMES[action.active ? 'airViewActive' : 'airView'].border,
+            status: action.active ? '已开启（点击关闭）' : '点击开启',
+            kicker: '空军情报', kind: 'action', action
+        };
+    }
     if (action.kind === 'openConstruction') {
         return {
             key: action.key, icon: action.icon, label: action.label,
@@ -2448,7 +2505,7 @@ function _bindBoardAbilityControls() {
             const action = item.action;
             if (!action?.canUse) return;
             // 战役/教程输入白名单校验
-            if (gameState.tutorialMode && gameState.tutorialStep) {
+            if (action.kind !== 'toggleAirView' && gameState.tutorialMode && gameState.tutorialStep) {
                 if (gameState.campaignMode && !isMechanicEnabled(gameState, 'commanderSkills')) { notify('本关尚未开放将领主动技', 'info'); return; }
                 if (gameState.campaignMode && !campaignValidateAction(action.key)) return;
             }
@@ -2636,6 +2693,7 @@ export function initInput() {
         if (!clickedTile) {
             if (gameState.cardTargeting) { cancelCardTargeting(); return; }
             if (gameState.cardStackExpanded) { gameState.cardStackExpanded = false; return; }
+            gameState.airViewActive = false;
             clearselection();
             hideSelectionHud();
             return;
@@ -2751,6 +2809,7 @@ export function initInput() {
 
         // 点选已选中单位/地块 → 取消选中（己方可操作单位有光圈倒放动画）
         if (gameState.selectedTile === clickedTile) {
+            gameState.airViewActive = false;
             if (gameState.selectedUnit) deselectUnit(); else clearselection();
             hideSelectionHud();
             gameState.selectedTile = null;
@@ -2759,6 +2818,7 @@ export function initInput() {
 
         // 对手回合 / AI 回合：只允许查看可见地块，不允许操作
         if (!_isLocalActionTurn()) {
+            gameState.airViewActive = false;
             clearselection();
             gameState.selectedTile = clickedTile;
             showSelectionHudForTile(clickedTile);
@@ -2807,6 +2867,7 @@ export function initInput() {
         }
 
         // Select: pick any tile
+        gameState.airViewActive = false;
         clearselection();
         gameState.selectedTile = clickedTile;
 
@@ -2875,11 +2936,17 @@ export function initInput() {
         if (cardTooltip) cardTooltip.classList.remove('visible');
     });
 
-    // 右键取消对策卡选择
+    // 右键取消对策卡选择或关闭空军视图
     canvas.addEventListener('contextmenu', (e) => {
         if (gameState.cardTargeting) {
             e.preventDefault();
             cancelCardTargeting();
+            return;
+        }
+        if (gameState.airViewActive) {
+            e.preventDefault();
+            gameState.airViewActive = false;
+            syncBoardActionBar();
         }
     });
 
@@ -2932,9 +2999,12 @@ export function initKeyboard() {
 
         if (e.key === 'Escape') {
             e.preventDefault();
+            const hadAirView = !!gameState.airViewActive;
+            gameState.airViewActive = false;
             if (gameState.selectedUnit) deselectUnit(); else clearselection();
             hideSelectionHud();
             gameState.selectedTile = null;
+            if (hadAirView) syncBoardActionBar();
             return;
         }
 
@@ -3263,6 +3333,7 @@ function _showConstructionChoice() {
 
 // 建设类选址统一入口：清空移动/攻击预览，进入目标选择态
 function _beginBuildTargeting(cardId, constructionKind, bannerText) {
+    gameState.airViewActive = false;
     gameState.selectedCityTile = null;
     gameState.movableTiles = [];
     gameState._fogSafeMovablePreview = null;
@@ -3304,6 +3375,7 @@ function _showAirCommandChoice(launcherTile) {
             _closeChoiceModal();
             if (!availability.available) return;
             // 保持已选地块不放，让✈按钮继续可见以便再次点击取消
+            gameState.airViewActive = false;
             gameState.selectedUnit = null;
             gameState.selectedCityTile = null;
             gameState.movableTiles = [];

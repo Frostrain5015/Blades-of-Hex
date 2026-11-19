@@ -89,13 +89,13 @@ export function resolveAntiAirCoverage(targetTile, attackingCamp, tileMap, optio
 
     const fortification = getFieldFortification(targetTile);
     if (fortification?.type === 'flak' && isMechanicEnabled(options.state, 'fortifications')) {
+        const hasFlakOperator = !!defendingTileUnit && (defendingTileUnit.hp == null || defendingTileUnit.hp > 0);
         const ownerKnown = fortification.ownerKnown !== false && !!fortification.campKey;
         const protectsTarget = !ownerKnown
-            || isFriendly(options.state, fortification.campKey, defendingCampKey)
-            || (isAirspace && (defendingCampKey === 'neutral' || isFriendly(options.state, defendingCampKey, attackingCampKey)));
+            || isFriendly(options.state, fortification.campKey, defendingCampKey);
         const opposesAttacker = !ownerKnown
             || !isFriendly(options.state, fortification.campKey, attackingCampKey);
-        if (protectsTarget && opposesAttacker) {
+        if (hasFlakOperator && protectsTarget && opposesAttacker) {
             add({
                 kind: 'flak', tileKey: tileKey(targetTile), q: targetTile.q, r: targetTile.r,
                 campKey: fortification.campKey || null, ownerKnown,

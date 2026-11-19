@@ -77,9 +77,19 @@ export async function run(browser) {
         gameState.selectedUnit = null;
         gameState.selectedTile = null;
         input.syncBoardActionBar();
+        const airViewBtn = document.getElementById('boardAirViewToggle');
         assert(actionBar?.classList.contains('visible')
-            && document.querySelectorAll('#canvasActionButtons button').length === 1
-            && !!document.getElementById('boardConstructionMenu'), '取消选中后仍保留唯一的常驻建设入口');
+            && document.querySelectorAll('#canvasActionButtons button').length === 2
+            && !!airViewBtn
+            && !!document.getElementById('boardConstructionMenu'), '取消选中后并排展示空军视图与常驻建设入口');
+        airViewBtn?.click();
+        assert(gameState.airViewActive === true
+            && document.getElementById('boardAirViewToggle')?.classList.contains('is-active')
+            && document.getElementById('boardAirViewToggle')?.getAttribute('aria-pressed') === 'true', '点击空军视图按钮可切换激活状态');
+        document.getElementById('boardAirViewToggle')?.click();
+        assert(gameState.airViewActive === false
+            && !document.getElementById('boardAirViewToggle')?.classList.contains('is-active')
+            && document.getElementById('boardAirViewToggle')?.getAttribute('aria-pressed') === 'false', '再次点击空军视图按钮可关闭');
 
         const glyphCalls = [];
         const fakeContext = {
