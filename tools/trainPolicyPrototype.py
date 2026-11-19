@@ -12,11 +12,76 @@ Outputs runtime JSON weights directly consumed by ai/core/hybridScorer.js:
 import argparse
 import json
 import math
+import pickle
 import time
+import warnings
 from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
+
+warnings.filterwarnings("ignore", category=UserWarning, module="cupy")
+try:
+    import cupy as cp
+    _gpu_name = cp.cuda.runtime.getDeviceProperties(0)["name"].decode("utf-8", errors="ignore")
+    HAS_CUPY_GPU = True
+except Exception:
+    cp = None
+    _gpu_name = None
+    HAS_CUPY_GPU = False
+
+if HAS_CUPY_GPU:
+    @cp.fuse()
+    def _cp_gelu_fwd(x):
+        return np.float32(0.5) * x * (np.float32(1.0) + cp.tanh(np.float32(0.7978845608) * (x + np.float32(0.044715) * x * x * x)))
+
+    @cp.fuse()
+    def _cp_gelu_bwd(d_a, z):
+        u = np.float32(0.7978845608) * (z + np.float32(0.044715) * z * z * z)
+        th = cp.tanh(u)
+        sech2 = np.float32(1.0) - th * th
+        du = np.float32(0.7978845608) * (np.float32(1.0) + np.float32(0.134145) * z * z)
+        return d_a * (np.float32(0.5) * (np.float32(1.0) + th) + np.float32(0.5) * z * sech2 * du)
+
+    @cp.fuse()
+    def _cp_adam_step(w, g_raw, m, v, inv_n, l2_val, cur_lr, bc1, bc2):
+        g = g_raw * inv_n + l2_val * w
+        m_new = np.float32(0.9) * m + np.float32(0.1) * g
+        v_new = np.float32(0.999) * v + np.float32(0.001) * (g * g)
+        w_new = w - cur_lr * (m_new / bc1) / (cp.sqrt(v_new / bc2) + np.float32(1e-8))
+        return w_new, m_new, v_new
+
+try:
+    import numba
+
+    @numba.njit(parallel=True, fastmath=True)
+    def _numba_gelu_fwd(z):
+        out = np.empty_like(z)
+        n, m = z.shape
+        for i in numba.prange(n):
+            for j in range(m):
+                x = z[i, j]
+                u = np.float32(0.7978845608) * (x + np.float32(0.044715) * x * x * x)
+                out[i, j] = np.float32(0.5) * x * (np.float32(1.0) + np.tanh(u))
+        return out
+
+    @numba.njit(parallel=True, fastmath=True)
+    def _numba_gelu_bwd(d_a, z):
+        out = np.empty_like(z)
+        n, m = z.shape
+        for i in numba.prange(n):
+            for j in range(m):
+                x = z[i, j]
+                u = np.float32(0.7978845608) * (x + np.float32(0.044715) * x * x * x)
+                th = np.tanh(u)
+                sech2 = np.float32(1.0) - th * th
+                du = np.float32(0.7978845608) * (np.float32(1.0) + np.float32(0.134145) * x * x)
+                out[i, j] = d_a[i, j] * (np.float32(0.5) * (np.float32(1.0) + th) + np.float32(0.5) * x * sech2 * du)
+        return out
+
+    HAS_NUMBA = True
+except Exception:
+    HAS_NUMBA = False
 
 ACTION_TYPES = [
     "move",
@@ -493,175 +558,270 @@ def softmax_logits(logits, temp=1.0):
 
 
 class DualHeadMLPScorer:
-    def __init__(self, dim, h1=112, h2=56, l2=3e-4, lr=2.8e-3, seed=42):
+    def __init__(self, dim, h1=112, h2=56, l2=3e-4, lr=2.8e-3, seed=42, use_gpu=None):
+        self.use_gpu = HAS_CUPY_GPU if use_gpu is None else (bool(use_gpu) and HAS_CUPY_GPU)
+        self.xp = cp if self.use_gpu else np
         rng = np.random.default_rng(seed)
-        self.W1 = rng.normal(0.0, math.sqrt(2.0 / dim), size=(dim, h1)).astype(np.float32)
-        self.b1 = np.zeros(h1, dtype=np.float32)
-        self.W2 = rng.normal(0.0, math.sqrt(2.0 / h1), size=(h1, h2)).astype(np.float32)
-        self.b2 = np.zeros(h2, dtype=np.float32)
-        self.W3 = rng.normal(0.0, math.sqrt(2.0 / h2), size=(h2,)).astype(np.float32)
-        self.b3 = np.float32(0.0)
-        self.Wv = rng.normal(0.0, math.sqrt(1.0 / h2), size=(h2,)).astype(np.float32)
-        self.bv = np.float32(0.0)
-        self.l2 = l2
-        self.lr = lr
+        W1 = rng.normal(0.0, math.sqrt(2.0 / dim), size=(dim, h1)).astype(np.float32)
+        b1 = np.zeros(h1, dtype=np.float32)
+        W2 = rng.normal(0.0, math.sqrt(2.0 / h1), size=(h1, h2)).astype(np.float32)
+        b2 = np.zeros(h2, dtype=np.float32)
+        W3 = rng.normal(0.0, math.sqrt(2.0 / h2), size=(h2,)).astype(np.float32)
+        b3 = np.float32(0.0)
+        Wv = rng.normal(0.0, math.sqrt(1.0 / h2), size=(h2,)).astype(np.float32)
+        bv = np.float32(0.0)
+        self.W1 = cp.asarray(W1) if self.use_gpu else W1
+        self.b1 = cp.asarray(b1) if self.use_gpu else b1
+        self.W2 = cp.asarray(W2) if self.use_gpu else W2
+        self.b2 = cp.asarray(b2) if self.use_gpu else b2
+        self.W3 = cp.asarray(W3) if self.use_gpu else W3
+        self.b3 = cp.asarray(b3) if self.use_gpu else b3
+        self.Wv = cp.asarray(Wv) if self.use_gpu else Wv
+        self.bv = cp.asarray(bv) if self.use_gpu else bv
+        self.l2 = np.float32(l2)
+        self.lr = np.float32(lr)
         self.params = ["W1", "b1", "W2", "b2", "W3", "b3", "Wv", "bv"]
-        self.m = {p: np.zeros_like(getattr(self, p)) for p in self.params}
-        self.v = {p: np.zeros_like(getattr(self, p)) for p in self.params}
+        self.m = {p: self.xp.zeros_like(getattr(self, p)) for p in self.params}
+        self.v = {p: self.xp.zeros_like(getattr(self, p)) for p in self.params}
         self.t = 0
         self.rng = rng
+        self.gpu_rng = cp.random.default_rng(seed) if self.use_gpu else None
 
-    @staticmethod
-    def gelu(x):
-        return 0.5 * x * (1.0 + np.tanh(0.7978845608 * (x + 0.044715 * x * x * x)))
+    def gelu(self, x):
+        if self.use_gpu:
+            return _cp_gelu_fwd(x)
+        if HAS_NUMBA and x.ndim == 2 and x.dtype == np.float32:
+            return _numba_gelu_fwd(x)
+        c = np.float32(0.7978845608)
+        k = np.float32(0.044715)
+        return np.float32(0.5) * x * (np.float32(1.0) + np.tanh(c * (x + k * x * x * x)))
 
-    @staticmethod
-    def gelu_grad(x):
-        c = 0.7978845608
-        u = c * (x + 0.044715 * x * x * x)
+    def gelu_bwd(self, d_a, z):
+        if self.use_gpu:
+            return _cp_gelu_bwd(d_a, z)
+        if HAS_NUMBA and z.ndim == 2 and z.dtype == np.float32:
+            return _numba_gelu_bwd(d_a, z)
+        c = np.float32(0.7978845608)
+        u = c * (z + np.float32(0.044715) * z * z * z)
         th = np.tanh(u)
-        sech2 = 1.0 - th * th
-        du = c * (1.0 + 3.0 * 0.044715 * x * x)
-        return 0.5 * (1.0 + th) + 0.5 * x * sech2 * du
+        sech2 = np.float32(1.0) - th * th
+        du = c * (np.float32(1.0) + np.float32(0.134145) * z * z)
+        return d_a * (np.float32(0.5) * (np.float32(1.0) + th) + np.float32(0.5) * z * sech2 * du)
 
     def forward(self, X, train=False, dropout=0.14):
-        z1 = X @ self.W1 + self.b1
+        xp = self.xp
+        X_in = cp.asarray(X, dtype=cp.float32) if (self.use_gpu and not isinstance(X, cp.ndarray)) else X
+        z1 = X_in @ self.W1 + self.b1
         a1 = self.gelu(z1)
         mask1 = None
         if train and dropout > 0:
-            mask1 = (self.rng.random(a1.shape) >= dropout).astype(np.float32) / (1.0 - dropout)
+            p_keep = np.float32(1.0 - dropout)
+            inv_keep = np.float32(1.0 / (1.0 - dropout))
+            if self.use_gpu:
+                rnd = self.gpu_rng.random(a1.shape, dtype=cp.float32)
+                mask1 = (rnd < p_keep).astype(cp.float32) * inv_keep
+            else:
+                mask1 = (self.rng.random(a1.shape, dtype=np.float32) < p_keep).astype(np.float32) * inv_keep
             a1 = a1 * mask1
         z2 = a1 @ self.W2 + self.b2
         a2 = self.gelu(z2)
         logits = a2 @ self.W3 + self.b3
-        vals = np.tanh(a2 @ self.Wv + self.bv)
+        vals = xp.tanh(a2 @ self.Wv + self.bv)
         if not train:
+            if self.use_gpu:
+                return cp.asnumpy(logits), cp.asnumpy(vals)
             return logits, vals
-        return logits, vals, (X, z1, a1, mask1, z2, a2)
+        return logits, vals, (X_in, z1, a1, mask1, z2, a2)
 
-    def step(self, batch_items, lr_scale=1.0):
-        grads = {p: np.zeros_like(getattr(self, p)) for p in self.params}
+    def step(self, batch_items, lr_scale=1.0, X_cat_override=None):
+        xp = self.xp
         total_pol = 0.0
         total_val = 0.0
         val_n = 0
-        for X, y, pw, target_v, vw in batch_items:
-            logits, vals, (X_in, z1, a1, mask1, z2, a2) = self.forward(X, train=True)
-            d_a2 = np.zeros_like(a2)
+        if not batch_items:
+            return 0.0, 0.0
+
+        offsets = []
+        cur = 0
+        for it in batch_items:
+            n_rows = it[0] if isinstance(it[0], int) else it[0].shape[0]
+            nxt = cur + n_rows
+            offsets.append((cur, nxt))
+            cur = nxt
+        if X_cat_override is not None:
+            X_cat = X_cat_override
+        else:
+            X_list = [it[0] for it in batch_items]
+            if self.use_gpu and isinstance(X_list[0], cp.ndarray):
+                X_cat = cp.concatenate(X_list, axis=0)
+            else:
+                X_cat_np = np.concatenate(X_list, axis=0)
+                X_cat = cp.asarray(X_cat_np) if self.use_gpu else X_cat_np
+
+        logits_cat_xp, vals_cat_xp, (X_in, z1, a1, mask1, z2, a2) = self.forward(X_cat, train=True)
+        logits_cat = cp.asnumpy(logits_cat_xp) if self.use_gpu else logits_cat_xp
+        vals_cat = cp.asnumpy(vals_cat_xp) if self.use_gpu else vals_cat_xp
+
+        d_logits_cat = np.zeros(cur, dtype=np.float32)
+        dv_cat = np.zeros(cur, dtype=np.float32)
+
+        for idx, (_, y, pw, target_v, vw) in enumerate(batch_items):
+            s, e = offsets[idx]
+            logits = logits_cat[s:e]
+            vals = vals_cat[s:e]
             if pw > 0:
                 eff_pw = pw
                 if target_v is not None:
-                    # AWR (Advantage-Weighted Regression): 以当前局面平均价值基线 V(s) 计算优势 A = G_t - V(s)，
-                    # 动态放大高优势胜势决策的梯度权重、抑制低效平庸动作。
                     v_baseline = float(np.mean(vals))
                     adv = max(-0.8, min(1.0, float(target_v) - v_baseline))
                     eff_pw = pw * float(np.clip(math.exp(adv / 0.55), 0.25, 2.25))
                 probs = softmax_logits(logits)
                 total_pol += eff_pw * float(-np.log(max(1e-9, probs[y])))
-                d_logits = probs
-                d_logits[y] -= 1.0
-                d_logits = d_logits * eff_pw
-                grads["W3"] += a2.T @ d_logits
-                grads["b3"] += np.sum(d_logits)
-                d_a2 += np.outer(d_logits, self.W3)
+                dl = probs.astype(np.float32, copy=True)
+                dl[y] -= np.float32(1.0)
+                d_logits_cat[s:e] = dl * np.float32(eff_pw)
 
             if vw > 0 and target_v is not None:
                 pred_v = float(vals[y])
                 err = pred_v - float(target_v)
                 total_val += vw * err * err
                 val_n += 1
-                dv_raw = vw * 0.18 * 2.0 * err * (1.0 - pred_v * pred_v)
-                grads["Wv"] += a2[y] * dv_raw
-                grads["bv"] += dv_raw
-                d_a2[y] += self.Wv * dv_raw
+                dv_cat[s + y] = np.float32(vw * 0.18 * 2.0 * err * (1.0 - pred_v * pred_v))
 
-            if pw > 0 or vw > 0:
-                d_z2 = d_a2 * self.gelu_grad(z2)
-                grads["W2"] += a1.T @ d_z2
-                grads["b2"] += np.sum(d_z2, axis=0)
-                d_a1 = d_z2 @ self.W2.T
-                if mask1 is not None:
-                    d_a1 = d_a1 * mask1
-                d_z1 = d_a1 * self.gelu_grad(z1)
-                grads["W1"] += X_in.T @ d_z1
-                grads["b1"] += np.sum(d_z1, axis=0)
+        d_logits_xp = cp.asarray(d_logits_cat) if self.use_gpu else d_logits_cat
+        dv_xp = cp.asarray(dv_cat) if self.use_gpu else dv_cat
 
-        n = max(1, len(batch_items))
+        grads = {}
+        grads["W3"] = a2.T @ d_logits_xp
+        grads["b3"] = xp.sum(d_logits_xp)
+        grads["Wv"] = a2.T @ dv_xp
+        grads["bv"] = xp.sum(dv_xp)
+        d_a2_cat = xp.outer(d_logits_xp, self.W3) + xp.outer(dv_xp, self.Wv)
+
+        d_z2 = self.gelu_bwd(d_a2_cat, z2)
+        grads["W2"] = a1.T @ d_z2
+        grads["b2"] = xp.sum(d_z2, axis=0)
+        d_a1 = d_z2 @ self.W2.T
+        if mask1 is not None:
+            d_a1 = d_a1 * mask1
+        d_z1 = self.gelu_bwd(d_a1, z1)
+        grads["W1"] = X_in.T @ d_z1
+        grads["b1"] = xp.sum(d_z1, axis=0)
+
+        n = np.float32(max(1, len(batch_items)))
+        inv_n = np.float32(1.0 / float(n))
         self.t += 1
-        cur_lr = self.lr * lr_scale
+        cur_lr = np.float32(self.lr * lr_scale)
+        bc1 = np.float32(1.0 - 0.9 ** self.t)
+        bc2 = np.float32(1.0 - 0.999 ** self.t)
         for p in self.params:
             w = getattr(self, p)
-            g = grads[p] / n
-            if p.startswith("W"):
-                g = g + self.l2 * w
-            self.m[p] = 0.9 * self.m[p] + 0.1 * g
-            self.v[p] = 0.999 * self.v[p] + 0.001 * (g * g)
-            mh = self.m[p] / (1.0 - 0.9 ** self.t)
-            vh = self.v[p] / (1.0 - 0.999 ** self.t)
-            setattr(self, p, w - cur_lr * mh / (np.sqrt(vh) + 1e-8))
-        return total_pol / n, (total_val / max(1, val_n))
+            if self.use_gpu:
+                l2_v = self.l2 if p.startswith("W") else np.float32(0.0)
+                w_new, m_new, v_new = _cp_adam_step(w, grads[p], self.m[p], self.v[p], inv_n, l2_v, cur_lr, bc1, bc2)
+                setattr(self, p, w_new)
+                self.m[p] = m_new
+                self.v[p] = v_new
+            else:
+                g = grads[p] / n
+                if p.startswith("W"):
+                    g = g + self.l2 * w
+                self.m[p] = np.float32(0.9) * self.m[p] + np.float32(0.1) * g
+                self.v[p] = np.float32(0.999) * self.v[p] + np.float32(0.001) * (g * g)
+                mh = self.m[p] / bc1
+                vh = self.v[p] / bc2
+                setattr(self, p, w - cur_lr * mh / (xp.sqrt(vh) + np.float32(1e-8)))
+        return total_pol / float(n), (total_val / max(1, val_n))
 
     def refine_value_head(self, value_items, epochs=12, batch_size=64, lr=8e-3, l2=1e-4):
-        """Stage 2: 冻结策略主干 (W1, W2, W3)，纯以自对局 TD 回报精调 Q-Value Head (Wv, bv)。"""
-        cached = []
-        for X_in, y, _, target_v, vw in value_items:
-            if vw <= 0 or target_v is None:
-                continue
-            z1 = X_in @ self.W1 + self.b1
-            a1 = self.gelu(z1)
-            z2 = a1 @ self.W2 + self.b2
-            a2 = self.gelu(z2)
-            cached.append((a2[y].copy(), float(target_v), float(vw)))
-        if not cached:
+        """Stage 2: 冻结策略主干 (W1, W2, W3)，批量提取选中动作特征后精调 Q-Value Head (Wv, bv)。"""
+        valid = [(X_in[y], float(target_v), float(vw)) for X_in, y, _, target_v, vw in value_items if vw > 0 and target_v is not None]
+        if not valid:
             return
-        m_w = np.zeros_like(self.Wv)
-        v_w = np.zeros_like(self.Wv)
-        m_b = np.float32(0.0)
-        v_b = np.float32(0.0)
+        X_pick_np = np.stack([it[0] for it in valid], axis=0).astype(np.float32, copy=False)
+        X_pick = cp.asarray(X_pick_np) if self.use_gpu else X_pick_np
+        z1 = X_pick @ self.W1 + self.b1
+        a1 = self.gelu(z1)
+        z2 = a1 @ self.W2 + self.b2
+        a2 = self.gelu(z2)
+        feats_all = cp.asnumpy(a2) if self.use_gpu else a2.copy()
+        tvs_all = np.array([it[1] for it in valid], dtype=np.float32)
+        vws_all = np.array([it[2] for it in valid], dtype=np.float32)
+
+        Wv_np = cp.asnumpy(self.Wv).copy() if self.use_gpu else self.Wv.copy()
+        bv_np = float(cp.asnumpy(self.bv)) if self.use_gpu else float(self.bv)
+        m_w = np.zeros_like(Wv_np)
+        v_w = np.zeros_like(Wv_np)
+        m_b = 0.0
+        v_b = 0.0
         t = 0
         for ep in range(1, epochs + 1):
-            perm = self.rng.permutation(len(cached))
+            perm = self.rng.permutation(len(valid))
             lr_cur = lr * max(0.2, 0.5 * (1.0 + math.cos(math.pi * (ep - 1) / max(1, epochs))))
             for start in range(0, len(perm), batch_size):
                 idxs = perm[start:start + batch_size]
-                gw = np.zeros_like(self.Wv)
-                gb = np.float32(0.0)
-                for k in idxs:
-                    feat, tv, vw = cached[k]
-                    pv = float(np.tanh(float(feat @ self.Wv + self.bv)))
-                    err = pv - tv
-                    dv = vw * 2.0 * err * (1.0 - pv * pv)
-                    gw += feat * dv
-                    gb += dv
-                nb = max(1, len(idxs))
-                gw = gw / nb + l2 * self.Wv
-                gb = gb / nb
+                F_b = feats_all[idxs]
+                tv_b = tvs_all[idxs]
+                vw_b = vws_all[idxs]
+                pv_b = np.tanh(F_b @ Wv_np + bv_np)
+                err_b = pv_b - tv_b
+                dv_b = vw_b * 2.0 * err_b * (1.0 - pv_b * pv_b)
+                nb = float(max(1, len(idxs)))
+                gw = (F_b.T @ dv_b) / nb + l2 * Wv_np
+                gb = float(np.sum(dv_b)) / nb
                 t += 1
                 m_w = 0.9 * m_w + 0.1 * gw
                 v_w = 0.999 * v_w + 0.001 * (gw * gw)
                 m_b = 0.9 * m_b + 0.1 * gb
                 v_b = 0.999 * v_b + 0.001 * (gb * gb)
-                self.Wv -= lr_cur * (m_w / (1.0 - 0.9 ** t)) / (np.sqrt(v_w / (1.0 - 0.999 ** t)) + 1e-8)
-                self.bv -= lr_cur * (m_b / (1.0 - 0.9 ** t)) / (math.sqrt(v_b / (1.0 - 0.999 ** t)) + 1e-8)
+                Wv_np -= lr_cur * (m_w / (1.0 - 0.9 ** t)) / (np.sqrt(v_w / (1.0 - 0.999 ** t)) + 1e-8)
+                bv_np -= lr_cur * (m_b / (1.0 - 0.9 ** t)) / (math.sqrt(v_b / (1.0 - 0.999 ** t)) + 1e-8)
+        self.Wv = cp.asarray(Wv_np, dtype=cp.float32) if self.use_gpu else Wv_np.astype(np.float32)
+        self.bv = cp.asarray(np.float32(bv_np)) if self.use_gpu else np.float32(bv_np)
 
     def state_dict(self):
+        if self.use_gpu:
+            return {p: cp.asnumpy(getattr(self, p)).copy() for p in self.params}
         return {p: getattr(self, p).copy() for p in self.params}
 
     def load_state_dict(self, sd):
         for p in self.params:
-            setattr(self, p, sd[p].copy())
+            arr = sd[p].copy()
+            setattr(self, p, cp.asarray(arr) if self.use_gpu else arr)
 
 
-def evaluate_split(items, recs, model, mean, std, temp=1.0):
+def evaluate_split(items, recs, model, mean, std, temp=1.0, cached_cat=None):
     ce = 0.0
     top1 = top3 = top5 = type_top1 = 0
     val_mse = 0.0
     val_cnt = 0
     val_sign_ok = 0
+    if not items:
+        return {"n": 0}
+
+    if cached_cat is not None:
+        X_cat, offsets = cached_cat
+    else:
+        X_list = []
+        offsets = []
+        cur = 0
+        for (X_raw, _, _, _, _, _) in items:
+            if model.use_gpu and isinstance(X_raw, cp.ndarray):
+                X_norm = X_raw
+            else:
+                X_norm = np.clip((X_raw - mean) / std, np.float32(-8.0), np.float32(8.0)).astype(np.float32, copy=False)
+            nxt = cur + X_norm.shape[0]
+            offsets.append((cur, nxt))
+            cur = nxt
+            X_list.append(X_norm)
+        X_cat = cp.concatenate(X_list, axis=0) if (model.use_gpu and isinstance(X_list[0], cp.ndarray)) else np.concatenate(X_list, axis=0)
+    logits_all, vals_all = model.forward(X_cat, train=False)
 
     by_type = defaultdict(lambda: {"n": 0, "top1": 0, "top3": 0, "type_ok": 0})
-    for (X_raw, y, ctypes, _, target_v, _), rec in zip(items, recs):
-        X = np.clip((X_raw - mean) / std, -8.0, 8.0)
-        logits, vals = model.forward(X, train=False)
+    for idx, ((_, y, ctypes, _, target_v, _), rec) in enumerate(zip(items, recs)):
+        s, e = offsets[idx]
+        logits = logits_all[s:e]
+        vals = vals_all[s:e]
         probs = softmax_logits(logits, temp=temp)
         ce -= float(np.log(max(1e-9, probs[y])))
 
@@ -715,6 +875,104 @@ def evaluate_split(items, recs, model, mean, std, temp=1.0):
     }
 
 
+def infer_human_record_values(records, replay_dir="artifacts/human-replay"):
+    """从录像胜负结果与当前盘面优势计算每步折扣价值目标 G_t in [-0.98, 0.98]。"""
+    winners = {}
+    rdir = Path(replay_dir)
+    if rdir.exists():
+        for p in rdir.glob("*.match-review.json"):
+            try:
+                data = json.loads(p.read_text(encoding="utf-8"))
+                mid = data.get("matchId") or p.name.split(".")[0]
+                vkey = (data.get("header") or {}).get("victoryCampKey") or (data.get("summary") or {}).get("victoryCampKey")
+                if mid and vkey:
+                    winners[mid] = vkey
+            except Exception:
+                pass
+    max_rounds = defaultdict(lambda: 1.0)
+    last_state_adv = {}
+    for r in records:
+        mid = r["matchId"]
+        ck = r.get("campKey", "player1")
+        obs = r.get("observation") or {}
+        rnd = float(obs.get("round", r.get("round", 1)))
+        if rnd > max_rounds[mid]:
+            max_rounds[mid] = rnd
+        own_c = sum(1 for t in obs.get("tiles", []) if len(t) > 5 and t[5] == "city" and t[4] == ck)
+        riv_c = sum(1 for t in obs.get("tiles", []) if len(t) > 5 and t[5] == "city" and t[4] not in {ck, "neutral", None})
+        own_hp = sum(float(u[5]) for u in obs.get("units", []) if len(u) > 5 and u[1] == ck and u[5] > 0)
+        riv_hp = sum(float(u[5]) for u in obs.get("units", []) if len(u) > 5 and u[1] not in {ck, "neutral"} and u[5] > 0)
+        hp_adv = (own_hp - riv_hp) / max(150.0, own_hp + riv_hp)
+        last_state_adv[(mid, ck)] = float(np.tanh((own_c - riv_c) * 0.55 + hp_adv * 1.35))
+
+    values = []
+    for r in records:
+        if r.get("outcomeValue") is not None:
+            values.append(float(r["outcomeValue"]))
+            continue
+        mid = r["matchId"]
+        ck = r.get("campKey", "player1")
+        obs = r.get("observation") or {}
+        rnd = float(obs.get("round", r.get("round", 1)))
+        own_c = sum(1 for t in obs.get("tiles", []) if len(t) > 5 and t[5] == "city" and t[4] == ck)
+        riv_c = sum(1 for t in obs.get("tiles", []) if len(t) > 5 and t[5] == "city" and t[4] not in {ck, "neutral", None})
+        own_hp = sum(float(u[5]) for u in obs.get("units", []) if len(u) > 5 and u[1] == ck and u[5] > 0)
+        riv_hp = sum(float(u[5]) for u in obs.get("units", []) if len(u) > 5 and u[1] not in {ck, "neutral"} and u[5] > 0)
+        hp_adv = (own_hp - riv_hp) / max(150.0, own_hp + riv_hp)
+        step_adv = float(np.tanh((own_c - riv_c) * 0.45 + hp_adv * 1.25))
+        wkey = winners.get(mid)
+        if wkey == ck:
+            term = 1.0
+        elif wkey and wkey not in {"draw", ck}:
+            term = -1.0
+        else:
+            term = last_state_adv.get((mid, ck), step_adv)
+        rem = max(0.0, max_rounds[mid] - rnd)
+        disc = 0.95 ** min(20.0, rem)
+        tv = float(np.clip(0.68 * (term * disc) + 0.32 * step_adv, -0.98, 0.98))
+        values.append(tv)
+    return values
+
+
+def load_or_build_featurized(data_path):
+    p = Path(data_path)
+    if not p.exists():
+        return [], [], []
+    st = p.stat()
+    cache_path = p.with_suffix(".featurized-112.pkl")
+    sig = (st.st_size, int(st.st_mtime))
+    if cache_path.exists():
+        try:
+            cached = pickle.loads(cache_path.read_bytes())
+            if cached.get("sig") == sig:
+                return cached["featurized"], cached["meta_recs"], cached["matches"]
+        except Exception:
+            pass
+    records = load_dataset(data_path)
+    if not records:
+        return [], [], []
+    styles = infer_human_match_styles(records)
+    values = infer_human_record_values(records)
+    featurized = []
+    meta_recs = []
+    matches = sorted({r["matchId"] for r in records})
+    for rec, tv in zip(records, values):
+        svec = style_vector_for_record(rec, styles)
+        X, y, ctypes = featurize_record(rec, svec)
+        featurized.append((X, y, ctypes, tv))
+        meta_recs.append({"matchId": rec["matchId"], "campKey": rec.get("campKey", "player1")})
+    try:
+        cache_path.write_bytes(pickle.dumps({
+            "sig": sig,
+            "featurized": featurized,
+            "meta_recs": meta_recs,
+            "matches": matches
+        }, protocol=pickle.HIGHEST_PROTOCOL))
+    except Exception:
+        pass
+    return featurized, meta_recs, matches
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data", default="artifacts/datasets/human-behavior.jsonl")
@@ -727,22 +985,19 @@ def main():
     args = parser.parse_args()
 
     t0 = time.time()
-    human_records = load_dataset(args.data)
+    human_feats, human_meta, human_matches = load_or_build_featurized(args.data)
     selfplay_records = load_dataset(args.selfplay) if args.selfplay else []
-    human_matches = sorted({r["matchId"] for r in human_records})
     if args.val_match not in human_matches:
         raise ValueError(f"Unknown --val-match {args.val_match}, available: {human_matches}")
-
-    human_styles = infer_human_match_styles(human_records)
 
     train_items_raw = []
     human_val_items_raw = []
     human_val_recs = []
 
-    for rec in human_records:
-        svec = style_vector_for_record(rec, human_styles)
-        X, y, ctypes = featurize_record(rec, svec)
-        item = (X, y, ctypes, 1.0, None, 0.0)
+    for (X, y, ctypes, tv), rec in zip(human_feats, human_meta):
+        true_atype = ctypes[y] if 0 <= y < len(ctypes) else ""
+        hw = 1.65 if true_atype in {"guerrillaConcealment", "activateSkill", "chooseSpecialization", "droneDeploy", "banzaiCharge", "heavyCannonStance"} else 1.0
+        item = (X, y, ctypes, hw, tv, 0.85)
         if rec["matchId"] == args.val_match:
             human_val_items_raw.append(item)
             human_val_recs.append(rec)
@@ -754,7 +1009,7 @@ def main():
     sp_val_items_raw = []
     sp_val_recs = []
     for rec in selfplay_records:
-        svec = style_vector_for_record(rec, human_styles)
+        svec = style_vector_for_record(rec, {})
         X, y, ctypes = featurize_record(rec, svec)
         pw = float(rec.get("policyWeight", 0.35))
         tv = float(rec["outcomeValue"]) if rec.get("outcomeValue") is not None else None
@@ -768,11 +1023,11 @@ def main():
 
     stage1_raw = [it for it in train_items_raw if it[3] > 0]
     train_X_cat = np.concatenate([it[0] for it in (stage1_raw or train_items_raw)], axis=0)
-    mean = np.mean(train_X_cat, axis=0)
-    std = np.maximum(1e-3, np.std(train_X_cat, axis=0))
+    mean = np.mean(train_X_cat, axis=0).astype(np.float32)
+    std = np.maximum(np.float32(1e-3), np.std(train_X_cat, axis=0).astype(np.float32))
 
     train_data = [
-        (np.clip((X - mean) / std, -8.0, 8.0), y, pw, tv, vw)
+        (np.clip((X - mean) / std, np.float32(-8.0), np.float32(8.0)).astype(np.float32, copy=False), y, pw, tv, vw)
         for (X, y, _, pw, tv, vw) in train_items_raw
     ]
     dim = int(train_X_cat.shape[1])
@@ -780,6 +1035,30 @@ def main():
     # Stage 1: 纯正策略梯度样本（人类高质量 BC）更新策略主干，绝不被自对局空样本/分布漂移污染
     stage1_data = [it for it in train_data if it[2] > 0]
     mlp = DualHeadMLPScorer(dim, h1=112, h2=56, l2=3.2e-4, lr=2.8e-3, seed=42)
+
+    X_pool_gpu = None
+    stage1_row_ranges = []
+    stage1_meta = []
+    val_cached_cat = None
+    if mlp.use_gpu:
+        X_pool_gpu = cp.asarray(np.concatenate([it[0] for it in stage1_data], axis=0))
+        cur_row = 0
+        for (X_n, y, pw, tv, vw) in stage1_data:
+            nr = X_n.shape[0]
+            stage1_row_ranges.append(np.arange(cur_row, cur_row + nr, dtype=np.int32))
+            stage1_meta.append((nr, y, pw, tv, vw))
+            cur_row += nr
+        if human_val_items_raw:
+            val_X_list = []
+            val_offsets = []
+            vc = 0
+            for (X_raw, _, _, _, _, _) in human_val_items_raw:
+                X_n = np.clip((X_raw - mean) / std, np.float32(-8.0), np.float32(8.0)).astype(np.float32, copy=False)
+                val_offsets.append((vc, vc + X_n.shape[0]))
+                vc += X_n.shape[0]
+                val_X_list.append(X_n)
+            val_cached_cat = (cp.asarray(np.concatenate(val_X_list, axis=0)), val_offsets)
+
     best_obj = float("inf")
     best_state = mlp.state_dict()
     best_epoch = 0
@@ -792,13 +1071,19 @@ def main():
         tr_pol = tr_val = 0.0
         nb = 0
         for start in range(0, len(perm), args.batch_size):
-            batch = [stage1_data[k] for k in perm[start:start + args.batch_size]]
-            p_loss, v_loss = mlp.step(batch, lr_scale=lr_scale)
+            b_idxs = perm[start:start + args.batch_size]
+            if mlp.use_gpu and X_pool_gpu is not None:
+                batch_meta = [stage1_meta[k] for k in b_idxs]
+                idx_gpu = cp.asarray(np.concatenate([stage1_row_ranges[k] for k in b_idxs]))
+                p_loss, v_loss = mlp.step(batch_meta, lr_scale=lr_scale, X_cat_override=X_pool_gpu[idx_gpu])
+            else:
+                batch = [stage1_data[k] for k in b_idxs]
+                p_loss, v_loss = mlp.step(batch, lr_scale=lr_scale)
             tr_pol += p_loss
             tr_val += v_loss
             nb += 1
 
-        val_metrics = evaluate_split(human_val_items_raw, human_val_recs, mlp, mean, std)
+        val_metrics = evaluate_split(human_val_items_raw, human_val_recs, mlp, mean, std, cached_cat=val_cached_cat)
         history.append({
             "epoch": ep,
             "trainPolicyLoss": round(tr_pol / max(1, nb), 4),
@@ -809,7 +1094,7 @@ def main():
             "valTypeTop1Pct": val_metrics["modelActionTypeTop1Pct"],
         })
         pol_obj = val_metrics["crossEntropy"] - 0.012 * val_metrics["modelTop1Pct"]
-        if ep >= min(5, args.epochs) and pol_obj < best_obj:
+        if ep >= min(3, args.epochs) and pol_obj < best_obj:
             best_obj = pol_obj
             best_state = mlp.state_dict()
             best_epoch = ep
@@ -839,6 +1124,7 @@ def main():
     Path(args.out_model).write_text(json.dumps(model_artifact), encoding="utf-8")
 
     summary = {
+        "device": _gpu_name if mlp.use_gpu else "CPU (NumPy)",
         "elapsedSec": round(time.time() - t0, 2),
         "humanTrainMatchesCount": len(human_matches) - 1,
         "selfPlayMatchesCount": len(sp_matches),

@@ -137,12 +137,13 @@ function unitClassFlags(utype) {
 function getAllActiveCommandSkillKeys(unit, state) {
     if (!unit?.commander || !unit.canAct) return [];
     if (areCommanderMechanicsSuppressed(unit)) return [];
-    if (state?._aiSkillPlanned?.has?.(unit.id)) return [];
+    const allowSecondSmite = unit.commander === 'paladin' && unit._smiteReady && !unit._smiteCharged && Number(unit._faith || 0) >= 1;
+    if (state?._aiSkillPlanned?.has?.(unit.id) && !allowSecondSmite) return [];
     if (unit.commander === 'engineer') return [];
     const cfg = getCommander(unit.commander);
     if (!cfg?.activeSkill) return [];
     if (Number(unit.activeSkillCD || 0) > 0 || Number(unit.activeSkillDur || 0) > 0) return [];
-    if (unit.commander === 'paladin' && (!shouldPlanActiveSkill(unit, { hasAttackTarget: true }))) return [];
+    if (unit.commander === 'paladin' && !allowSecondSmite && (!shouldPlanActiveSkill(unit, { hasAttackTarget: true }))) return [];
     if (unit.commander === 'berserker' && (!shouldPlanActiveSkill(unit, { hasAttackTarget: true }))) return [];
     return [cfg.activeSkill.id || ''];
 }
@@ -1049,10 +1050,19 @@ function scoreCandidatesImperator(state, helpers, camp, world, strategy, imperat
     const plannedCardCoords = new Set();
     const plannedMoveUnitIds = new Set();
     const plannedMoveDestMap = new Map();
+    const plannedRecruitBySite = new Map();
+    const plannedPrepRankByUnit = new Map();
     let planDrawPlanned = false;
     imperatorPlan.forEach((act, idx) => {
         const k = plannedActionKey(act, state);
         if (k && !planRankMap.has(k)) planRankMap.set(k, idx);
+        if ((act.type === 'activateSkill' || act.type === 'guerrillaConcealment' || act.type === 'heavyCannonStance') && act.unitId != null) {
+            if (!plannedPrepRankByUnit.has(act.unitId)) plannedPrepRankByUnit.set(act.unitId, idx);
+        }
+        if (act.type === 'recruit' && act.tileQ != null && act.tileR != null) {
+            const sk = `${act.tileQ},${act.tileR}`;
+            if (!plannedRecruitBySite.has(sk)) plannedRecruitBySite.set(sk, act.unitType);
+        }
         if (act.type === 'move' && act.unitId != null) {
             plannedMoveUnitIds.add(act.unitId);
             if (!plannedMoveDestMap.has(act.unitId)) {
@@ -1081,6 +1091,14 @@ function scoreCandidatesImperator(state, helpers, camp, world, strategy, imperat
     const moveBias = fusion?.moveBias || 0;
     const cardBias = fusion?.cardBias || 0;
     const beamScale = fusion?.beamWeight ?? 1.0;
+
+    const activePrepRankByUnit = new Map();
+    for (const c of candidates) {
+        if ((c.actionType === 'activateSkill' || c.actionType === 'guerrillaConcealment' || c.actionType === 'heavyCannonStance')
+            && c.unitId != null && plannedPrepRankByUnit.has(c.unitId) && planRankMap.has(c.key)) {
+            activePrepRankByUnit.set(c.unitId, plannedPrepRankByUnit.get(c.unitId));
+        }
+    }
 
     const hasPlannedMatch = candidates.some(c => planRankMap.has(c.key));
     const hasOpenCapture = candidates.some(c => {
@@ -1123,8 +1141,41 @@ function scoreCandidatesImperator(state, helpers, camp, world, strategy, imperat
         } else if (c.actionType === 'chooseSpecialization') {
             utility = Math.max(utility, 96);
         } else if (c.actionType === 'activateSkill') {
-            utility = rank !== undefined ? Math.max(utility, 102) : -70;
-            if (rank === undefined) vetoFlags[i] = 1;
+            if (rank !== undefined) {
+                utility = Math.max(utility, 114);
+            } else {
+                const su = world.myUnits.find(x => x.id === c.unitId);
+                const reach = su ? Math.max(1, Number(su.remainingMP || 0)) + Math.max(1, Number(su.getEffectiveRange?.() ?? su.config?.range ?? 1)) : 1;
+                const hasEnemyInReach = su?.tile && [...world.rivalUnits, ...world.neutralUnits].some(e =>
+                    e.tile && e.hp > 0 && hexDistCoords(su.tile.q, su.tile.r, e.tile.q, e.tile.r) <= reach);
+                const priestHasWounded = su?.commander === 'priest' && su.hp >= su.maxHp * 0.55
+                    && world.myUnits.some(ally => ally.id !== su.id && ally.tile && ally.hp < ally.maxHp * 0.65
+                        && hexDistCoords(su.tile.q, su.tile.r, ally.tile.q, ally.tile.r) <= 2);
+                if ((su?.commander === 'paladin' && Number(su._faith || 0) >= 1 && !su._smiteCharged && hasEnemyInReach)
+                    || priestHasWounded) {
+                    utility = 96;
+                } else {
+                    utility = -70;
+                    vetoFlags[i] = 1;
+                }
+            }
+        } else if (c.actionType === 'guerrillaConcealment') {
+            const gu = world.myUnits.find(x => x.id === c.unitId);
+            const mp = Number(gu?.remainingMP || 0);
+            const nearEnemyDist = gu?.tile
+                ? [...world.rivalUnits, ...world.neutralUnits].reduce((best, e) =>
+                    (e.tile && e.hp > 0 ? Math.min(best, hexDistCoords(gu.tile.q, gu.tile.r, e.tile.q, e.tile.r)) : best), 20)
+                : 20;
+            if (rank !== undefined) {
+                utility = Math.max(utility, 114);
+            } else if (gu && mp >= 2 && nearEnemyDist <= mp) {
+                utility = 98;
+            } else if (gu && nearEnemyDist <= 4) {
+                utility = 48;
+            } else {
+                utility = -55;
+                vetoFlags[i] = 1;
+            }
         } else if (c.actionType === 'tacticalCard') {
             const matchesPlannedCard = plannedCardCoords.has(`${c.cardId}:${c.q},${c.r}`);
             if (!matchesPlannedCard && ['lightning', 'imprison', 'poison'].includes(c.cardId)) {
@@ -1139,19 +1190,33 @@ function scoreCandidatesImperator(state, helpers, camp, world, strategy, imperat
                 utility += cardBias * 0.4;
             }
         } else if (c.actionType === 'attack') {
-            if (rank === undefined && plannedMoveUnitIds.has(c.unitId)) {
-                // 该单位已承担 Imperator 机动/撤退/占城/腾位任务且原计划未安排顺手普攻或攻城，严禁违抗撤退/推进纪律就地死战
-                utility = -85;
+            const prepRank = activePrepRankByUnit.get(c.unitId);
+            if (prepRank !== undefined && (rank === undefined || rank > prepRank)) {
+                utility = -90;
                 vetoFlags[i] = 1;
+            } else if (rank === undefined && plannedMoveUnitIds.has(c.unitId)) {
+                const au = world.myUnits.find(x => x.id === c.unitId);
+                const freePoke = au && Number(au.remainingMP || 0) === 0 && !c.isCitySiege && c.targetId
+                    ? planFollowupAttack(state, helpers, camp, TIER_CAPABILITIES.hard, c.unitId, c.targetId)
+                    : null;
+                if (freePoke && freePoke.counter === 0 && freePoke.damage > 0) {
+                    utility = Math.max(utility, 72) + attackBias;
+                } else {
+                    // 该单位已承担 Imperator 机动/撤退/占城/腾位任务且原计划未安排顺手普攻或攻城，严禁违抗撤退/推进纪律就地死战
+                    utility = -85;
+                    vetoFlags[i] = 1;
+                }
             } else if (!c.isCitySiege && c.targetId) {
                 const trade = planFollowupAttack(state, helpers, camp, TIER_CAPABILITIES.hard, c.unitId, c.targetId);
-                if (!trade) {
+                const tu = rivalUnitMap.get(c.targetId);
+                const nearHostileCity = tu?.tile && hostileCityTiles.some(hc => hexDistCoords(tu.tile.q, tu.tile.r, hc.q, hc.r) <= 2);
+                const lateAllInPush = strategy.posture === 'allin' && world.roundsRemaining <= 5 && nearHostileCity;
+                if (!trade && !lateAllInPush) {
                     utility = -75;
                     vetoFlags[i] = 1;
                 } else {
-                    const tu = rivalUnitMap.get(c.targetId);
                     const isKill = tu && Number(tu.hp || 0) <= 45;
-                    utility = Math.max(utility, 65 + (isKill ? 30 : 0) + (tu?.commander ? 18 : 0)) + attackBias;
+                    utility = Math.max(utility, (trade ? 65 : 42) + (isKill ? 30 : 0) + (tu?.commander ? 18 : 0)) + attackBias;
                 }
             } else {
                 utility = Math.max(utility, 68) + attackBias * 0.6;
@@ -1159,7 +1224,11 @@ function scoreCandidatesImperator(state, helpers, camp, world, strategy, imperat
         } else if (c.actionType === 'move') {
             const tile = state.tileMap.get(`${c.q},${c.r}`);
             const unit = world.myUnits.find(u => u.id === c.unitId);
-            if (returnPlan && c.unitId === returnPlan.unitId
+            const prepRank = activePrepRankByUnit.get(c.unitId);
+            if (prepRank !== undefined && (rank === undefined || rank > prepRank)) {
+                utility = -90;
+                vetoFlags[i] = 1;
+            } else if (returnPlan && c.unitId === returnPlan.unitId
                 && returnPlan.vacatedRound === getRound(state)) {
                 // 尚书同回合已执行腾位并在城旁待命，禁止继续远离原城或立刻回踩占格
                 utility = -95;
@@ -1190,8 +1259,17 @@ function scoreCandidatesImperator(state, helpers, camp, world, strategy, imperat
             }
         } else if (c.actionType === 'recruit') {
             const siteKey = `${c.q},${c.r}`;
+            const siteTile = state.tileMap.get(siteKey);
+            const plannedTypeHere = plannedRecruitBySite.get(siteKey);
+            const mySubs = world.myUnits.filter(u => u.type === 'submarine').length;
             if (ministerReservedCity && siteKey === ministerReservedCity && rank === undefined) {
                 utility = -95;
+                vetoFlags[i] = 1;
+            } else if (plannedTypeHere && plannedTypeHere !== c.unitType) {
+                utility = -85;
+                vetoFlags[i] = 1;
+            } else if (siteTile?.isPort && c.unitType === 'submarine' && mySubs >= 3 && rank === undefined) {
+                utility = -85;
                 vetoFlags[i] = 1;
             } else if (rank !== undefined) {
                 utility = Math.max(utility, 110);

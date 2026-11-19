@@ -37,8 +37,22 @@ function landRecruitOrder(world, missionsCtx, hasCapturer) {
     const myArchers = world.myUnits.filter(unit => getUnitBaseType(unit) === 'archer').length;
     const myCavalry = world.myUnits.filter(unit => getUnitBaseType(unit) === 'cavalry').length;
     const myInfantry = world.myUnits.filter(unit => getUnitBaseType(unit) === 'infantry').length;
+    const assaultCount = world.myUnits.filter(unit => world.isCapturable(unit)).length;
     if (world.caps.lethalFocus && hostileFortifications > myArchers) {
         return ['archer', 'cavalry', 'infantry'];
+    }
+    const rFlags = world.rivalModel?.flags;
+    const rCounts = world.rivalModel?.counts;
+    if (world.caps.opponentModeling && rFlags) {
+        if (rFlags.artilleryHeavy && myCavalry < (rCounts?.archer || 2) + 1) {
+            return ['cavalry', 'infantry', 'archer'];
+        }
+        if (rFlags.infantryWall && assaultCount >= 3 && myArchers < Math.min(2, Math.floor((rCounts?.infantry || 4) / 2))) {
+            return ['archer', 'cavalry', 'infantry'];
+        }
+        if (rFlags.cavalryRush && myInfantry < (rCounts?.cavalry || 2) + 2) {
+            return ['infantry', 'archer', 'cavalry'];
+        }
     }
     const decisiveSiege = missionsCtx.missions.find(mission =>
         mission.kind === 'siege' && mission.decisive);
@@ -46,7 +60,6 @@ function landRecruitOrder(world, missionsCtx, hasCapturer) {
         ? world.cities.find(city => city.tile.q === decisiveSiege.targetQ
             && city.tile.r === decisiveSiege.targetR)
         : null;
-    const assaultCount = world.myUnits.filter(unit => world.isCapturable(unit)).length;
     const desiredSupport = Math.max(1, Math.ceil(assaultCount / W.siegeSupportPerAssault));
     if (world.caps.lethalFocus && targetCity
         && (targetCity.hp > 0 || targetCity.garrison)
@@ -161,11 +174,21 @@ export function planProduction(world, strategy, missionsCtx) {
     const cityUnique = uniqueType && canUnitBeRecruitedAtSite(uniqueType, 'city');
     const uniqueCanCapture = cityUnique && getUnitBaseType(uniqueType) !== 'archer';
     const canRecruit = (type, site) => !helpers.canRecruitTypeAtSite || helpers.canRecruitTypeAtSite(type, site);
-    const savingForUnique = uniqueType && uniqueCount === 0 && assaultCount > 0 && !strategy.emergencyDefenseCity
-        && !canAfford(gold, unitCost(world, uniqueType), strategy)
+    const uniqueCostVal = uniqueType ? unitCost(world, uniqueType) : Infinity;
+    const canSaveForUniqueNextTurn = uniqueType && uniqueCount === 0 && assaultCount >= 3 && world.myUnits.length >= 5 && !strategy.emergencyDefenseCity
+        && !canAfford(gold, uniqueCostVal, strategy)
+        && gold + (world.economy?.projectedIncome || 0) >= uniqueCostVal + strategy.reserve
+        && world.tiles.some(tile => tile.camp === world.myCamp
+            && ((tile.isCity && cityUnique) || (tile.isPort && canUnitBeRecruitedAtSite(uniqueType, 'port')))
+            && canRecruit(uniqueType, { ...tile, unit: null }));
+    const savingForUnique = Boolean((uniqueType && uniqueCount === 0 && assaultCount >= 2 && world.myUnits.length >= 4 && !strategy.emergencyDefenseCity
+        && !canAfford(gold, uniqueCostVal, strategy)
         && world.tiles.some(tile => !tile.unit && tile.camp === world.myCamp
             && ((tile.isCity && cityUnique) || (tile.isPort && canUnitBeRecruitedAtSite(uniqueType, 'port')))
-            && canRecruit(uniqueType, tile));
+            && canRecruit(uniqueType, tile))) || canSaveForUniqueNextTurn);
+    if (savingForUnique && Number.isFinite(uniqueCostVal)) {
+        prodMemory.strategicSaveReserve = Math.max(prodMemory.strategicSaveReserve, Math.min(gold, uniqueCostVal));
+    }
     const aiMemory = (world.gameState._aiCoreMemory ||= {});
     const memory = (aiMemory[world.myCampKey] ||= {});
     const returnPlan = memory.ministerReturn;
@@ -297,11 +320,12 @@ export function planProduction(world, strategy, missionsCtx) {
                 if (world.isImmobile(city.unit)) return false;
                 if (city.unit.commander === 'minister') return ministerMayVacate;
                 if (city.unit.commander === 'astrologer') {
-                    const allowSoleRelease = !hasEmptyCity && world.myCities.length === 1
-                        && gold >= unitCost(world, 'infantry') && world.myUnits.length < 9;
+                    const landUnitCount = world.myUnits.filter(u => !world.isNaval(u)).length;
+                    const allowSoleRelease = !hasEmptyCity && world.myCities.length <= 2
+                        && gold >= unitCost(world, 'infantry') && landUnitCount < Math.max(9, world.myCities.length * 4 + 3);
                     return strategy.assaultCapacity.deficit > 0
                         || allowSoleRelease
-                        || (gold >= 16 && world.myUnits.length < Math.max(9, world.myCities.length * 4 + 2));
+                        || (gold >= 14 && landUnitCount < Math.max(11, world.myCities.length * 5 + 2));
                 }
                 if (city.unit.type === 'fr_heavy_cannon') {
                     // 未架设的巨炮若不缺夺城兵力，留给战术层优先推进到有射界的阵位并自然腾空城池；已架设冷却结束后（非单单位战斗中）再由生产层收起腾位
@@ -328,18 +352,26 @@ export function planProduction(world, strategy, missionsCtx) {
             const mobile = productionExitUnit(world, city.unit);
             if (!mobile) continue;
             const isHeavyCannon = city.unit.type === 'fr_heavy_cannon';
+            const isRearLeader = minister || city.unit.commander === 'astrologer';
             const cannonSafeFloor = isHeavyCannon && !minister
                 ? Math.max(20, Math.round(city.unit.hp * 0.60))
                 : 20;
+            const totalExitThreat = tile => world.threatAt(tile, city.unit) + (world.airThreatAt?.(tile, city.unit) || 0) * 0.65;
             const exits = helpers.getMovableTiles(mobile)
                 .filter(tile => (!tile.unit || (world.isUnitVisible && !world.isUnitVisible(tile.unit)))
                     && !tile.isCity && isCanVacateOffCityExit(tile, city.unit)
-                    && world.threatAt(tile, city.unit) <= cannonSafeFloor);
+                    && totalExitThreat(tile) <= cannonSafeFloor);
             if (exits.length === 0) continue;
             const minHostileDist = tile => {
                 let best = 99;
                 for (const enemy of world.rivalUnits) {
                     if (enemy.tile) best = Math.min(best, helpers.hexDistance(tile, enemy.tile));
+                }
+                if (best < 99) return best;
+                for (const c of world.cities) {
+                    if (c.hostile && (!isRearLeader || c.ownerKey !== 'neutral')) {
+                        best = Math.min(best, helpers.hexDistance(tile, c.tile));
+                    }
                 }
                 if (best < 99) return best;
                 for (const c of world.cities) {
@@ -354,8 +386,9 @@ export function planProduction(world, strategy, missionsCtx) {
                     return d >= 2 && d <= 5;
                 });
             exits.sort((a, b) => Number(hasCannonArc(b)) - Number(hasCannonArc(a))
-                || world.threatAt(a, city.unit) - world.threatAt(b, city.unit)
-                || (minister ? minHostileDist(b) - minHostileDist(a) : minHostileDist(a) - minHostileDist(b)));
+                || (isRearLeader ? Number(helpers.hexDistance(b, city) === 1) - Number(helpers.hexDistance(a, city) === 1) : 0)
+                || totalExitThreat(a) - totalExitThreat(b)
+                || (isRearLeader ? minHostileDist(b) - minHostileDist(a) : minHostileDist(a) - minHostileDist(b)));
             const move = {
                 type: 'move', unitId: city.unit.id, tileQ: exits[0].q, tileR: exits[0].r,
                 autoAttack: false

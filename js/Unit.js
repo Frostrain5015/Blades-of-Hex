@@ -70,11 +70,13 @@ import { resolveAiDifficultyProfile } from '../ai/difficulty.js';
 let _logMessage = null;
 let _gameState = null;
 let _isNetworkGame = null;
+let _onAutoSpecialized = null;
 // 晋升事件收集（供联机同步，每轮 action 前清空）
 export let _pendingRankUps = [];
 export function setLogMessageRef(fn) { _logMessage = fn; }
 export function setGameStateRef(ref) { _gameState = ref; }
 export function setIsNetworkGameRef(fn) { _isNetworkGame = fn; }
+export function setAutoSpecializationRecorder(fn) { _onAutoSpecialized = fn; }
 
 /**
  * 是否允许为该单位走 AI 自动选专精路径。
@@ -1544,7 +1546,12 @@ export class Unit {
                 _gameState,
                 _autoSpecializationPolicy(this)
             );
-            if (defaultSpecialization) this.chooseSpecialization(defaultSpecialization);
+            if (defaultSpecialization) {
+                this.chooseSpecialization(defaultSpecialization);
+                if (this.camp && campToKey(this.camp) !== 'neutral') {
+                    _onAutoSpecialized?.(this, defaultSpecialization);
+                }
+            }
         }
         // 一次经验结算即使跨越多阶，也只按最终面板恢复一次已损失生命值。
         if (!(this.commander === 'martyr' && this._martyrPrimed)) {

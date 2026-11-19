@@ -346,6 +346,89 @@ export function buildWorld(gameState, helpers, myCamp, caps) {
     }
     const ownForceValue = estimateForceValue(myUnits);
     const observedRivalForce = estimateForceValue(rivalUnits);
+    const rivalModelsByCamp = {};
+    let totalRivalWeight = 0;
+    for (const faction of rivalFactions) {
+        const ck = campToKey(faction);
+        const fUnits = rivalUnits.filter(u => u.camp === faction);
+        const weight = Math.max(0.5, (cityCountByKey[ck] || 0) * 1.5 + estimateForceValue(fUnits) / 100);
+        const counts = { infantry: 0, cavalry: 0, archer: 0, mgNest: 0, warship: 0, submarine: 0, destroyer: 0 };
+        let hasCol = false;
+        const seenIds = new Set();
+        const tally = (type, commander) => {
+            const base = getUnitBaseType(type);
+            if (base === 'infantry') counts.infantry++;
+            else if (base === 'cavalry') counts.cavalry++;
+            else if (base === 'archer') counts.archer++;
+            else if (base === 'mgNest') counts.mgNest++;
+            else if (base === 'warship' || base === 'carrier') counts.warship++;
+            else if (base === 'submarine') counts.submarine++;
+            else if (base === 'destroyer') counts.destroyer++;
+            if (commander === 'colonel') hasCol = true;
+        };
+        for (const u of fUnits) {
+            seenIds.add(u.id);
+            tally(u.type, u.commander);
+        }
+        if (intel && intel[ck]) {
+            for (const [uid, seen] of Object.entries(intel[ck].units || {})) {
+                if (seenIds.has(Number(uid)) || seenIds.has(uid)) continue;
+                if (round - (seen.seenRound || 0) <= 6) tally(seen.type, seen.commander);
+            }
+        }
+        rivalModelsByCamp[ck] = { counts, weight, hasColonel: hasCol };
+        totalRivalWeight += weight;
+    }
+    const rivalTypeCounts = { infantry: 0, cavalry: 0, archer: 0, mgNest: 0, warship: 0, submarine: 0, destroyer: 0 };
+    let rivalColonel = false;
+    const normW = Math.max(1e-6, totalRivalWeight);
+    for (const entry of Object.values(rivalModelsByCamp)) {
+        const share = entry.weight / normW;
+        for (const k of Object.keys(rivalTypeCounts)) rivalTypeCounts[k] += entry.counts[k] * share;
+        if (entry.hasColonel) rivalColonel = true;
+    }
+    // 3P 心理博弈：检测两家对手是否正在互相强强交火（彼此单位距离 <= 3 格）
+    const clashingUnitIds = new Set();
+    let clashPairs = 0;
+    if (caps.opponentModeling && rivalFactions.length >= 2) {
+        for (let i = 0; i < rivalUnits.length; i++) {
+            const a = rivalUnits[i];
+            if (!a.tile) continue;
+            for (let j = i + 1; j < rivalUnits.length; j++) {
+                const b = rivalUnits[j];
+                if (!b.tile || a.camp === b.camp) continue;
+                if (helpers.hexDistance(a.tile, b.tile) <= 3) {
+                    clashingUnitIds.add(a.id);
+                    clashingUnitIds.add(b.id);
+                    clashPairs++;
+                }
+            }
+        }
+    }
+    const threePlayerPolitics = caps.opponentModeling && rivalFactions.length >= 2
+        ? { rivalsClashing: clashPairs >= 2, clashPairs, clashingUnitIds }
+        : null;
+    const rivalLandTotal = Math.max(1, rivalTypeCounts.infantry + rivalTypeCounts.cavalry + rivalTypeCounts.archer + rivalTypeCounts.mgNest);
+    const hostileAirfieldBuilding = tiles.filter(tile =>
+        tile.isCity && tile.camp && rivalFactions.includes(tile.camp)
+        && tile.installation?.type === 'airfield' && visible(tile)).length;
+    const rivalFlags = {
+        airHeavy: hostileAirfieldBuilding >= 2 || (hostileAirfieldBuilding >= 1 && (rivalColonel || round >= 4)),
+        artilleryHeavy: rivalTypeCounts.archer >= 2 && (rivalTypeCounts.archer / rivalLandTotal) >= 0.28,
+        infantryWall: (rivalTypeCounts.infantry + rivalTypeCounts.mgNest) >= 4
+            && ((rivalTypeCounts.infantry + rivalTypeCounts.mgNest) / rivalLandTotal) >= 0.56,
+        cavalryRush: rivalTypeCounts.cavalry >= 2 && (rivalTypeCounts.cavalry / rivalLandTotal) >= 0.28,
+        navalHeavy: rivalTypeCounts.warship >= 2 || rivalTypeCounts.submarine >= 2
+    };
+    const rivalStyle = rivalFlags.airHeavy ? 'airHeavy'
+        : rivalFlags.artilleryHeavy ? 'artilleryHeavy'
+        : rivalFlags.infantryWall ? 'infantryWall'
+        : rivalFlags.cavalryRush ? 'cavalryRush'
+        : rivalFlags.navalHeavy ? 'navalHeavy'
+        : 'balanced';
+    const rivalModel = caps.opponentModeling
+        ? { style: rivalStyle, flags: rivalFlags, counts: rivalTypeCounts, hasColonel: rivalColonel }
+        : null;
     const rivalProfiles = rivalFactions.map(faction => {
         const campKey = campToKey(faction);
         const units = rivalUnits.filter(unit => unit.camp === faction);
@@ -444,7 +527,7 @@ export function buildWorld(gameState, helpers, myCamp, caps) {
         captureRoute: caps.transportPlanning && oceanMap ? createCaptureRouteFinder(gameState) : null,
         tiles, tileMap: gameState.tileMap,
         weather: gameState.weather || 'clear',
-        myUnits, rivalUnits, neutralUnits, rivalFactions,
+        myUnits, rivalUnits, neutralUnits, rivalFactions, rivalModel, threePlayerPolitics,
         myCities, cities, cityCountByKey, bestRivalCities, rivalProfiles, collapseTarget,
         cityGap: myCities.length - bestRivalCities,
         economy, strongestRivalEconomy, rivalEconomyByKey,

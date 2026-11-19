@@ -144,7 +144,8 @@ export function decideStrategy(world) {
 
         const leadSafe = world.cityGap > 0
             && (clock.enemyCaptureEta == null || world.roundsRemaining <= clock.enemyCaptureEta + 1);
-        const trailing = world.cityGap < 0;
+        const trailing = world.cityGap < 0
+            || (world.caps.opponentModeling && world.cityGap === 0 && world.roundsRemaining <= (world.oceanMap ? 6 : 4) && base.forceRatio >= 0.85);
         const clockRunningOut = world.roundsRemaining <= Math.max(4, (clock.myCaptureEta ?? 99) + 1);
 
         // 残局映射：finish 不是"结束"，而是按城市差切成守钟或死斗。

@@ -629,6 +629,20 @@ export function enumerateLegalCandidates(state, camp, helpers) {
                 }
             }
         }
+        if (unit.commander === 'tianyan' && unit.tile && !unit._isDrone && unit.canAct && gold >= 5) {
+            for (const tile of state.tiles) {
+                if (!tile.unit && !tile.isCity && tile.terrain !== 'mountain' && hexDistance(unit.tile, tile) === 1) {
+                    candidates.push({
+                        id: candidates.length,
+                        key: `droneDeploy:${unit.id}:${tile.q},${tile.r}`,
+                        actionType: 'droneDeploy',
+                        unitId: unit.id,
+                        q: tile.q,
+                        r: tile.r
+                    });
+                }
+            }
+        }
     }
 
     // 募兵 + 建机场
@@ -790,8 +804,11 @@ export function matchHumanActionToCandidate(entry, candidates, state) {
     if (type === 'activateSkill') {
         return candidates.find(c => c.actionType === 'activateSkill' && c.unitId === p.unitId) || null;
     }
-    if (type === 'droneSuicide') {
-        return candidates.find(c => c.actionType === 'droneSuicide' && c.unitId === p.unitId && c.q === p.q && c.r === p.r) || null;
+    if (type === 'droneSuicide' || type === 'droneDeploy') {
+        const uid = p.unitId ?? p.tianyanUnitId;
+        const q = p.q ?? p.tileQ;
+        const r = p.r ?? p.tileR;
+        return candidates.find(c => c.actionType === type && c.unitId === uid && c.q === q && c.r === r) || null;
     }
     if (type === 'drawCard' || type === 'endTurn') {
         return candidates.find(c => c.actionType === type) || null;

@@ -31,7 +31,8 @@ export const TIER_CAPABILITIES = Object.freeze({
         emergencyDefense: false,
         lethalFocus: false,
         rearCommanderSafety: false,
-        strategicPrizeRacing: false
+        strategicPrizeRacing: false,
+        opponentModeling: false
     }),
     medium: Object.freeze({
         id: 'medium',
@@ -52,7 +53,8 @@ export const TIER_CAPABILITIES = Object.freeze({
         emergencyDefense: true,
         lethalFocus: true,
         rearCommanderSafety: true,
-        strategicPrizeRacing: true
+        strategicPrizeRacing: true,
+        opponentModeling: false
     }),
     hard: Object.freeze({
         id: 'hard',
@@ -73,7 +75,8 @@ export const TIER_CAPABILITIES = Object.freeze({
         emergencyDefense: true,
         lethalFocus: true,
         rearCommanderSafety: true,
-        strategicPrizeRacing: true
+        strategicPrizeRacing: true,
+        opponentModeling: true     // Hybrid 3.1 专属：对手风格建模、克制募兵/猎杀、高级主动技前瞻与残局破平
     })
 });
 

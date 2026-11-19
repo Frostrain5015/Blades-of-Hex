@@ -235,9 +235,14 @@ export function assignMissions(world, strategy) {
                 const readiness = Math.max(0.25, Math.min(1, unit.hp / unit.maxHp));
                 return sum + (unit.config?.cost || 8) * readiness * (distance <= 2 ? 1 : 0.5);
             }, 0);
-            const noProgress = (city.hp > 0 && city.hp >= (mission.cityHp ?? city.hp))
-                && (!city.garrison || city.garrison.hp >= (mission.garrisonHp ?? city.garrison.hp) - 10);
-            if (strike === 0 || defense > strike * 1.35 || noProgress) {
+            const garrisonCleared = world.caps.opponentModeling && !city.garrison && (mission.garrisonHp || 0) > 0;
+            const garrisonDamaged = city.garrison && city.garrison.hp < (mission.garrisonHp ?? city.garrison.hp) - 10;
+            const cityDamaged = city.hp < (mission.cityHp ?? city.hp);
+            const noProgress = world.caps.opponentModeling
+                ? (!garrisonCleared && !garrisonDamaged && !cityDamaged && city.hp > 0)
+                : ((city.hp > 0 && city.hp >= (mission.cityHp ?? city.hp))
+                    && (!city.garrison || city.garrison.hp >= (mission.garrisonHp ?? city.garrison.hp) - 10));
+            if (strike === 0 || ((world.caps.opponentModeling ? city.garrison : true) && defense > strike * 1.35) || noProgress) {
                 siegeBlacklist[`${mission.targetQ},${mission.targetR}`] = world.round + 5;
                 continue;
             }

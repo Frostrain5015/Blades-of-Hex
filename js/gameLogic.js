@@ -30,7 +30,7 @@ import { HexTile, computeCampBorders, computeDistrictBorders } from './HexTile.j
 import { buildBoardFromConfig } from '../campaign/runtime/mapBuilder.js';
 import { getStandardMap, normalizeStandardMapFamilyId } from '../rules/standardMaps.js';
 import { syncStandardMapCarrierControl, syncCityLinkedGarrisons } from '../rules/standardMapEvents.js';
-import { Unit, _pendingRankUps } from './Unit.js';
+import { Unit, _pendingRankUps, setAutoSpecializationRecorder } from './Unit.js';
 import {
     spawnExplosionParticles, spawnDirectionalParticles, spawnHealParticles, spawnGoldParticles, spawnRecruitEffect,
     triggerAttackFlash, triggerHealFlash, triggerRecruitFlash, triggerScreenShake,
@@ -266,6 +266,15 @@ export function recordAuxiliaryAction(actionType, effectData = null, actorCamp =
 }
 
 bindMatchRecorderState(gameState);
+setAutoSpecializationRecorder((unit, specializationKey) => {
+    if (!gameState.aiActing) return;
+    recordAuxiliaryAction('chooseSpecialization', {
+        unitId: unit.id,
+        type: unit.type,
+        rank: unit._rank,
+        specializationKey
+    }, unit.camp);
+});
 
 // ===== 二次确认弹窗 =====================
 let _confirmActive = false;
@@ -2634,7 +2643,7 @@ function _moveUnit(unit, targetTile) {
     }
 
     gameState.movableTiles = [];
-    gameState.attackableTiles = getAttackableTiles(unit);
+    gameState.attackableTiles = getAttackableTiles(unit, { forAiAction: Boolean(gameState.aiActing) });
 
     if (unit.remainingMP > 0) {
         gameState.movableTiles = getMovableTiles(unit);

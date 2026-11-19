@@ -171,9 +171,22 @@ export const SPECIALIST_MICRO_TREE = Selector('SpecialistMicroRoot', [
         }))
     ]),
 
-    // 天眼无人机链：先兑现自爆斩杀/高价损毁，再按预算安全部署前哨机。
+    // 天眼无人机链：先兑现自爆斩杀/高价损毁，再在天眼自身安全且不挤占空城急招资金时部署前哨机。
     Selector('TianyanDroneChain', [
-        Action('DroneDeploy', ctx => pickPlannedStep(ctx, act => act.type === 'droneDeploy'))
+        Action('DroneDeploy', ctx => pickPlannedStep(ctx, act => {
+            if (act.type !== 'droneDeploy') return false;
+            const tianyan = ctx.unitById.get(act.unitId);
+            if (!tianyan || !tianyan.tile) return false;
+            if (ctx.world) {
+                const pool = tianyan.hp + (tianyan.activeShield ?? tianyan._shield ?? 0);
+                const threat = (ctx.world.threatAt?.(tianyan.tile, tianyan) || 0)
+                    + (ctx.world.airThreatAt?.(tianyan.tile, tianyan) || 0);
+                if (threat >= pool * 0.72 || Number(tianyan.remainingMP || 0) < 2) return false;
+                const hasEmptyCity = (ctx.world.myCities || []).some(c => !c.unit);
+                if (hasEmptyCity && Number(ctx.world.gold || 0) < 13) return false;
+            }
+            return true;
+        }))
     ]),
 
     // 联合推进序列：Imperator 首步为先跑位后攻击/破门的协调移动时，锁定先移动避免就地乱砍。

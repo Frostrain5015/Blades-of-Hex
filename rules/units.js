@@ -331,12 +331,27 @@ export function chooseDefaultSpecialization(unit, state = null, policy = {}) {
     const intelligence = policy.intelligence || 'medium';
     if (intelligence === 'easy') return specializationOptions[0].key;
     if (unit.type === 'archer') {
-        const hostileAirPlatforms = hostileUnits.filter(other => other.type === 'carrier' || other._isDrone).length;
-        const needsAntiAir = hostileAirPlatforms >= (intelligence === 'hard' ? 2 : 1);
+        const hostileAirfields = (state?.tiles || []).filter(tile =>
+            tile.isCity && tile.camp && tile.camp !== unit.camp && tile.camp.id !== 'neutral'
+            && tile.installation?.type === 'airfield' && tile.installation?.status === 'ready').length;
+        const hostileColonels = hostileUnits.filter(other =>
+            other.commander === 'colonel' && other.camp?.id !== 'neutral').length;
+        const hostileAirPlatforms = hostileUnits.filter(other => other.type === 'carrier' || other._isDrone).length
+            + hostileAirfields + hostileColonels;
+        const ownArtilleryCount = units.filter(other =>
+            other.camp === unit.camp && other.type === 'archer').length;
+        const ownAntiAir = units.filter(other =>
+            other.camp === unit.camp && other.specializationKey === 'antiAirArtillery').length;
+        const needsAntiAir = hostileAirPlatforms >= (intelligence === 'hard' ? 2 : 1)
+            && (ownArtilleryCount >= 2 || hostileAirPlatforms >= 3)
+            && ownAntiAir < Math.max(1, Math.ceil(hostileAirPlatforms / 2));
         return needsAntiAir ? 'antiAirArtillery' : 'fieldGun';
     }
     if (unit.type === 'destroyer') {
-        return hostileUnits.some(other => other.type === 'submarine') ? 'antiSubDestroyer' : 'antiAirDestroyer';
+        const enemySubs = hostileUnits.filter(other => other.type === 'submarine').length;
+        const ownAntiSub = units.filter(other =>
+            other.camp === unit.camp && other.specializationKey === 'antiSubDestroyer').length;
+        return enemySubs > ownAntiSub ? 'antiSubDestroyer' : 'antiAirDestroyer';
     }
     if (unit.type === 'warship') {
         return hostileUnits.filter(other => other.config?.movementDomain === 'naval').length

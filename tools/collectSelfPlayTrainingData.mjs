@@ -4,7 +4,7 @@
 
 import '../core/dom-shim.js';
 import { spawn } from 'node:child_process';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { createWriteStream, readdirSync, readFileSync, statSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 
@@ -347,7 +347,13 @@ for (const filePath of files) {
 }
 
 await mkdir(dirname(outputPath), { recursive: true });
-await writeFile(outputPath, lines.join('\n') + (lines.length ? '\n' : ''), 'utf8');
+await new Promise((resolveWrite, rejectWrite) => {
+    const ws = createWriteStream(outputPath, { encoding: 'utf8' });
+    ws.on('error', rejectWrite);
+    ws.on('finish', resolveWrite);
+    for (const ln of lines) ws.write(ln + '\n');
+    ws.end();
+});
 console.log(JSON.stringify({
     outputPath,
     filesProcessed: files.length,

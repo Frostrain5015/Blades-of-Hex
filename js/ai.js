@@ -304,24 +304,27 @@ async function runV2Infrastructure(aiCamp, difficultyProfile, stukaSorties) {
     const canSpend = cost => (gameState.playerGold[campKey] || 0) - cost >= emergencyReserve;
     const culture = getActiveCultureId(gameState, aiCamp);
     const airPriority = culture === 'de' || difficultyProfile.infrastructureLevel > 0;
-    for (const tile of gameState.tiles) {
-        const unit = tile.unit;
-        if (!unit || unit.camp !== aiCamp || !unit.pendingSpecialization) continue;
-        const choice = chooseDefaultSpecialization(unit, gameState, {
-            intelligence: difficultyProfile.id
-        });
-        if (choice) {
-            await runObservedAction({ type: 'chooseSpecialization', unitId: unit.id, specializationKey: choice }, aiCamp, () => {
-                if (!unit.chooseSpecialization(choice)) return false;
-                logMessage(`${aiCamp.name}${unit.config.name}选择了专精`);
-                recordAuxiliaryAction('chooseSpecialization', {
-                    unitId: unit.id,
-                    type: unit.type,
-                    rank: unit._rank,
-                    specializationKey: choice
-                }, aiCamp);
-                return true;
+    const hasStepByStepHybrid = typeof resolveAiPersonality(difficultyProfile)?.selectNextAction === 'function';
+    if (!hasStepByStepHybrid) {
+        for (const tile of gameState.tiles) {
+            const unit = tile.unit;
+            if (!unit || unit.camp !== aiCamp || !unit.pendingSpecialization) continue;
+            const choice = chooseDefaultSpecialization(unit, gameState, {
+                intelligence: difficultyProfile.id
             });
+            if (choice) {
+                await runObservedAction({ type: 'chooseSpecialization', unitId: unit.id, specializationKey: choice }, aiCamp, () => {
+                    if (!unit.chooseSpecialization(choice)) return false;
+                    logMessage(`${aiCamp.name}${unit.config.name}选择了专精`);
+                    recordAuxiliaryAction('chooseSpecialization', {
+                        unitId: unit.id,
+                        type: unit.type,
+                        rank: unit._rank,
+                        specializationKey: choice
+                    }, aiCamp);
+                    return true;
+                });
+            }
         }
     }
 
@@ -446,6 +449,7 @@ async function runAiAirCommands(aiCamp, difficultyProfile, stukaSorties, afterGr
             return getAirCommandAvailability(kind, city, gameState).available && gold - cost >= effectiveReserve;
         };
         const launch = async (kind, target) => {
+            if (!target) return false;
             const launched = await runObservedAction({
                 type: 'airCommand', airKind: kind, airPhase, tileQ: city.q, tileR: city.r,
                 targetId: target.unit?.id, targetQ: target.q, targetR: target.r
@@ -590,6 +594,13 @@ async function runAiAirCommands(aiCamp, difficultyProfile, stukaSorties, afterGr
                 if (kills === 0 && targets.length + siegeCities < 2 && areaScore < 3) continue;
                 const score = kills * 3 + areaScore;
                 if (!bombing || score > bombing.score) bombing = { tile, score, kills };
+            }
+        }
+        if (!afterGround && difficultyProfile.id === 'hard' && !hasFullAiIntelligence(gameState, aiCamp)
+            && available('recon') && (gameState.playerGold[campKey] || 0) >= 10) {
+            const reconTarget = pickAirReconTarget(city, aiCamp, knownTile);
+            if (reconTarget && reconTarget.isCity && reconTarget.camp !== aiCamp) {
+                await launch('recon', reconTarget);
             }
         }
         if (strafing?.kill && (!bombing || bombing.kills < 2)) {
@@ -815,6 +826,14 @@ async function _executeActionInner(action, aiCamp) {
         if (unit.type === 'cpc_guerrilla' && !getGuerrillaConcealmentReason(unit, gameState)) {
             executeGuerrillaConcealment(unit);
         }
+        if (unit.commander === 'paladin' && !areCommanderMechanicsSuppressed(unit)
+            && (unit.activeSkillCD || 0) <= 0 && !unit._smiteReady && Number(unit._faith || 0) >= 1) {
+            await executeAction({ type: 'activateSkill', unitId: unit.id }, aiCamp);
+            if (unit._smiteReady && !unit._smiteCharged && Number(unit._faith || 0) >= 1
+                && (target.commander || target.hp + (target.activeShield || 0) > unit.getEffectiveAttack() + 30)) {
+                await executeAction({ type: 'activateSkill', unitId: unit.id }, aiCamp);
+            }
+        }
         attackUnit(unit, target, followup.holdPosition ? { ...AI_TARGETING, holdPosition: true } : AI_TARGETING);
         await waitForUnitMovePresentation(unit);
         return true;
@@ -838,6 +857,14 @@ async function _executeActionInner(action, aiCamp) {
                 await delay(AI_DELAY);
                 if (unit.type === 'cpc_guerrilla' && !getGuerrillaConcealmentReason(unit, gameState)) {
                     executeGuerrillaConcealment(unit);
+                }
+                if (unit.commander === 'paladin' && !areCommanderMechanicsSuppressed(unit)
+                    && (unit.activeSkillCD || 0) <= 0 && !unit._smiteReady && Number(unit._faith || 0) >= 1) {
+                    await executeAction({ type: 'activateSkill', unitId: unit.id }, aiCamp);
+                    if (unit._smiteReady && !unit._smiteCharged && Number(unit._faith || 0) >= 1
+                        && (target.commander || target.hp + (target.activeShield || 0) > unit.getEffectiveAttack() + 30)) {
+                        await executeAction({ type: 'activateSkill', unitId: unit.id }, aiCamp);
+                    }
                 }
                 attackUnit(unit, target, attackOptions);
                 await waitForUnitMovePresentation(unit);
@@ -979,7 +1006,9 @@ async function _executeActionInner(action, aiCamp) {
                 }
                 unit.activeSkillDur = skill.duration;
                 unit.activeSkillCD = skill.cooldown;
-                (gameState._aiSkillPlanned ||= new Set()).add(unit.id);
+                if (unit.commander !== 'paladin' || unit._smiteCharged || Number(unit._faith || 0) <= 0) {
+                    (gameState._aiSkillPlanned ||= new Set()).add(unit.id);
+                }
                 recalcAllFlankingMorale();
                 logMessage(`${aiCamp.name} AI【${cmdCfg.name}】激活主动技能【${skill.name}】`);
                 spawnCommanderSkillEffect(unit.tile.x, unit.tile.y);
@@ -1234,8 +1263,20 @@ export async function processOpponentTurn(aiCamp) {
                             forceMarchedUnitIds.add(action.unitId);
                         }
                     } else if (action.type === 'move' && action.unitId) {
-                        movedUnitIds.add(action.unitId);
-                        forceMarchedUnitIds.delete(action.unitId);
+                        const movedUnit = resolveUnit(action.unitId);
+                        if (movedUnit?._specializationAttackSpent && movedUnit.canAct && movedUnit.remainingMP > 0) {
+                            movedUnitIds.delete(action.unitId);
+                            forceMarchedUnitIds.add(action.unitId);
+                        } else {
+                            movedUnitIds.add(action.unitId);
+                            forceMarchedUnitIds.delete(action.unitId);
+                        }
+                    } else if (action.type === 'attack' && action.unitId) {
+                        const attacker = resolveUnit(action.unitId);
+                        if (attacker?._specializationAttackSpent && attacker.canAct && attacker.remainingMP > 0) {
+                            movedUnitIds.delete(action.unitId);
+                            forceMarchedUnitIds.add(action.unitId);
+                        }
                     }
                 }
             }
@@ -1267,8 +1308,20 @@ export async function processOpponentTurn(aiCamp) {
                             forceMarchedUnitIds.add(action.unitId);
                         }
                     } else if (action.type === 'move' && action.unitId) {
-                        movedUnitIds.add(action.unitId);
-                        forceMarchedUnitIds.delete(action.unitId);
+                        const movedUnit = resolveUnit(action.unitId);
+                        if (movedUnit?._specializationAttackSpent && movedUnit.canAct && movedUnit.remainingMP > 0) {
+                            movedUnitIds.delete(action.unitId);
+                            forceMarchedUnitIds.add(action.unitId);
+                        } else {
+                            movedUnitIds.add(action.unitId);
+                            forceMarchedUnitIds.delete(action.unitId);
+                        }
+                    } else if (action.type === 'attack' && action.unitId) {
+                        const attacker = resolveUnit(action.unitId);
+                        if (attacker?._specializationAttackSpent && attacker.canAct && attacker.remainingMP > 0) {
+                            movedUnitIds.delete(action.unitId);
+                            forceMarchedUnitIds.add(action.unitId);
+                        }
                     }
                 }
                 if (aiPlanningSignature(aiCamp) === before) break;
@@ -1385,6 +1438,12 @@ export async function processOpponentTurn(aiCamp) {
             }
         }
         if (!gameState.gameOver && gameState.currentCamp === aiCamp && gameState.aiActing) {
+            for (const tile of gameState.tiles) {
+                const unit = tile.unit;
+                if (!unit || unit.camp !== aiCamp || !unit.pendingSpecialization) continue;
+                const choice = chooseDefaultSpecialization(unit, gameState, { intelligence: difficultyProfile.id });
+                if (choice) await executeAction({ type: 'chooseSpecialization', unitId: unit.id, specializationKey: choice }, aiCamp);
+            }
             await runAiEngineerOps(aiCamp, difficultyProfile);
             await runAiFieldFortifications(aiCamp, difficultyProfile);
             if (getActiveCultureId(gameState, aiCamp) === 'cpc') {

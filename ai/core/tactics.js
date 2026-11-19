@@ -7,6 +7,7 @@
 // 最近的战略目标靠拢）。
 
 import {
+    counterDamageBonus,
     shouldPlanActiveSkill,
     shouldReserveFinalSiegeBlow,
     shouldSpendBerserkerBlood,
@@ -34,7 +35,7 @@ import { isEmbarkableLandUnit } from '../../rules/movement.js';
 import { isStealthGuerrilla, STEALTH_VISIBILITY_RULES } from '../../rules/visibility.js';
 import { COMMANDER_CONFIG } from '../../rules/commanders.js';
 
-const FRAGILE_COMMANDERS = new Set(['advisor', 'diplomat', 'engineer', 'priest', 'staller', 'astrologer', 'necromancer']);
+const FRAGILE_COMMANDERS = new Set(['advisor', 'diplomat', 'engineer', 'priest', 'staller', 'astrologer', 'necromancer', 'tianyan', 'colonel']);
 const REAR_COMMANDERS = new Set(['minister', 'astrologer']);
 
 // 陆战主体单位（排除真正两栖的美国海军陆战队与海军舰船）下海即沦为无输出运输船且无法占城守城。
@@ -383,11 +384,13 @@ export function evaluateAttack(world, missionsCtx, attacker, target) {
             && target.tile.q === m.targetQ && target.tile.r === m.targetR);
     // 全回合反集火与反机场斩杀线：禁止将领或高星老兵为了击杀一名非关键外围敌军而停在下一动必死（地面+机场）格
     const criticalAsset = Boolean(attacker.commander) || (attacker._rank || 0) >= 2;
-    // 激进前压只放行健康的前线搏杀型将领，绝不放行亡灵法师/军师/谋士等脆皮功能将领硬吃集火。
+    // 激进前压只放行健康的前线搏杀型将领，绝不放行亡灵法师/军师/谋士等脆皮功能将领硬吃集火；
+    // 即便开启 commanderRiskPush，非斩将/非夺城攻击也不可冲入当回合必死集火（留 0.92 生存底线）。
     const aggressiveAllowance = w.commanderRiskPush
         && !FRAGILE_COMMANDERS.has(attacker.commander)
         && attacker.hp >= attacker.maxHp * 0.55
-        && (kills || target.commander || damage >= 45);
+        && (kills || target.commander || damage >= 45)
+        && ((kills && target.commander) || postCombatPool > totalIncoming * 0.82);
     const suicidalCriticalExposure = world.caps.duelModel && criticalAsset
         && !holdingOwnCity
         && !target.commander
@@ -403,14 +406,23 @@ export function evaluateAttack(world, missionsCtx, attacker, target) {
         && target.camp === world.gameState.factions.neutral && !world.isCapturable(attacker)
         && capturerDistance(world.rivalUnits) <= 3
         && capturerDistance(world.rivalUnits) < capturerDistance(world.myUnits);
+    const siegeCommitTarget = world.caps.opponentModeling && !FRAGILE_COMMANDERS.has(attacker.commander)
+        && missionsCtx.missions.some(m => m.kind === 'siege'
+            && world.helpers.hexDistance(target.tile, { q: m.targetQ, r: m.targetR }) <= 1
+            && ((m.cityHp ?? 250) <= 160 || (m.garrisonHp ?? 180) <= 95 || m.decisive || m.clockCritical));
+    const freeSafePoke = world.caps.opponentModeling && counter === 0 && damage > 0
+        && !FRAGILE_COMMANDERS.has(attacker.commander) && !isStealthGuerrilla(attacker);
     const veto = (fatalCounter && !isDoomed)
-        || (!isDoomed && (losingCriticalUnit || suicidalCriticalExposure || rearCommanderExposed
+        || (!isDoomed && !freeSafePoke && !siegeCommitTarget && (losingCriticalUnit || suicidalCriticalExposure
             || (!kills && isRiskyNeutralAssault(world, attacker, target, counter, totalIncoming))
             || (!kills && canDisengage && net < -residualGold(attacker) * w.tradeVetoRatio)))
+        || (!isDoomed && rearCommanderExposed)
         || giftsNeutralCity
         || damage <= 0;
+    const counterEdge = world.caps.opponentModeling ? counterDamageBonus(attacker.type, target.type) : 0;
+    const counterHuntBonus = (counterEdge >= 0.12 ? 14 : 0) + (siegeCommitTarget ? 22 : 0) + (freeSafePoke ? 10 : 0);
     const jitter = noiseJitter(world.caps, `atk:${world.round}:${attacker.id}:${target.id}`);
-    return { target, damage, kills, counter, net, strategic, veto, value: (net + strategic - exposure - fatalCounterPenalty) * jitter };
+    return { target, damage, kills, counter, net, strategic: strategic + counterHuntBonus, veto, value: (net + strategic + counterHuntBonus - exposure - fatalCounterPenalty) * jitter };
 }
 
 export function bestAttackFor(world, missionsCtx, unit) {
@@ -552,25 +564,58 @@ function planActiveSkill(world, missionsCtx, unit, actions) {
     }
     if (unit.commander === 'astrologer') {
         if ((unit.activeSkillCD || 0) > 0 || (unit.activeSkillDur || 0) > 0) return false;
-        // 简化天气决策：己方兵种构成决定要什么天。
+        // 天气决策：敌方有活跃机场时可锁雾天停飞；否则按己方兵种构成决定要什么天，后方占星者无需自身有攻击目标。
         const cavalry = world.myUnits.filter(u => getUnitBaseType(u) === 'cavalry').length;
         const archers = world.myUnits.filter(u => getUnitBaseType(u) === 'archer').length;
-        const targetWeather = cavalry >= 2 && cavalry > archers ? 'fog'
+        const hasHostileAir = (world.hostileAirfields?.length || 0) > 0;
+        const targetWeather = (hasHostileAir && archers < 2) || (cavalry >= 2 && cavalry > archers) ? 'fog'
             : archers >= 2 ? 'wind' : 'clear';
-        if (targetWeather !== world.weather && attack) {
+        const enemyInAura = world.rivalUnits.some(e => e.tile && world.helpers.hexDistance(unit.tile, e.tile) <= 3);
+        const armyEngaged = Boolean(attack) || enemyInAura
+            || world.myUnits.some(ally => ally.canAct && bestAttackFor(world, missionsCtx, ally) !== null);
+        if ((targetWeather !== world.weather || enemyInAura) && armyEngaged) {
             actions.push({ type: 'activateSkill', unitId: unit.id, targetWeather });
             return true;
         }
         return false;
     }
-    const paladinBuffedAttack = unit.commander === 'paladin'
-        ? withVirtualSkill(unit, {
+    let paladinBuffedAttack = null;
+    if (unit.commander === 'paladin' && (unit.activeSkillCD || 0) <= 0 && !unit._smiteCharged && Number(unit._faith || 0) >= 1) {
+        const canDoubleCharge = (!unit._smiteReady && Number(unit._faith || 0) >= 2)
+            || (unit._smiteReady && Number(unit._faith || 0) >= 1);
+        const evalPaladinAtCurrent = () => withVirtualSkill(unit, {
             _smiteReady: true,
-            _smiteCharged: unit._smiteCharged || (Number(unit._smiteCharges || 0) >= 1 && Number(unit._faith || 0) >= 1)
-        }, () => bestAttackFor(world, missionsCtx, unit))
-        : null;
+            _smiteCharged: Boolean(unit._smiteCharged || canDoubleCharge)
+        }, () => bestAttackFor(world, missionsCtx, unit));
+        paladinBuffedAttack = evalPaladinAtCurrent();
+        if (!paladinBuffedAttack && !unit.isNewRecruit && !world.isImmobile(unit)) {
+            for (const tile of world.helpers.getMovableTiles(unit)) {
+                if (!tile || tile === unit.tile || tile.unit || (tile.isCity && tile.camp !== world.myCamp)) continue;
+                if (isLandBoundUnit(world, unit) && world.onWater(tile)) continue;
+                const movedEntry = withVirtualTile(unit, tile, evalPaladinAtCurrent);
+                if (movedEntry && (!paladinBuffedAttack || movedEntry.value > paladinBuffedAttack.value)) {
+                    paladinBuffedAttack = movedEntry;
+                }
+            }
+        }
+        if (unit._smiteReady && !unit._smiteCharged && Number(unit._faith || 0) >= 1 && paladinBuffedAttack) {
+            const singleEntry = withVirtualSkill(unit, { _smiteReady: true, _smiteCharged: false }, () =>
+                bestAttackFor(world, missionsCtx, unit)) || paladinBuffedAttack;
+            if (!singleEntry.kills || paladinBuffedAttack.target?.commander) {
+                actions.push({ type: 'activateSkill', unitId: unit.id });
+                return true;
+            }
+        }
+    }
     if (shouldPlanActiveSkill(unit, { hasAttackTarget: !!(attack || paladinBuffedAttack), hasWoundedAlly })) {
         actions.push({ type: 'activateSkill', unitId: unit.id });
+        if (unit.commander === 'paladin' && !unit._smiteReady && Number(unit._faith || 0) >= 2 && paladinBuffedAttack) {
+            const singleEntry = withVirtualSkill(unit, { _smiteReady: true, _smiteCharged: false }, () =>
+                bestAttackFor(world, missionsCtx, unit));
+            if (!singleEntry?.kills || paladinBuffedAttack.target?.commander) {
+                actions.push({ type: 'activateSkill', unitId: unit.id });
+            }
+        }
         return true;
     }
     return false;
@@ -684,9 +729,19 @@ function captureTileBonus(world, unit, tile) {
         && isOwnCityThreatened(world, tile) && !isReservedForMinisterReturn(world, tile)) {
         bonus += 26;
     }
-    // 平时无守城任务且未受威胁时，避免非尚书部队走回自家空城占住产能格。
+    // 无人驻守的高射机枪阵地不提供防空：敌方有活跃机场时，踩住己方防空阵地或上校入驻机场提供防空/制空加成。
+    if ((world.hostileAirfields?.length || 0) > 0 && tile.fortification === 'flak' && !tile.unit) {
+        bonus += tile.isCity && tile.camp === world.myCamp ? 24 : 12;
+    }
+    if (unit.commander === 'colonel' && tile.isCity && tile.camp === world.myCamp
+        && tile.installation?.type === 'airfield' && !tile.unit && !isReservedForMinisterReturn(world, tile)) {
+        bonus += 55;
+    }
+    // 平时无守城任务且未受威胁时，避免非尚书/非驻机场上校部队走回自家空城占住产能格。
     if (tile.isCity && tile.camp === world.myCamp && !tile.unit
-        && unit.commander !== 'minister' && !isOwnCityThreatened(world, tile)) {
+        && unit.commander !== 'minister'
+        && !(unit.commander === 'colonel' && tile.installation?.type === 'airfield')
+        && !isOwnCityThreatened(world, tile)) {
         bonus -= 35;
     }
     return bonus;
@@ -886,11 +941,21 @@ function attackPotential(world, missionsCtx, unit, tile) {
             ? { _guerrillaHiddenThroughRound: world.round + 1 }
             : { _guerrillaHiddenThroughRound: null, remainingMP: 0 }, evaluateAtTile);
     }
+    if (unit.commander === 'paladin' && (unit.activeSkillCD || 0) <= 0
+        && (unit._smiteReady || Number(unit._faith || 0) >= 1)) {
+        return withVirtualSkill(unit, {
+            _smiteReady: true,
+            _smiteCharged: Boolean(unit._smiteCharged || Number(unit._faith || 0) >= 2)
+        }, evaluateAtTile);
+    }
     return evaluateAtTile();
 }
 
 function shouldRetreat(world, unit, missionsCtx = null) {
     if (!unit.tile) return false;
+    if (unit._specializationAttackSpent && unit.canAct && Number(unit.remainingMP || 0) > 0) {
+        return combinedThreatAt(world, unit.tile, unit, null, 0).total > 0;
+    }
     if (missionsCtx && shouldHoldCityPosition(world, unit, missionsCtx.assignment?.get(unit.id))) {
         return false;
     }
@@ -898,7 +963,8 @@ function shouldRetreat(world, unit, missionsCtx = null) {
     const { ground: incoming, total: totalThreat } = combinedThreatAt(world, unit.tile, unit, null, 0);
     const criticalAsset = !!unit.commander || (unit._rank || 0) >= 2;
     // 多重岸防/集火及敌方机场斩杀陷阱规避：海军或核心王牌只要地面+空袭预期承伤逼近总血池即提前撤离
-    if ((world.isNaval(unit) || criticalAsset) && totalThreat >= pool * W.lethalCrossfireRetreatRatio) {
+    const crossfireMul = world.caps.opponentModeling ? 1.28 : W.lethalCrossfireRetreatRatio;
+    if ((world.isNaval(unit) || criticalAsset) && totalThreat >= pool * crossfireMul) {
         return true;
     }
     // 必死规避：当前位置下回合预期承伤（含机场执行线）>= 总血池时提前脱险
@@ -906,9 +972,11 @@ function shouldRetreat(world, unit, missionsCtx = null) {
         || (incoming >= pool && pool < unit.maxHp * 0.7)) return true;
     const hpRatio = unit.hp / unit.maxHp;
     const wRetreat = world.weights || W;
-    const navalRetreatRatio = wRetreat.navalRetreatHpRatio ?? 0.58;
+    const navalRetreatRatio = world.caps.opponentModeling
+        ? Math.min(0.42, wRetreat.navalRetreatHpRatio ?? 0.42)
+        : (wRetreat.navalRetreatHpRatio ?? 0.58);
     // 受伤的主力将领/老兵舰船在重压下脱离战场回港维修（激进流派敢压更低血线再撤）。
-    if (world.isNaval(unit) && criticalAsset && hpRatio < navalRetreatRatio && incoming >= pool * 0.45) {
+    if (world.isNaval(unit) && criticalAsset && hpRatio < navalRetreatRatio && incoming >= pool * 0.55) {
         return true;
     }
     const w = world.weights || W;
@@ -917,6 +985,9 @@ function shouldRetreat(world, unit, missionsCtx = null) {
     const threshold = FRAGILE_COMMANDERS.has(unit.commander) ? 0.52
         : unit.commander || veteran ? w.retreatHpRatioCommander : w.retreatHpRatio;
     if (hpRatio >= threshold) return false;
+    if (world.caps.opponentModeling) {
+        return incoming > 0 && (incoming >= unit.hp * 0.68 || (hpRatio < threshold * 0.7 && incoming >= unit.hp * 0.30));
+    }
     return incoming > 0 && (incoming >= unit.hp * 0.5 || hpRatio < threshold * 0.7);
 }
 
@@ -1002,12 +1073,17 @@ function planMove(world, missionsCtx, unit, posture, actions, { captureObjective
         if (shouldLand && (canStayAshore ? !safeLand(tile) : world.onWater(tile))) continue;
         if (captureObjective && (distance(tile, captureObjective) >= distanceToObjective
             || world.threatAt(tile, unit) >= unit.hp + (unit._shield || 0))) continue;
-        if (protectCommander && !retreating && tile !== captureObjective
-            && !(w.commanderRiskPush && !FRAGILE_COMMANDERS.has(unit.commander)
-                && unit.hp >= unit.maxHp * 0.55 && attackPotential(world, missionsCtx, unit, tile) > 0)) {
+        if (protectCommander && !retreating && tile !== captureObjective) {
             const incoming = combinedThreatAt(world, tile, unit, null, 0).total;
-            if (incoming > currentThreat
-                && incoming * w.lethalThreatMargin >= unit.hp + (unit._shield || 0)) continue;
+            const poolHere = unit.hp + (unit._shield || 0);
+            const allowPush = w.commanderRiskPush
+                && !FRAGILE_COMMANDERS.has(unit.commander)
+                && unit.commander !== 'colonel'
+                && unit.hp >= unit.maxHp * 0.55
+                && attackPotential(world, missionsCtx, unit, tile) > 0
+                && incoming < poolHere * 0.92;
+            if (!allowPush && incoming > currentThreat
+                && incoming * w.lethalThreatMargin >= poolHere) continue;
         }
         if (neutralObjective && tile !== neutralObjective.tile && !w.allowRiskySiege
             && !retreating && world.helpers.hexDistance(tile, neutralObjective.tile) <= 1
@@ -1145,6 +1221,11 @@ function scoreOfStaying(world, missionsCtx, unit, mission) {
     if (unit.tile.isCity && unit.tile.camp === world.myCamp && unit.commander === 'minister') score += 500;
     if (world.caps.rearCommanderSafety && unit.tile.isCity && unit.tile.camp === world.myCamp
         && unit.commander === 'astrologer') score += W.rearCommanderCityValue;
+    if (unit.tile.isCity && unit.tile.camp === world.myCamp && unit.commander === 'colonel'
+        && unit.tile.installation?.type === 'airfield') score += 220;
+    if ((world.hostileAirfields?.length || 0) > 0 && unit.tile.fortification === 'flak') {
+        score += unit.tile.isCity && unit.tile.camp === world.myCamp ? 24 : 12;
+    }
     if (unit.tile.isCity && unit.tile.camp === world.myCamp && world.isCapturable(unit)) {
         if (isReservedForMinisterReturn(world, unit.tile) && unit.commander !== 'minister') score -= 40;
         else if (!mission && isOwnCityThreatened(world, unit.tile)) score += 26;
@@ -1437,7 +1518,11 @@ function planSiegeAttacks(world, missionsCtx, actions, processed, breachOnly = f
         if (world.isCapturable(unit) && shouldHoldCityPosition(world, unit, missionsCtx.assignment.get(unit.id))) continue;
         const siegeTile = world.helpers.getAttackableTiles(unit)
             .find(tile => !tile.unit && tile.isCity && tile.hp > 0 && tile.camp !== world.myCamp
-                && !plannedBreaches.has(tile) && siegeCities.has(`${tile.q},${tile.r}`));
+                && !plannedBreaches.has(tile)
+                && (siegeCities.has(`${tile.q},${tile.r}`)
+                    || (!breachOnly && world.myUnits.some(ally => isFieldCapturer(world, ally)
+                        && !shouldHoldCityPosition(world, ally, missionsCtx.assignment.get(ally.id))
+                        && world.helpers.hexDistance(ally.tile, tile) <= 2))));
         if (!siegeTile) continue;
         const damage = world.estimateSiegeDamage(unit, siegeTile);
         const wouldBreach = damage >= siegeTile.hp;
@@ -1503,6 +1588,9 @@ function planDroneOps(world, missionsCtx, actions, processed, availableGold) {
     const tianyan = world.myUnits.find(unit =>
         unit.commander === 'tianyan' && unit.tile && !unit._isDrone && unit.canAct);
     if (!tianyan) return;
+    if (Number(tianyan.remainingMP || 0) < 2 || shouldRetreat(world, tianyan, missionsCtx)) return;
+    const tianyanPool = tianyan.hp + (tianyan.activeShield ?? tianyan._shield ?? 0);
+    if (combinedThreatAt(world, tianyan.tile, tianyan, null, 0).total >= tianyanPool * 0.72) return;
     if (world.myUnits.filter(unit => unit._isDrone && !processed.has(unit.id)).length >= 2) return;
     const { deployGoldCost, deployLimitPerTurn, signalRange } = COMMANDER_CONFIG.tianyan.balance;
     const { _droneDeployTurn, _droneDeployCount, turnCounter } = world.gameState;
@@ -1513,6 +1601,8 @@ function planDroneOps(world, missionsCtx, actions, processed, availableGold) {
     const hasWarship = world.myUnits.some(u => getUnitBaseType(u) === 'warship');
     const localEnemyUrgency = [...world.rivalUnits, ...world.neutralUnits].some(e =>
         e.tile && e.hp > 0 && world.helpers.hexDistance(tianyan.tile, e.tile) <= 4);
+    const hasEmptyOwnCity = world.myCities.some(c => !c.unit);
+    if ((hasEmptyOwnCity || world.myUnits.length < 7) && availableGold < deployGoldCost + 8 && !localEnemyUrgency) return;
     if (world.oceanMap && world.round >= 2 && hasEmptyOwnPort && !hasWarship && world.gold < 15 && !localEnemyUrgency) return;
     const objective = missionsCtx.missions.find(m => m.kind === 'siege');
     const nearestRival = [...world.rivalUnits].filter(enemy => enemy.tile && enemy.hp > 0)
@@ -1713,14 +1803,23 @@ export function planTactics(world, strategy, missionsCtx, availableGold = world.
 
         // 0. 主动技能（泣血/至圣斩/天气等，必须在普通攻击与击杀夺城前，且不锁死本轮攻击/移动）。
         for (const unit of world.myUnits) {
-            if (!processed.has(unit.id) && unit.canAct && unit.commander && !world.gameState._aiSkillPlanned?.has?.(unit.id)) {
+            const allowSecondSmite = unit.commander === 'paladin' && unit._smiteReady && !unit._smiteCharged && Number(unit._faith || 0) >= 1;
+            if (!processed.has(unit.id) && unit.canAct && unit.commander
+                && (!world.gameState._aiSkillPlanned?.has?.(unit.id) || allowSecondSmite)) {
                 if (planActiveSkill(world, missionsCtx, unit, actions)) {
+                    const wasSkillPlanned = Boolean(world.gameState._aiSkillPlanned?.has?.(unit.id));
                     (world.gameState._aiSkillPlanned ||= new Set()).add(unit.id);
+                    if (!wasSkillPlanned) {
+                        virtualReverts.push(() => {
+                            world.gameState._aiSkillPlanned?.delete?.(unit.id);
+                        });
+                    }
                     if (unit.commander === 'paladin') {
                         const prevReady = unit._smiteReady;
                         const prevCharged = unit._smiteCharged;
+                        const plannedSmiteCount = actions.filter(a => a.type === 'activateSkill' && a.unitId === unit.id).length;
                         unit._smiteReady = true;
-                        unit._smiteCharged = prevCharged || (Number(unit._smiteCharges || 0) >= 1 && Number(unit._faith || 0) >= 1);
+                        unit._smiteCharged = prevCharged || plannedSmiteCount >= 2 || (prevReady && Number(unit._faith || 0) >= 1);
                         virtualReverts.push(() => {
                             unit._smiteReady = prevReady;
                             unit._smiteCharged = prevCharged;
@@ -1732,6 +1831,21 @@ export function planTactics(world, strategy, missionsCtx, availableGold = world.
                             unit._berserkerQixue = prevQixue;
                         });
                     }
+                }
+            }
+            if (!processed.has(unit.id) && unit.type === 'cpc_guerrilla' && unit.canAct && unit.tile
+                && !isStealthGuerrilla(unit) && !getGuerrillaConcealmentReason(unit, world.gameState)) {
+                const canStrikeNow = Boolean(bestAttackFor(world, missionsCtx, unit));
+                const canMoveAndAmbush = !unit.isNewRecruit && Number(unit.remainingMP || 0) >= 2
+                    && [...world.rivalUnits, ...world.neutralUnits].some(e =>
+                        e.tile && e.hp > 0 && world.helpers.hexDistance(unit.tile, e.tile) <= Number(unit.remainingMP || 0));
+                if (canStrikeNow || canMoveAndAmbush) {
+                    actions.push({ type: 'guerrillaConcealment', unitId: unit.id });
+                    const prevHidden = unit._guerrillaHiddenThroughRound;
+                    unit._guerrillaHiddenThroughRound = world.round + 1;
+                    virtualReverts.push(() => {
+                        unit._guerrillaHiddenThroughRound = prevHidden;
+                    });
                 }
             }
         }

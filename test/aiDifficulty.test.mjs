@@ -696,10 +696,10 @@ test('狂战士泣血只在能兑现时发动', () => {
     assert.equal(shouldSpendBerserkerBlood({ hpRatio: 0.90, highValueTarget: true, outnumbered: true }), false);
 });
 
-test('AI 三档对外显示名称依次为 Optio / Legatus / Hybrid 3.0，且 Hybrid 3.0 加载 112 维双头策略+价值模型', () => {
+test('AI 三档对外显示名称依次为 Optio / Legatus / Hybrid 3.1，且 Hybrid 3.1 加载 112 维双头策略+价值模型', () => {
     assert.deepEqual(
         [optioMeta, legatusMeta, hybridMeta].map(m => [m.difficultyId, m.name]),
-        [['easy', 'Optio'], ['medium', 'Legatus'], ['hard', 'Hybrid 3.0']]
+        [['easy', 'Optio'], ['medium', 'Legatus'], ['hard', 'Hybrid 3.1']]
     );
     assert.equal(POLICY_MODEL_META.schema, 'blades-of-hex.policy-value.v2');
     assert.equal(POLICY_MODEL_META.featureDim, 112);
@@ -767,4 +767,104 @@ test('Hybrid Z-score 抽牌修复：第2回合起手牌稀疏且金币充裕时�
     state.playerGold.player1 = 10; // 第 2 回合预留至少 8 金步兵底线时禁止 10 - 4 < 8 透支抽卡
     const guardedPick = selectHybridAction(state, helpers, me);
     assert.notEqual(guardedPick.action.type, 'drawCard');
+});
+
+test('Hybrid 3.1 修正：敌方拥有就绪机场或大佐指挥官时，火炮首台专精优先转防空炮', () => {
+    const me = { id: 'player1', colorId: 'red' };
+    const foe = { id: 'player2', colorId: 'blue' };
+    const archer = { type: 'archer', camp: me, hp: 140, specialization: null };
+    const foeColonel = { type: 'infantry', camp: foe, hp: 200, commander: 'colonel' };
+    const ownCity = { q: 0, r: 0, isCity: true, camp: me, unit: archer };
+    const foeAirCity = {
+        q: 4, r: 0, isCity: true, camp: foe, unit: foeColonel,
+        installation: { type: 'airfield', status: 'ready' }
+    };
+    const state = { tiles: [ownCity, foeAirCity] };
+    assert.equal(chooseDefaultSpecialization(archer, state), 'antiAirArtillery');
+});
+
+test('Hybrid 3.1 修正：圣武士满信仰邻接敌军时，planTurn 虚拟锁回滚不阻塞 selectHybridAction 选出 activateSkill', () => {
+    const state = createMatchState();
+    const me = state.factions.player1;
+    const foe = state.factions.player2;
+    const home = { q: 0, r: 0, isCity: true, isPort: false, camp: me, hp: 250, maxHp: 250, unit: null };
+    const front = { q: 1, r: 0, isCity: false, isPort: false, camp: null, unit: null };
+    const paladin = {
+        id: 11, type: 'cavalry', camp: me, hp: 260, maxHp: 260, canAct: true, remainingMP: 3,
+        commander: 'paladin', _faith: 3, _smiteReady: false, _smiteUsedThisTurn: false,
+        tile: home, config: UNIT_CONFIG.cavalry, activeShield: 0,
+        getEffectiveAttack: () => 85, getEffectiveRange: () => 1
+    };
+    home.unit = paladin;
+    const enemy = {
+        id: 22, type: 'cavalry', camp: foe, hp: 200, maxHp: 200, canAct: true, remainingMP: 3,
+        commander: null, tile: front, config: UNIT_CONFIG.cavalry, activeShield: 0,
+        getEffectiveAttack: () => 75, getEffectiveRange: () => 1
+    };
+    front.unit = enemy;
+    state.tiles = [home, front];
+    state.tileMap = new Map(state.tiles.map(t => [`${t.q},${t.r}`, t]));
+    state.currentCamp = me;
+    state.turnOrder = ['player1', 'player2'];
+    state.turnCounter = 6;
+    state.playerGold.player1 = 0;
+    const helpers = {
+        getMovableTiles: () => [],
+        getAttackableTiles: (u) => (u.id === 11 ? [front] : []),
+        hexDistance: (a, b) => (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) >> 1,
+        HEX_NEIGHBORS: [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]],
+        CAMP: state.factions,
+        UNIT_CONFIG,
+        isHostileFaction: (l, r) => l !== r && r?.id !== 'neutral',
+        canAttackFaction: (l, r) => l !== r,
+        isTileVisible: () => true,
+        isUnitVisibleToCamp: () => true
+    };
+    const pick = selectHybridAction(state, helpers, me);
+    assert.ok(pick?.action, '应选出有效动作');
+    assert.equal(pick.action.type, 'activateSkill');
+    assert.equal(pick.action.unitId, 11);
+});
+
+test('Hybrid 3.1 修正：游击队接敌且剩余 ≥2 MP 时优先触发 1 MP 隐蔽突袭 (guerrillaConcealment)', () => {
+    const state = createMatchState();
+    const me = state.factions.player1;
+    const foe = state.factions.player2;
+    const gTile = { q: 0, r: 0, isCity: false, isPort: false, camp: null, unit: null };
+    const eTile = { q: 1, r: 0, isCity: false, isPort: false, camp: null, unit: null };
+    const guerrilla = {
+        id: 31, type: 'cpc_guerrilla', camp: me, hp: 165, maxHp: 165, canAct: true, remainingMP: 2,
+        commander: null, _concealed: false, _concealUsedThisTurn: false,
+        tile: gTile, config: UNIT_CONFIG.cpc_guerrilla, activeShield: 0,
+        getEffectiveAttack: () => 58, getEffectiveRange: () => 1
+    };
+    gTile.unit = guerrilla;
+    const enemy = {
+        id: 32, type: 'infantry', camp: foe, hp: 170, maxHp: 180, canAct: true, remainingMP: 2,
+        commander: null, tile: eTile, config: UNIT_CONFIG.infantry, activeShield: 0,
+        getEffectiveAttack: () => 50, getEffectiveRange: () => 1
+    };
+    eTile.unit = enemy;
+    state.tiles = [gTile, eTile];
+    state.tileMap = new Map(state.tiles.map(t => [`${t.q},${t.r}`, t]));
+    state.currentCamp = me;
+    state.turnOrder = ['player1', 'player2'];
+    state.turnCounter = 8;
+    state.playerGold.player1 = 0;
+    const helpers = {
+        getMovableTiles: () => [],
+        getAttackableTiles: (u) => (u.id === 31 ? [eTile] : []),
+        hexDistance: (a, b) => (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) >> 1,
+        HEX_NEIGHBORS: [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]],
+        CAMP: state.factions,
+        UNIT_CONFIG,
+        isHostileFaction: (l, r) => l !== r && r?.id !== 'neutral',
+        canAttackFaction: (l, r) => l !== r,
+        isTileVisible: () => true,
+        isUnitVisibleToCamp: () => true
+    };
+    const pick = selectHybridAction(state, helpers, me);
+    assert.ok(pick?.action, '应选出有效动作');
+    assert.equal(pick.action.type, 'guerrillaConcealment');
+    assert.equal(pick.action.unitId, 31);
 });
