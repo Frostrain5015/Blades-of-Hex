@@ -67,7 +67,7 @@ export const FLAG_PRESETS = Object.freeze({
     'img/flags/svg/gb.svg': '英国',
     'img/flags/svg/fr.svg': '法国',
     'img/flags/soviet-union.svg': '苏联',
-    'img/flags/kuomintang.svg': '中国国民党党旗',
+    'img/flags/svg/tw.svg': '中华民国',
     'img/flags/chinese-communist-party-old.svg': '中国共产党旗（镰刀锤子居中）',
     'img/flags/germany-iron-cross.svg': '德国铁十字旗',
     'img/flags/svg/jp.svg': '日本'
@@ -97,13 +97,12 @@ const FLAG_PRESET_COLORS = Object.freeze({
     'img/flags/svg/gb.svg': 'yellow',
     'img/flags/svg/fr.svg': 'franceSky',
     'img/flags/soviet-union.svg': 'red',
-    'img/flags/kuomintang.svg': 'blue',
+    'img/flags/svg/tw.svg': 'blue',
     'img/flags/chinese-communist-party-old.svg': 'orange',
     'img/flags/germany-iron-cross.svg': 'germanyGray',
     'img/flags/svg/jp.svg': 'japanOlive'
 });
 const FLAG_PRESET_NAMES = Object.freeze({
-    'img/flags/kuomintang.svg': '中华民国',
     'img/flags/chinese-communist-party-old.svg': '中共苏区',
     'img/flags/germany-iron-cross.svg': '德国'
 });

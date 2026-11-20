@@ -357,7 +357,7 @@ test('imported review refreshes legacy raw unit names, unitShare wording and par
     const rebuilt = buildMatchStatsDocument({
         schema: 'blades-of-hex.match-review',
         participants: [
-            { campKey: 'player1', name: '中华民国', colorId: 'blue', flagPreset: 'img/flags/kuomintang.svg' }
+            { campKey: 'player1', name: '中华民国', colorId: 'blue', flagPreset: 'img/flags/svg/tw.svg' }
         ],
         overview: {
             totalActions: 10,
@@ -377,7 +377,7 @@ test('imported review refreshes legacy raw unit names, unitShare wording and par
             unitShare: '旧文案：浅色表示陆军、深色表示海军。'
         }
     });
-    assert.equal(rebuilt.camps[0].flagPreset, 'img/flags/kuomintang.svg');
+    assert.equal(rebuilt.camps[0].flagPreset, 'img/flags/svg/tw.svg');
     assert.equal(rebuilt.units[0].displayName, '中央教导旅 · 空军上校');
     assert.equal(rebuilt.units[0].commanderId, 'colonel');
     assert.equal(rebuilt.leaders.healingReceived.displayName, '中央教导旅 · 空军上校');
@@ -448,7 +448,7 @@ test('matchStatsView renders 8 summary cards, medal ranks, HUD flags, chart flag
         const { initMatchStatsPanel } = await import('../js/matchStatsView.js');
         const log = makeLog(); log.schema = 'blades-of-hex.match-log';
         log.schema = 'blades-of-hex.match-log';
-        log.participants[0].flagPreset = 'img/flags/kuomintang.svg';
+        log.participants[0].flagPreset = 'img/flags/svg/tw.svg';
         log.participants[1].flagPreset = 'img/flags/chinese-communist-party-old.svg';
         log.initialState.units.push(
             { id: 'u3', type: 'kmt_training_brigade', campKey: 'player1', hp: 210, maxHp: 210, commanderId: 'colonel' },
@@ -558,7 +558,7 @@ test('5 battle event categories, commander kill attribution and zero middle-dot 
         mode: { type: 'pve' },
         result: { winnerCampKey: 'player1' },
         participants: [
-            { campKey: 'player1', name: '中华民国', flagPreset: 'img/flags/kuomintang.svg', colorId: 'blue' },
+            { campKey: 'player1', name: '中华民国', flagPreset: 'img/flags/svg/tw.svg', colorId: 'blue' },
             { campKey: 'player2', name: '苏联', flagPreset: 'img/flags/soviet-union.svg', colorId: 'red' },
             { campKey: 'player3', name: '日本', flagPreset: 'img/flags/japan.svg', colorId: 'yellow' }
         ],

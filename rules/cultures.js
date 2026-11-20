@@ -212,11 +212,11 @@ export const CULTURE_CONFIG = deepFreeze({
     kmt: {
         id: 'kmt',
         name: '中华民国',
-        flagPreset: 'img/flags/kuomintang.svg',
+        flagPreset: 'img/flags/svg/tw.svg',
         colorId: 'blue',
         uniqueUnitType: 'kmt_training_brigade',
         uniqueAirCommand: null,
-        badgeCrop: { cx: 0.5, cy: 0.5, sizeRatio: 0.905 },
+        badgeCrop: { cx: 0.25, cy: 0.25, sizeRatio: 0.48 },
         tier1: {
             title: '中央教导旅',
             abilityName: '同心同德',

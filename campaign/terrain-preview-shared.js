@@ -36,6 +36,8 @@
     targetingHoverKey: null,
     airTargeting: 'airdrop',
     airTargetingHoverKey: null,
+    airRoute: 'airfieldStrafe',
+    airRouteHoverKey: null,
     interactionMotion: !window.matchMedia('(prefers-reduced-motion: reduce)').matches,
     interactionElapsed: 0,
     interactionLastFrame: performance.now()
@@ -49,7 +51,9 @@
   const interactionCanvas = document.getElementById('interactionPreview');
   const targetingCanvas = document.getElementById('targetingPreview');
   const airTargetingCanvas = document.getElementById('airTargetingPreview');
+  const airStrikeRouteCanvas = document.getElementById('airStrikeRoutePreview');
   const interactionMotionInput = document.getElementById('interactionMotion');
+  const airRouteMotionInput = document.getElementById('airRouteMotion');
   const waterCanvas = document.getElementById('waterPreview');
   const hudCards = [...document.querySelectorAll('.hud-card')].map((button, index) => ({
     button,
@@ -2326,6 +2330,405 @@
     }).filter(Boolean);
   }
 
+  const AIR_ROUTE_PROFILES = {
+    airfieldStrafe: {
+      color: '#e95b50',
+      originType: 'airfield',
+      originKey: '-4,0',
+      range: 6,
+      defaultTargetKey: '2,0',
+      areaRadius: 0,
+      arcScale: 1.05,
+      title: '机场 · 扫射航线',
+      contract: 'airfield → enemy · 6 格航程',
+      note: '机场发起高抛弧线直达目标外缘，机影抵达瞬间同步触发命中脉冲。'
+    },
+    airfieldStuka: {
+      color: '#ff6a45',
+      originType: 'airfield',
+      originKey: '-4,0',
+      range: 6,
+      defaultTargetKey: '1,1',
+      areaRadius: 0,
+      arcScale: 1.38,
+      title: '机场 · 斯图卡俯冲航线',
+      contract: 'airfield → enemy · 俯冲强击',
+      note: '更高弹道弧度表现高空俯冲切入，防空区不阻止选点但提示拦截风险。'
+    },
+    airfieldBombing: {
+      color: '#ee453c',
+      originType: 'airfield',
+      originKey: '-4,0',
+      range: 6,
+      defaultTargetKey: '2,0',
+      areaRadius: 1,
+      arcScale: 1.18,
+      title: '机场 · 战略轰炸航线',
+      contract: 'airfield → 7 格轰炸区',
+      note: '轰炸航线连接机场与区域中心，抵达时同步展开中心与周围 6 格冲击波。'
+    },
+    carrierStrike: {
+      color: '#e95b50',
+      originType: 'carrier',
+      originKey: '-3,1',
+      range: 5,
+      defaultTargetKey: '1,1',
+      areaRadius: 0,
+      arcScale: 1.12,
+      title: '航母 · 舰载机打击航线',
+      contract: 'carrier → enemy · 5 格航程',
+      note: '海面航母作为移动航空母舰发起打击弧线，跨海空域直达敌方单位。'
+    }
+  };
+
+  let airRouteHitRegions = [];
+  let airRouteStaticSceneCache = null;
+
+  function getAirRouteStaticScene(width, height) {
+    const dpr = airStrikeRouteCanvas.width / Math.max(1, width);
+    const key = [
+      Math.round(width), Math.round(height), dpr.toFixed(2), state.palette,
+      state.style, state.texture.toFixed(3), state.grid ? 1 : 0
+    ].join('|');
+    if (airRouteStaticSceneCache?.key === key) return airRouteStaticSceneCache;
+
+    const grid = buildAirGrid(width, height);
+    const waterKeys = new Set([
+      '-6,1','-6,2','-6,3','-5,0','-5,1','-5,2','-5,3',
+      '-4,1','-4,2','-4,3','-3,1','-3,2','-3,3','-2,2','-2,3'
+    ]);
+    for (const tile of grid.tiles) {
+      tile.surface = waterKeys.has(tileKey(tile.q, tile.r))
+        ? (tile.q <= -5 || tile.r >= 3 ? 'deepWater' : 'shallowWater')
+        : 'land';
+    }
+
+    const unitSpecs = [
+      { key: '-4,0', side: 'friendly', health: .92, airfield: true },
+      { key: '-3,1', side: 'friendly', health: .86, carrier: true },
+      { key: '-2,-1', side: 'friendly', health: .74 },
+      { key: '0,-2', side: 'enemy', health: .66 },
+      { key: '2,0', side: 'enemy', health: .52 },
+      { key: '1,1', side: 'enemy', health: .84, antiAir: true },
+      { key: '4,-1', side: 'enemy', health: .70, antiAir: true },
+      { key: '3,-2', side: 'enemy', health: .58 },
+      { key: '5,-2', side: 'enemy', health: .90 }
+    ].map(spec => ({ ...spec, tile: grid.tileMap.get(spec.key) })).filter(spec => spec.tile);
+
+    const antiAirSpecs = unitSpecs.filter(spec => spec.antiAir);
+    const antiAirLayerByKey = new Map();
+    for (const tile of grid.tiles) {
+      let layers = 0;
+      for (const spec of antiAirSpecs) {
+        if (airDistance(spec.tile, tile) <= 2) layers++;
+      }
+      if (layers > 0) antiAirLayerByKey.set(tileKey(tile.q, tile.r), Math.min(2, layers));
+    }
+
+    const backing = document.createElement('canvas');
+    backing.width = airStrikeRouteCanvas.width;
+    backing.height = airStrikeRouteCanvas.height;
+    const staticCtx = backing.getContext('2d');
+    staticCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const background = staticCtx.createLinearGradient(0, 0, width, height);
+    background.addColorStop(0, '#131819');
+    background.addColorStop(1, '#0a0d0f');
+    staticCtx.fillStyle = background;
+    staticCtx.fillRect(0, 0, width, height);
+    const friendlyPalette = PALETTES[state.palette];
+    for (const tile of grid.tiles) {
+      if (tile.surface === 'land') {
+        drawTileBase(staticCtx, tile, grid.size, tile.q >= 0 ? PALETTES.blue : friendlyPalette);
+        drawGrass(staticCtx, tile, grid.size);
+      } else {
+        drawWaterSurface(staticCtx, tile, grid.size, tile.surface === 'deepWater');
+      }
+      drawHexOutline(staticCtx, tile, grid.size);
+    }
+    for (const tile of grid.tiles) {
+      if (tile.surface !== 'land') continue;
+      HEX_DIRECTIONS.forEach((direction, index) => {
+        const neighbor = grid.tileMap.get(tileKey(tile.q + direction.q, tile.r + direction.r));
+        if (neighbor?.surface === 'shallowWater' || neighbor?.surface === 'deepWater') {
+          drawCoastEdge(staticCtx, tile, grid.size, index);
+        }
+      });
+    }
+
+    const coverage = document.createElement('canvas');
+    coverage.width = airStrikeRouteCanvas.width;
+    coverage.height = airStrikeRouteCanvas.height;
+    const covCtx = coverage.getContext('2d');
+    covCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    drawAirRegion(covCtx, grid, new Set(antiAirLayerByKey.keys()), '#c83b36', '#ff746a', .048, grid.size * .042);
+    drawAntiAirTierTexture(covCtx, grid, antiAirLayerByKey);
+
+    airRouteStaticSceneCache = {
+      key, backing, coverage, grid, unitSpecs, antiAirSpecs, antiAirLayerByKey,
+      rangeLayers: new Map()
+    };
+    return airRouteStaticSceneCache;
+  }
+
+  function getAirRouteRangeLayer(scene, profile) {
+    const cacheKey = `${profile.originKey}:${profile.range}`;
+    if (scene.rangeLayers.has(cacheKey)) return scene.rangeLayers.get(cacheKey);
+    const { grid } = scene;
+    const originTile = grid.tileMap.get(profile.originKey);
+    const backing = document.createElement('canvas');
+    backing.width = airStrikeRouteCanvas.width;
+    backing.height = airStrikeRouteCanvas.height;
+    const width = airStrikeRouteCanvas.getBoundingClientRect().width;
+    const dpr = backing.width / Math.max(1, width);
+    const layerCtx = backing.getContext('2d');
+    layerCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (originTile) {
+      const rangeKeys = new Set(grid.tiles
+        .filter(tile => airDistance(originTile, tile) <= profile.range)
+        .map(tile => tileKey(tile.q, tile.r)));
+      drawAirRegion(layerCtx, grid, rangeKeys, '#4ea7d8', '#79c9ff', .028, grid.size * .05);
+    }
+    scene.rangeLayers.set(cacheKey, backing);
+    return backing;
+  }
+
+  function buildAirStrikeTrajectory(start, target, size, arcScale = 1.1) {
+    const points = [];
+    const dx = target.x - start.x;
+    const dy = target.y - start.y;
+    const distance = Math.hypot(dx, dy);
+    if (distance < 1) return points;
+    const unitX = dx / distance;
+    const unitY = dy / distance;
+    const normalX = -unitY;
+    const normalY = unitX;
+    const bendDirection = normalY > 0 ? -1 : 1;
+    const bend = Math.min(size * .92 * arcScale, distance * .115 * arcScale) * bendDirection;
+    const steps = 76;
+    let total = 0;
+    for (let step = 0; step <= steps; step++) {
+      const t = step / steps;
+      const arc = Math.sin(t * Math.PI) * bend;
+      const point = {
+        x: start.x + dx * t + normalX * arc,
+        y: start.y + dy * t + normalY * arc
+      };
+      if (points.length) {
+        const previous = points[points.length - 1];
+        total += Math.hypot(point.x - previous.x, point.y - previous.y);
+      }
+      points.push({ ...point, distance: total });
+    }
+    points.total = total;
+    return points;
+  }
+
+  function drawAirRouteAircraft(ctx, route, size, color, fraction, time) {
+    const pos = routePoint(route, fraction);
+    const trailSteps = 12;
+    const trailSpan = 0.14;
+    ctx.save();
+    for (let i = trailSteps; i >= 1; i--) {
+      const f0 = Math.max(0, fraction - trailSpan * (i / trailSteps));
+      const f1 = Math.max(0, fraction - trailSpan * ((i - 1) / trailSteps));
+      const p0 = routePoint(route, f0);
+      const p1 = routePoint(route, f1);
+      const fade = 1 - i / trailSteps;
+      ctx.beginPath();
+      ctx.moveTo(p0.x, p0.y);
+      ctx.lineTo(p1.x, p1.y);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = size * (0.04 + fade * 0.06);
+      ctx.globalAlpha = fade * 0.45;
+      ctx.lineCap = 'round';
+      ctx.stroke();
+    }
+
+    ctx.translate(pos.x, pos.y);
+    ctx.rotate(pos.angle);
+    const pulse = (Math.sin(time * 8) + 1) / 2;
+    const wing = size * 0.28;
+    const nose = size * 0.25;
+    const tail = size * 0.20;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = size * (0.20 + pulse * 0.08);
+    ctx.fillStyle = '#fff5ee';
+    ctx.strokeStyle = color;
+    ctx.lineWidth = Math.max(1.2, size * 0.04);
+    ctx.globalAlpha = 0.96;
+    ctx.beginPath();
+    ctx.moveTo(nose, 0);
+    ctx.lineTo(-tail * 0.15, wing * 0.22);
+    ctx.lineTo(-tail * 0.48, wing);
+    ctx.lineTo(-tail * 0.85, wing * 0.88);
+    ctx.lineTo(-tail * 0.52, wing * 0.2);
+    ctx.lineTo(-tail, tail * 0.45);
+    ctx.lineTo(-tail * 0.82, 0);
+    ctx.lineTo(-tail, -tail * 0.45);
+    ctx.lineTo(-tail * 0.52, -wing * 0.2);
+    ctx.lineTo(-tail * 0.85, -wing * 0.88);
+    ctx.lineTo(-tail * 0.48, -wing);
+    ctx.lineTo(-tail * 0.15, -wing * 0.22);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawAirStrikeTrajectory(ctx, startPoint, targetPoint, size, color, time, options = {}) {
+    const route = buildAirStrikeTrajectory(startPoint, targetPoint, size, options.arcScale ?? 1.1);
+    if (route.length < 2) return;
+    const stopInset = options.stopAtCenter ? size * 0.12 : size * 0.5;
+    const targetContactFraction = routeFractionBeforeEnd(route, stopInset);
+    const timing = firePreviewTiming(time);
+
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    // Soft airborne corridor under-glow
+    traceOperationRoute(ctx, route, targetContactFraction);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = size * 0.22;
+    ctx.globalAlpha = 0.12;
+    ctx.stroke();
+
+    // Artillery-matched marching dashed rail
+    traceOperationRoute(ctx, route, targetContactFraction);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = size * 0.086;
+    ctx.setLineDash([size * 0.08, size * 0.21]);
+    ctx.lineDashOffset = -time * size * 0.78;
+    ctx.globalAlpha = 0.96;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = size * 0.10;
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
+
+    drawOperationHead(ctx, route, color, size * 0.28, true, targetContactFraction);
+
+    if (timing.tracerVisible) {
+      drawAirRouteAircraft(ctx, route, size, color, timing.flightProgress * targetContactFraction, time);
+    }
+
+    if (timing.impactVisible) {
+      const eased = 1 - (1 - timing.impactProgress) * (1 - timing.impactProgress);
+      const baseR = options.areaRadius > 0 ? size * 0.95 : size * 0.54;
+      const expandR = options.areaRadius > 0 ? size * 1.15 : size * 0.64;
+      ctx.beginPath();
+      ctx.arc(targetPoint.x, targetPoint.y, baseR + eased * expandR, 0, Math.PI * 2);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = size * (0.065 - timing.impactProgress * 0.025);
+      ctx.globalAlpha = (1 - timing.impactProgress) * 0.82;
+      ctx.shadowColor = color;
+      ctx.shadowBlur = size * 0.22;
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function renderAirStrikeRoutePreview(time = state.interactionElapsed) {
+    if (!airStrikeRouteCanvas) return;
+    const { ctx, width, height } = prepareCanvas(airStrikeRouteCanvas);
+    ctx.clearRect(0, 0, width, height);
+    const staticScene = getAirRouteStaticScene(width, height);
+    ctx.drawImage(staticScene.backing, 0, 0, width, height);
+
+    const { grid, unitSpecs, antiAirSpecs } = staticScene;
+    const profile = AIR_ROUTE_PROFILES[state.airRoute] || AIR_ROUTE_PROFILES.airfieldStrafe;
+    const originTile = grid.tileMap.get(profile.originKey);
+    const friendlyPalette = PALETTES[state.palette];
+
+    ctx.drawImage(staticScene.coverage, 0, 0, width, height);
+    ctx.drawImage(getAirRouteRangeLayer(staticScene, profile), 0, 0, width, height);
+
+    const legalSpecs = unitSpecs.filter(spec =>
+      spec.side === 'enemy' && spec.tile.visible && originTile && airDistance(originTile, spec.tile) <= profile.range
+    );
+    const legalKeys = legalSpecs.map(spec => spec.key);
+    const legalSet = new Set(legalKeys);
+    const activeKey = legalSet.has(state.airRouteHoverKey)
+      ? state.airRouteHoverKey
+      : (legalSet.has(profile.defaultTargetKey) ? profile.defaultTargetKey : legalKeys[0] || null);
+    const activeTile = activeKey ? grid.tileMap.get(activeKey) : null;
+
+    if (profile.areaRadius > 0 && activeTile) {
+      const affected = new Set(grid.tiles
+        .filter(tile => airDistance(activeTile, tile) <= profile.areaRadius)
+        .map(tile => tileKey(tile.q, tile.r)));
+      drawAirRegion(ctx, grid, affected, '#ee453c', '#ffd1cc', .16, grid.size * .07, time, originTile);
+    }
+
+    if (originTile) {
+      drawSourceSelection(ctx, originTile, grid.size, 'fire', '#69c7e8', time);
+    }
+
+    for (const spec of unitSpecs) {
+      if (spec.airfield) continue;
+      if (spec.carrier) {
+        drawNavalUnit(ctx, spec.tile, grid.size);
+        continue;
+      }
+      const palette = spec.side === 'friendly' ? friendlyPalette : PALETTES.blue;
+      drawUnit(ctx, spec.tile, grid.size, palette, {
+        healthStyle: 'dial', health: spec.health,
+        relation: spec.side === 'friendly' ? 'self' : 'enemy', shield: 0
+      });
+    }
+
+    if (originTile && profile.originType === 'airfield') {
+      const wave = (Math.sin(time * 2.4) + 1) / 2;
+      drawHologramMotif(ctx, { x: originTile.x, y: originTile.y }, grid.size * .82, '#79c9ff', 'plane', true, wave, 1);
+    } else if (originTile && profile.originType === 'carrier') {
+      const wave = (Math.sin(time * 2.4) + 1) / 2;
+      drawHologramMotif(ctx, unitVisualCenter(originTile, grid.size), grid.size * .76, '#79c9ff', 'plane', true, wave, 1);
+    }
+
+    for (const spec of antiAirSpecs) drawAntiAirSource(ctx, spec.tile, grid.size, time);
+
+    for (const spec of legalSpecs) {
+      if (profile.areaRadius > 0) {
+        drawAreaCenterTarget(ctx, spec.tile, grid.size, profile.color, time, spec.key === activeKey);
+      } else {
+        drawTargetingFrame(ctx, spec.tile, grid.size, profile.color, time, spec.key === activeKey, 'attack');
+      }
+    }
+
+    if (originTile && activeTile) {
+      const startPt = profile.originType === 'airfield'
+        ? { x: originTile.x, y: originTile.y }
+        : unitVisualCenter(originTile, grid.size);
+      const endPt = profile.areaRadius > 0
+        ? { x: activeTile.x, y: activeTile.y }
+        : unitVisualCenter(activeTile, grid.size);
+      drawAirStrikeTrajectory(ctx, startPt, endPt, grid.size, profile.color, time, {
+        arcScale: profile.arcScale,
+        areaRadius: profile.areaRadius,
+        stopAtCenter: profile.areaRadius > 0
+      });
+    }
+
+    for (const tile of grid.tiles) {
+      if (tile.visible) continue;
+      ctx.save();
+      hexPath(ctx, tile.x, tile.y, grid.size * .99);
+      ctx.fillStyle = 'rgba(5,8,8,.9)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(95,116,116,.2)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    drawTargetingModePlate(ctx, width, height, profile);
+    airRouteHitRegions = legalKeys.map(key => {
+      const tile = grid.tileMap.get(key);
+      return tile ? { key, x: tile.x, y: tile.y, radius: grid.size * .58 } : null;
+    }).filter(Boolean);
+  }
+
   function renderInteractionPreview(time = state.interactionElapsed) {
     const { ctx, width, height } = prepareCanvas(interactionCanvas, 1.48);
     ctx.clearRect(0, 0, width, height);
@@ -2552,16 +2955,18 @@
     if (interactionCanvas) renderInteractionPreview();
     if (targetingCanvas) renderTargetingPreview();
     if (airTargetingCanvas) renderAirTargetingPreview();
+    if (airStrikeRouteCanvas) renderAirStrikeRoutePreview();
     if (waterCanvas) renderWaterPreview();
   }
 
-  const hasAnimatedPreview = Boolean(interactionCanvas || targetingCanvas || airTargetingCanvas);
+  const hasAnimatedPreview = Boolean(interactionCanvas || targetingCanvas || airTargetingCanvas || airStrikeRouteCanvas);
   let animationFrame = 0;
 
   function renderAnimatedPreviews() {
     if (interactionCanvas) renderInteractionPreview();
     if (targetingCanvas) renderTargetingPreview();
     if (airTargetingCanvas) renderAirTargetingPreview();
+    if (airStrikeRouteCanvas) renderAirStrikeRoutePreview();
   }
 
   function animateInteractionPreview(now) {
@@ -2609,6 +3014,11 @@
   bindSegmentGroup('airTargetingControls', 'airTargeting', value => {
     state.airTargeting = value;
     state.airTargetingHoverKey = null;
+    state.interactionElapsed = 0;
+  });
+  bindSegmentGroup('airRouteControls', 'airRoute', value => {
+    state.airRoute = value;
+    state.airRouteHoverKey = null;
     state.interactionElapsed = 0;
   });
 
@@ -2666,17 +3076,52 @@
     renderAirTargetingPreview();
   });
 
+  airStrikeRouteCanvas?.addEventListener('pointermove', event => {
+    const rect = airStrikeRouteCanvas.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    let hit = null;
+    let bestDistance = Infinity;
+    for (const region of airRouteHitRegions) {
+      const distance = Math.hypot(x - region.x, y - region.y);
+      if (distance <= region.radius && distance < bestDistance) {
+        hit = region;
+        bestDistance = distance;
+      }
+    }
+    const nextKey = hit?.key || null;
+    airStrikeRouteCanvas.style.cursor = hit ? 'crosshair' : 'default';
+    if (nextKey !== state.airRouteHoverKey) {
+      state.airRouteHoverKey = nextKey;
+      renderAirStrikeRoutePreview();
+    }
+  });
+
+  airStrikeRouteCanvas?.addEventListener('pointerleave', () => {
+    state.airRouteHoverKey = null;
+    airStrikeRouteCanvas.style.cursor = 'default';
+    renderAirStrikeRoutePreview();
+  });
+
+  const syncMotionInputs = checked => {
+    state.interactionMotion = checked;
+    if (interactionMotionInput) interactionMotionInput.checked = checked;
+    if (airRouteMotionInput) airRouteMotionInput.checked = checked;
+    if (!state.interactionMotion && animationFrame) {
+      cancelAnimationFrame(animationFrame);
+      animationFrame = 0;
+    }
+    renderAnimatedPreviews();
+    ensureAnimation();
+  };
+
   if (interactionMotionInput) {
     interactionMotionInput.checked = state.interactionMotion;
-    interactionMotionInput.addEventListener('change', () => {
-      state.interactionMotion = interactionMotionInput.checked;
-      if (!state.interactionMotion && animationFrame) {
-        cancelAnimationFrame(animationFrame);
-        animationFrame = 0;
-      }
-      renderAnimatedPreviews();
-      ensureAnimation();
-    });
+    interactionMotionInput.addEventListener('change', () => syncMotionInputs(interactionMotionInput.checked));
+  }
+  if (airRouteMotionInput) {
+    airRouteMotionInput.checked = state.interactionMotion;
+    airRouteMotionInput.addEventListener('change', () => syncMotionInputs(airRouteMotionInput.checked));
   }
 
   const textureRange = document.getElementById('textureRange');

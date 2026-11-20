@@ -57,7 +57,36 @@
   </section>
 
   <div class="section-head">
-    <span class="section-index">04</span>
+    <span class="section-index">04A</span>
+    <h2>机场与航母攻击航线预览</h2>
+    <span class="section-note">模仿炮兵弹道时序：航线虚线轨 + 机影载荷 + 抵达同步命中脉冲（悬停敌方目标可切换航线）</span>
+  </div>
+
+  <section class="system-grid" aria-label="机场与航母攻击航线原型">
+    <article class="system-panel targeting-panel air-targeting-panel">
+      <div class="system-panel-header">
+        <div class="system-panel-title">
+          <span>Airfield &amp; carrier strike trajectory</span>
+          <strong>机场 / 航母航线预览动画原型</strong>
+          <small>沿用炮兵远程攻击的「2.35s 周期 · 1.55s 飞行 · 0.46s 命中脉冲」时序节奏：以高抛弧线连接机场或航母发起点与目标，沿途伴随移动虚线导轨、航向箭头与机影尾迹，抵达目标同一帧触发命中脉冲（轰炸模式同步展开 7 格范围与区域冲击波）。</small>
+        </div>
+        <div class="segments" id="airRouteControls">
+          <button class="segment active" data-air-route="airfieldStrafe">机场 · 扫射</button>
+          <button class="segment" data-air-route="airfieldStuka">机场 · 斯图卡俯冲</button>
+          <button class="segment" data-air-route="airfieldBombing">机场 · 战略轰炸</button>
+          <button class="segment" data-air-route="carrierStrike">航母 · 舰载机打击</button>
+          <label class="segment-toggle"><input id="airRouteMotion" type="checkbox" checked>动态预览</label>
+        </div>
+      </div>
+      <canvas id="airStrikeRoutePreview" role="img" aria-label="机场与航母攻击航线预览动画原型"></canvas>
+      <div class="system-legend" aria-hidden="true">
+        <span>机场 / 航母：蓝色发起点与航程</span><span>红色弧线：飞行导轨与机影载荷</span><span>命中脉冲：机影抵达同帧触发</span><span>红色斜纹：敌方防空覆盖区</span>
+      </div>
+    </article>
+  </section>
+
+  <div class="section-head">
+    <span class="section-index">04B</span>
     <h2>空军对策卡目标语言</h2>
     <span class="section-note">在画布中悬停合法候选检查范围与层级</span>
   </div>

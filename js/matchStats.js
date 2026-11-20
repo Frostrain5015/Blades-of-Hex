@@ -18,7 +18,7 @@ const HISTORICAL_FLAG_BY_NAME = Object.freeze({
     法国: 'img/flags/svg/fr.svg',
     苏联: 'img/flags/soviet-union.svg',
     苏军驻东北部队: 'img/flags/soviet-union.svg',
-    中华民国: 'img/flags/kuomintang.svg',
+    中华民国: 'img/flags/svg/tw.svg',
     中共苏区: 'img/flags/chinese-communist-party-old.svg',
     德国: 'img/flags/germany-iron-cross.svg',
     日本: 'img/flags/svg/jp.svg'

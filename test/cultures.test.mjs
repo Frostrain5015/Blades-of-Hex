@@ -479,7 +479,7 @@ test('苏联文化：喀秋莎保留溅射且全阵营普通炮兵禁用火箭�
 });
 
 test('中华民国：教导旅跨地图共享生命、放大驻地防御并给相邻友军提供一次增伤', () => {
-    const state = setupCultureState('img/flags/kuomintang.svg', 'img/flags/svg/jp.svg');
+    const state = setupCultureState('img/flags/svg/tw.svg', 'img/flags/svg/jp.svg');
     const kmt = state.factions.player1;
     const foe = state.factions.player2;
 
@@ -534,7 +534,7 @@ test('中华民国：教导旅跨地图共享生命、放大驻地防御并给�
 });
 
 test('中共苏区：游击纵队只在主动隐匿期间隐藏，邻格侦测按观察阵营计算', () => {
-    const state = setupCultureState('img/flags/chinese-communist-party-old.svg', 'img/flags/kuomintang.svg');
+    const state = setupCultureState('img/flags/chinese-communist-party-old.svg', 'img/flags/svg/tw.svg');
     const cpc = state.factions.player1;
     const kmt = state.factions.player2;
 
