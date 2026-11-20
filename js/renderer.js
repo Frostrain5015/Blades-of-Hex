@@ -2585,6 +2585,28 @@ function _getAirViewSession(viewerCamp) {
     return _airViewCache;
 }
 
+function _drawPlatformRangeContour(entry, { alpha, pulse, reducedMotion }) {
+    if (!entry?.tiles?.length) return;
+    const { platform } = entry;
+    ctx.save();
+    ctx.beginPath();
+    for (const tile of entry.tiles) hexPath(ctx, tile.x, tile.y, HEX_SIZE * 0.992);
+    ctx.fillStyle = platform.isFriendly ? '#28d97c' : '#ff4636';
+    ctx.globalAlpha = alpha * 0.04;
+    ctx.fill();
+    ctx.restore();
+
+    strokeHexRegionContours(ctx, entry.contours, {
+        stroke: platform.isFriendly ? 'rgba(95, 238, 176, 0.84)' : 'rgba(255, 130, 120, 0.84)',
+        lineWidth: 2.5,
+        inner: 'rgba(240, 252, 255, 0.60)',
+        innerWidth: 0.95,
+        glow: platform.isFriendly ? 'rgba(40, 217, 124, 0.62)' : 'rgba(255, 70, 54, 0.62)',
+        glowBlur: reducedMotion ? 8 : 7 + pulse * 4,
+        alpha: alpha * (0.86 + pulse * 0.14)
+    });
+}
+
 function _drawUnifiedAirViewLayer(now, session, options = {}) {
     const alpha = Math.max(0, Math.min(1, options.alpha ?? 1));
     if (alpha <= 0.005 || !session) return;
@@ -2686,11 +2708,21 @@ function _drawUnifiedAirViewLayer(now, session, options = {}) {
         }
     }
 
+    const activeCarrierRangeKey = launcherIsCarrier && launcherKey ? `carrier:${launcherKey}` : null;
+    if (activeCarrierRangeKey && session.platformRanges.has(activeCarrierRangeKey)) {
+        _drawPlatformRangeContour(session.platformRanges.get(activeCarrierRangeKey), {
+            alpha,
+            pulse,
+            reducedMotion
+        });
+    }
+
     if (drawHoverRanges) {
         for (const key of _airViewHoverRangeAlphas.keys()) {
             if (!session.platformRanges.has(key)) _airViewHoverRangeAlphas.delete(key);
         }
         for (const [key, entry] of session.platformRanges.entries()) {
+            if (key === activeCarrierRangeKey) continue;
             const { platform } = entry;
             const active = hoveredKey === platform.key;
             let curAlpha = _airViewHoverRangeAlphas.get(key) || 0;
@@ -2706,22 +2738,10 @@ function _drawUnifiedAirViewLayer(now, session, options = {}) {
             if (curAlpha <= 0.005) continue;
 
             const eased = curAlpha * (2 - curAlpha);
-            ctx.save();
-            ctx.beginPath();
-            for (const tile of entry.tiles) hexPath(ctx, tile.x, tile.y, HEX_SIZE * 0.992);
-            ctx.fillStyle = platform.isFriendly ? '#28d97c' : '#ff4636';
-            ctx.globalAlpha = alpha * 0.04 * eased;
-            ctx.fill();
-            ctx.restore();
-
-            strokeHexRegionContours(ctx, entry.contours, {
-                stroke: platform.isFriendly ? 'rgba(95, 238, 176, 0.84)' : 'rgba(255, 130, 120, 0.84)',
-                lineWidth: 2.5,
-                inner: 'rgba(240, 252, 255, 0.60)',
-                innerWidth: 0.95,
-                glow: platform.isFriendly ? 'rgba(40, 217, 124, 0.62)' : 'rgba(255, 70, 54, 0.62)',
-                glowBlur: reducedMotion ? 8 : 7 + pulse * 4,
-                alpha: alpha * eased * (0.86 + pulse * 0.14)
+            _drawPlatformRangeContour(entry, {
+                alpha: alpha * eased,
+                pulse,
+                reducedMotion
             });
         }
     } else {
