@@ -2491,7 +2491,8 @@ function _getAirViewSession(viewerCamp) {
     if (_airViewCache?.signature === signature) return _airViewCache;
 
     const data = resolveAirViewState(gameState, viewerCamp, { isTileVisible });
-    const boardClipShapes = _getTargetingBoardClipShapes(true);
+    // 空军视图暗化层应覆盖无边地图的边缘假地块，保持整盘一体感。
+    const boardClipShapes = _getTargetingBoardClipShapes(false);
     const hostileCells = data.hostileCells.map(cell => ({
         tile: cell.tile,
         ..._hexScreenShape(cell.tile, HEX_SIZE),

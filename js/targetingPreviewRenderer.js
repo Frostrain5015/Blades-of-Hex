@@ -583,6 +583,74 @@ export function strokeHexRegionContours(ctx, contours, style) {
     ctx.restore();
 }
 
+const DIAGONAL_HATCH_SLOPE = 0.7;
+
+function drawClippedDiagonalHatches(ctx, cells, options = {}) {
+    if (!Array.isArray(cells) || !cells.length) return 0;
+    const fallbackSize = positive(options.size, 30);
+    const groupAlpha = opacity(options.alpha, 1);
+    if (groupAlpha <= 0) return 0;
+
+    const stripeWidth = positive(options.stripeWidth, 3.2);
+    const spacing = positive(options.spacing, 14);
+    const clipScale = positive(options.clipScale, 0.95);
+    const styles = Array.isArray(options.styles) && options.styles.length
+        ? options.styles
+        : [options.color || 'rgba(255, 70, 54, 0.30)'];
+
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+
+    ctx.save();
+    ctx.globalAlpha *= groupAlpha;
+    ctx.beginPath();
+    let appended = false;
+    for (const cell of cells) {
+        const points = scaledPoints(pointsFor(cell, fallbackSize), clipScale);
+        if (!appendPolygonPath(ctx, points)) continue;
+        appended = true;
+        for (const pt of points) {
+            if (pt.x < minX) minX = pt.x;
+            if (pt.y < minY) minY = pt.y;
+            if (pt.x > maxX) maxX = pt.x;
+            if (pt.y > maxY) maxY = pt.y;
+        }
+    }
+    if (!appended) {
+        ctx.restore();
+        return 0;
+    }
+    ctx.clip();
+
+    const padY = fallbackSize;
+    const topY = minY - padY;
+    const bottomY = maxY + padY;
+    const cMin = (minX - fallbackSize) + DIAGONAL_HATCH_SLOPE * topY;
+    const cMax = (maxX + fallbackSize) + DIAGONAL_HATCH_SLOPE * bottomY;
+    const kStart = Math.floor(cMin / spacing);
+    const kEnd = Math.ceil(cMax / spacing);
+    const styleCount = styles.length;
+
+    ctx.lineWidth = stripeWidth;
+    ctx.lineCap = 'butt';
+    for (let parity = 0; parity < styleCount; parity++) {
+        ctx.strokeStyle = styles[parity];
+        ctx.beginPath();
+        for (let k = kStart; k <= kEnd; k++) {
+            if (styleCount > 1 && (((k % styleCount) + styleCount) % styleCount) !== parity) continue;
+            const c = k * spacing;
+            ctx.moveTo(c - DIAGONAL_HATCH_SLOPE * topY, topY);
+            ctx.lineTo(c - DIAGONAL_HATCH_SLOPE * bottomY, bottomY);
+        }
+        ctx.stroke();
+    }
+
+    ctx.restore();
+    return cells.length;
+}
+
 export function drawAntiAirCoveragePreview(ctx, descriptor = {}) {
     const cells = Array.isArray(descriptor.cells) ? descriptor.cells : [];
     const fallbackSize = positive(descriptor.size, 30);
@@ -590,20 +658,34 @@ export function drawAntiAirCoveragePreview(ctx, descriptor = {}) {
     const groupAlpha = opacity(descriptor.alpha, 1);
     const levelOneAlpha = opacity(descriptor.levelOneAlpha, 0.11);
     const levelTwoAlpha = opacity(descriptor.levelTwoAlpha, 0.20);
+    const levelTwoHatchAlpha = opacity(descriptor.levelTwoHatchAlpha, 0.30);
     const insetPx = finite(descriptor.insetPx, 0);
     if (!cells.length) return 0;
 
+    const levelTwoCells = [];
     for (const level of [1, 2]) {
         ctx.save();
         ctx.beginPath();
         for (const cell of cells) {
-            if ((cell.level >= 2 ? 2 : 1) !== level) continue;
+            const cellLevel = cell.level >= 2 ? 2 : 1;
+            if (cellLevel !== level) continue;
+            if (level === 2) levelTwoCells.push(cell);
             appendPolygonPath(ctx, scaledPoints(pointsFor(cell, fallbackSize), 0.998));
         }
         ctx.fillStyle = descriptor.fillColor || color;
         ctx.globalAlpha *= groupAlpha * (level === 1 ? levelOneAlpha : levelTwoAlpha);
         ctx.fill();
         ctx.restore();
+    }
+
+    if (levelTwoCells.length && levelTwoHatchAlpha > 0) {
+        drawClippedDiagonalHatches(ctx, levelTwoCells, {
+            size: fallbackSize,
+            alpha: groupAlpha * levelTwoHatchAlpha,
+            styles: [descriptor.hatchColor || color],
+            stripeWidth: descriptor.hatchWidth,
+            spacing: descriptor.hatchSpacing
+        });
     }
 
     const keyedCells = Array.isArray(descriptor.contours)
@@ -630,67 +712,15 @@ export function drawAntiAirCoveragePreview(ctx, descriptor = {}) {
  * Draw alternating diagonal green/red stripes inside cells covered by both friendly and hostile AA.
  */
 export function drawAirViewOverlapHatches(ctx, descriptor = {}) {
-    const cells = Array.isArray(descriptor.cells) ? descriptor.cells : [];
-    if (!cells.length) return 0;
-    const fallbackSize = positive(descriptor.size, 30);
-    const groupAlpha = opacity(descriptor.alpha, 1);
-    if (groupAlpha <= 0) return 0;
-
     const greenColor = descriptor.greenColor || 'rgba(40, 217, 124, 0.28)';
     const redColor = descriptor.redColor || 'rgba(255, 70, 54, 0.28)';
-    const stripeWidth = positive(descriptor.stripeWidth, 3.2);
-    const spacing = positive(descriptor.spacing, 14);
-
-    let minX = Infinity;
-    let minY = Infinity;
-    let maxX = -Infinity;
-    let maxY = -Infinity;
-
-    ctx.save();
-    ctx.globalAlpha *= groupAlpha;
-    ctx.beginPath();
-    let appended = false;
-    for (const cell of cells) {
-        const points = scaledPoints(pointsFor(cell, fallbackSize), 0.95);
-        if (!appendPolygonPath(ctx, points)) continue;
-        appended = true;
-        for (const pt of points) {
-            if (pt.x < minX) minX = pt.x;
-            if (pt.y < minY) minY = pt.y;
-            if (pt.x > maxX) maxX = pt.x;
-            if (pt.y > maxY) maxY = pt.y;
-        }
-    }
-    if (!appended) {
-        ctx.restore();
-        return 0;
-    }
-    ctx.clip();
-
-    const padY = fallbackSize;
-    const topY = minY - padY;
-    const bottomY = maxY + padY;
-    const height = Math.max(1, bottomY - topY);
-    const shiftX = height * 0.7;
-    const startX = minX - fallbackSize - shiftX;
-    const endX = maxX + fallbackSize + shiftX;
-
-    ctx.lineWidth = stripeWidth;
-    ctx.lineCap = 'butt';
-    for (const parity of [0, 1]) {
-        ctx.strokeStyle = parity === 0 ? greenColor : redColor;
-        ctx.beginPath();
-        let stripeIndex = 0;
-        for (let x = startX; x <= endX; x += spacing, stripeIndex++) {
-            if (stripeIndex % 2 !== parity) continue;
-            ctx.moveTo(x, topY);
-            ctx.lineTo(x - shiftX, bottomY);
-        }
-        ctx.stroke();
-    }
-
-    ctx.restore();
-    return cells.length;
+    return drawClippedDiagonalHatches(ctx, descriptor.cells, {
+        size: descriptor.size,
+        alpha: descriptor.alpha,
+        styles: [greenColor, redColor],
+        stripeWidth: descriptor.stripeWidth,
+        spacing: descriptor.spacing
+    });
 }
 
 /**

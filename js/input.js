@@ -680,6 +680,32 @@ function _animateAbilityGroup(container, selectionKey) {
     container.classList.add('is-swapping');
 }
 
+function _finalizeExitingBoardActionButton(button) {
+    if (button._exitTimer) {
+        clearTimeout(button._exitTimer);
+        button._exitTimer = null;
+    }
+    if (button._exitOnTransitionEnd) {
+        button.removeEventListener('transitionend', button._exitOnTransitionEnd);
+        button._exitOnTransitionEnd = null;
+    }
+    if (button.dataset.exiting === 'true') button.remove();
+}
+
+function _cancelExitingBoardActionButton(button) {
+    if (button._exitTimer) {
+        clearTimeout(button._exitTimer);
+        button._exitTimer = null;
+    }
+    if (button._exitOnTransitionEnd) {
+        button.removeEventListener('transitionend', button._exitOnTransitionEnd);
+        button._exitOnTransitionEnd = null;
+    }
+    delete button.dataset.exiting;
+    button.classList.remove('is-exiting');
+    button.removeAttribute('aria-hidden');
+}
+
 function _renderBoardActionQueue(actions) {
     const container = document.getElementById('canvasActionButtons');
     if (!container) return;
@@ -700,18 +726,45 @@ function _renderBoardActionQueue(actions) {
     _lastBoardActionSignature = signature;
 
     boardActionQueue.clear();
-    const buttons = Array.from(container.querySelectorAll('button'));
-    actions.forEach((action, index) => {
-        let button = buttons[index];
-        if (!button) {
+    const wasVisible = container.classList.contains('visible');
+    const willBeVisible = actions.length > 0;
+    const animateDiff = wasVisible && willBeVisible;
+
+    const existingByKey = new Map();
+    for (const button of Array.from(container.querySelectorAll('button'))) {
+        const key = button.dataset.boardActionKey;
+        if (key && !existingByKey.has(key)) {
+            existingByKey.set(key, button);
+        } else if (key && existingByKey.get(key)?.dataset.exiting === 'true' && button.dataset.exiting !== 'true') {
+            _finalizeExitingBoardActionButton(existingByKey.get(key));
+            existingByKey.set(key, button);
+        } else {
+            if (button._exitTimer) clearTimeout(button._exitTimer);
+            button.remove();
+        }
+    }
+
+    const nextButtons = [];
+    const enteringButtons = [];
+
+    actions.forEach(action => {
+        let button = existingByKey.get(action.key);
+        const isNew = !button;
+        if (button) {
+            existingByKey.delete(action.key);
+            if (button.dataset.exiting === 'true') _cancelExitingBoardActionButton(button);
+        } else {
             button = document.createElement('button');
             button.type = 'button';
-            container.appendChild(button);
+            button.className = 'canvas-action-button';
+            if (animateDiff) {
+                button.classList.add('is-entering');
+                enteringButtons.push(button);
+            }
         }
 
         boardActionQueue.set(action.key, action);
         button.id = action.buttonId;
-        button.className = 'canvas-action-button';
         // 保持禁用技能可悬浮查看，因此使用语义禁用并在执行层拦截点击。
         button.disabled = false;
         button.classList.toggle('is-disabled', !action.canUse);
@@ -727,31 +780,79 @@ function _renderBoardActionQueue(actions) {
         button.dataset.boardActionKey = action.key;
         _applyBoardActionTheme(button, action.theme);
 
-        const icon = document.createElement('span');
-        icon.className = 'canvas-action-icon';
-        icon.setAttribute('aria-hidden', 'true');
-        icon.textContent = action.icon || '✦';
-        button.replaceChildren(icon);
-        if (action.goldCost) {
-            const cost = document.createElement('span');
-            cost.className = 'canvas-action-cost';
-            cost.textContent = `$${action.goldCost}`;
-            button.appendChild(cost);
-        }
         // 持续优先于冷却：技能生效期间展示剩余持续，之后展示剩余冷却
         const timeRounds = action.duration || action.cooldown || 0;
-        if (timeRounds > 0) {
-            const time = document.createElement('span');
-            time.className = 'canvas-action-time';
-            time.textContent = `⏳${timeRounds}`;
-            button.appendChild(time);
+        const contentSig = `${action.icon || '✦'}|${action.goldCost || 0}|${timeRounds}`;
+        if (button.dataset.contentSig !== contentSig) {
+            button.dataset.contentSig = contentSig;
+            const icon = document.createElement('span');
+            icon.className = 'canvas-action-icon';
+            icon.setAttribute('aria-hidden', 'true');
+            icon.textContent = action.icon || '✦';
+            button.replaceChildren(icon);
+            if (action.goldCost) {
+                const cost = document.createElement('span');
+                cost.className = 'canvas-action-cost';
+                cost.textContent = `$${action.goldCost}`;
+                button.appendChild(cost);
+            }
+            if (timeRounds > 0) {
+                const time = document.createElement('span');
+                time.className = 'canvas-action-time';
+                time.textContent = `⏳${timeRounds}`;
+                button.appendChild(time);
+            }
         }
+        nextButtons.push(button);
     });
-    for (let index = actions.length; index < buttons.length; index++) buttons[index].remove();
-    container.classList.toggle('visible', actions.length > 0);
-    container.setAttribute('aria-hidden', actions.length > 0 ? 'false' : 'true');
-    document.getElementById('canvasPassiveButtons')?.classList.toggle('has-actions', actions.length > 0);
-    _animateAbilityGroup(container, actions[0]?.unitId);
+
+    // 按 actions 顺序插入或校正位置，未变动的按钮保持原 DOM 节点不动。
+    let anchor = null;
+    for (let i = nextButtons.length - 1; i >= 0; i--) {
+        const button = nextButtons[i];
+        if (!button.parentNode) {
+            container.insertBefore(button, anchor);
+        } else if (anchor && button.nextSibling !== anchor) {
+            if (button.compareDocumentPosition(anchor) & Node.DOCUMENT_POSITION_PRECEDING) {
+                container.insertBefore(button, anchor);
+            }
+        }
+        anchor = button;
+    }
+
+    for (const staleButton of existingByKey.values()) {
+        if (!animateDiff) {
+            if (staleButton._exitTimer) clearTimeout(staleButton._exitTimer);
+            staleButton.remove();
+            continue;
+        }
+        if (staleButton.dataset.exiting === 'true') continue;
+        staleButton.removeAttribute('id');
+        staleButton.dataset.exiting = 'true';
+        staleButton.classList.remove('is-entering', 'is-active');
+        staleButton.setAttribute('aria-hidden', 'true');
+        const onTransitionEnd = event => {
+            if (event.target !== staleButton) return;
+            if (event.propertyName !== 'opacity' && event.propertyName !== 'height') return;
+            _finalizeExitingBoardActionButton(staleButton);
+        };
+        staleButton._exitOnTransitionEnd = onTransitionEnd;
+        staleButton.addEventListener('transitionend', onTransitionEnd);
+        staleButton._exitTimer = setTimeout(() => _finalizeExitingBoardActionButton(staleButton), 260);
+        staleButton.classList.add('is-exiting');
+    }
+
+    if (enteringButtons.length > 0) {
+        void container.offsetWidth;
+        for (const button of enteringButtons) {
+            button.classList.remove('is-entering');
+        }
+    }
+
+    container.classList.remove('is-swapping');
+    container.classList.toggle('visible', willBeVisible);
+    container.setAttribute('aria-hidden', willBeVisible ? 'false' : 'true');
+    document.getElementById('canvasPassiveButtons')?.classList.toggle('has-actions', willBeVisible);
 }
 
 export function syncBoardActionBar() {

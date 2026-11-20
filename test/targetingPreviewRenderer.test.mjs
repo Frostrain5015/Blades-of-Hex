@@ -89,7 +89,8 @@ for (const kind of TARGETING_PREVIEW_KINDS) {
     drawAntiAirCoveragePreview(levelTwo, freeze({ cells: [{ ...base, level: 2 }], time: 2 }));
     const oneStrokes = levelOne.calls.filter(call => call[0] === 'stroke').length;
     const twoStrokes = levelTwo.calls.filter(call => call[0] === 'stroke').length;
-    assert.equal(twoStrokes, oneStrokes, 'Canvas fallback keeps one batched fill/perimeter pass at every AA strength');
+    assert.equal(twoStrokes, oneStrokes + 1, 'Level-2 (>=50%) AA coverage adds one batched same-color diagonal hatch pass');
+    assert.equal(levelTwo.calls.filter(call => call[0] === 'clip').length, 1, 'Level-2 AA hatches are clipped to level-2 cells');
     assert.equal(oneStrokes, 2, 'An isolated board-edge cell gets a closed double-stroke perimeter');
     assert.ok(levelOne.calls.filter(call => call[0] === 'setLineDash').every(call => call[1].length === 0));
     assert.ok(levelOne.calls.some(call => call[0] === 'stroke'
@@ -133,7 +134,9 @@ for (const kind of TARGETING_PREVIEW_KINDS) {
         unitTargets: TARGETING_PREVIEW_KINDS.map(kind => ({ ...shape, kind }))
     });
     assert.equal(renderTargetingPreview(ctx, scene), 11);
-    assert.ok(ctx.calls.findIndex(call => call[0] === 'stroke') < ctx.calls.findIndex(call => call[0] === 'clip'),
+    const perimeterStrokeIdx = ctx.calls.findIndex(call => call[0] === 'stroke' && call.at(-1).lineWidth >= 5);
+    const boardClipIdx = ctx.calls.map(call => call[0]).lastIndexOf('clip');
+    assert.ok(perimeterStrokeIdx >= 0 && perimeterStrokeIdx < boardClipIdx,
         'Clipping reticles to the board must leave the perimeter stroke intact');
     assert.equal(ctx.globalAlpha, 1, 'renderer should restore the caller context state');
 }
@@ -176,8 +179,9 @@ for (const kind of TARGETING_PREVIEW_KINDS) {
     }));
     assert.equal(greenDrawn, 1);
     const greenStrokes = ctx.calls.filter(call => call[0] === 'stroke');
-    assert.equal(greenStrokes.length, 2);
+    assert.equal(greenStrokes.length, 3);
     assert.equal(greenStrokes[0].at(-1).strokeStyle, '#28d97c');
+    assert.equal(greenStrokes[1].at(-1).strokeStyle, '#28d97c');
     assert.equal(ctx.globalAlpha, 1);
 }
 
