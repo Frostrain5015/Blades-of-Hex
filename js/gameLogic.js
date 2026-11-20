@@ -72,7 +72,7 @@ import { getKmtLinkDamageBonus, getKmtLinkDefenseBonus, getKmtReinforceDeficit }
 import { canReinforceAtTile, computeHealGoldCost } from '../rules/healing.js';
 import { campFromKey, getFactionKeys, getRoleCamp } from '../rules/diplomacy.js';
 import { isMechanicEnabled } from '../rules/mechanics.js';
-import { AIRDROP_LANDING_MS, ATTACK_PRESENTATION, CARRIER_STRAFE_IMPACT_MS, classifyAttackPresentation, getDiveStrafeMuzzlePosition, isRangedCombatAttack } from '../rules/attackPresentation.js';
+import { AIRDROP_LANDING_MS, AIRSTRIKE_FLIGHT, AIRSTRIKE_TARGET_PROGRESS, ATTACK_PRESENTATION, CARRIER_STRAFE_IMPACT_MS, classifyAttackPresentation, getDiveStrafeMuzzlePosition, isRangedCombatAttack } from '../rules/attackPresentation.js';
 import { AURELIA_OATH_EFFECT, hasAureliaOathEffect } from '../rules/aurelia.js';
 import { resolveOraclePulse, hasCelestineSynergyActive, getOracleStatueAnchor, CELESTINE_ORACLE_PULSE_TIMING } from '../rules/celestine.js';
 import {
@@ -208,6 +208,7 @@ import {
 import { enqueueFloatText, drainPendingFloatTexts, setFloatTextCaptureSuppressed, withFloatTextImpactTiming } from './floatTexts.js';
 import {
     bindMatchRecorderState,
+    drainBroadcastMatchEvents,
     recordCommittedAction,
     startMatchRecording,
     withMatchAction, withMatchActionCause
@@ -238,7 +239,10 @@ function broadcastAction(actionType, effectData = null) {
         const state = serializeState();
         // 本动作同步登记的浮字一并广播，远端按同批条目重放（两端时序一致）
         const floatTexts = drainPendingFloatTexts();
-        const effects = floatTexts ? { ...(effectData || {}), floatTexts } : effectData;
+        const matchEvents = drainBroadcastMatchEvents();
+        const effects = (floatTexts || matchEvents)
+            ? { ...(effectData || {}), ...(floatTexts ? { floatTexts } : {}), ...(matchEvents ? { matchEvents } : {}) }
+            : effectData;
         sendAction(actionType, state, effects);
     } catch (e) {
         console.warn(`broadcastAction(${actionType}) failed:`, e);
@@ -4829,9 +4833,13 @@ function _executeAirCommand(kind, launcherTile, targetTile, aiPhase) {
         const antiAir = getAntiAirReduction(targetTile, launcherTile.camp, gameState.tileMap, { state: gameState });
         const radius = antiAir <= 0.25 ? 2 : 1;
         const duration = antiAir >= 0.50 ? 1 : 2;
+        const reconRevealMs = AIRSTRIKE_TARGET_PROGRESS * AIRSTRIKE_FLIGHT.durationMs;
+        beginFogPresentationHold(gameState, launcherTile.camp, reconRevealMs);
         applyScoutReveal(gameState, launcherTile.camp, targetTile.q, targetTile.r, radius, duration);
         markSubmarinesRevealedInArea(gameState, launcherTile.camp, targetTile, 0, duration);
         updateFogOfWar(gameState, launcherTile.camp);
+        spawnAirstrikeEffect(targetTile.x, targetTile.y, [], 'recon', targetTile.q, targetTile.r, null, null, launcherTile.camp, performance.now(), { antiAir });
+        playSound('airstrike');
         results.push({ q: targetTile.q, r: targetTile.r, radius, duration });
     } else {
         return false;
@@ -5178,7 +5186,7 @@ function _executeBanzaiCharge(unit, targetTile) {
         });
     }
 
-    const impactDelay = 100 * (path.length - 1);
+    const impactDelay = 165 + 105 * (path.length - 1);
     const impactAt = performance.now() + impactDelay;
     const attackResult = unit.calculateDamage(targetUnit, impactDelay, {
         bonusDamage: getBanzaiBonusDamage(targetUnit), showDamageText: false
@@ -5242,6 +5250,16 @@ function _executeBanzaiCharge(unit, targetTile) {
     unit.canAct = followup;
     if (!followup) unit.remainingMP = 0;
 
+    unit._banzaiJump = {
+        fromX: fromTile.x,
+        fromY: fromTile.y,
+        toX: targetTile.x,
+        toY: targetTile.y,
+        destX: destTile.x,
+        destY: destTile.y,
+        startTime: performance.now(),
+        impactDelay
+    };
     spawnBanzaiDash(fromTile.x, fromTile.y, targetTile.x, targetTile.y, {
         killed, healAmt, followup, destX: unit.tile.x, destY: unit.tile.y, dodged, delayMs: impactDelay
     });

@@ -2302,12 +2302,15 @@ export function drawKatyushaRockets(ctx2d, now) {
 }
 
 export function spawnBanzaiDash(fromX, fromY, toX, toY, { killed = false, healAmt = 0, followup = false, destX = toX, destY = toY, dodged = false, showDodge = false, delayMs = 0 } = {}) {
+    const travelMs = Math.max(180, delayMs || 270);
     banzaiDashes.push({
-        fromX, fromY, toX, toY,
+        fromX, fromY, toX, toY, destX, destY,
         startTime: performance.now(),
-        duration: 520,
-        travelMs: Math.max(1, delayMs)
+        duration: travelMs + 340,
+        travelMs
     });
+    // 起跳瞬间地面起跃波纹
+    spawnRingWave(fromX, fromY, { color: '#fca5a5', maxRadius: 26, duration: 210, lineWidth: 2, glow: '#ef4444' });
     setTimeout(() => {
         if (dodged) {
             if (showDodge) spawnDodgeShimmer(toX, toY);
@@ -2316,6 +2319,8 @@ export function spawnBanzaiDash(fromX, fromY, toX, toY, { killed = false, healAm
         spawnMeleeSlash(toX, toY, fromX, fromY, true);
         spawnSlashMarks(toX, toY, fromX, fromY, true);
         spawnDirectionalParticles(fromX, fromY, toX, toY, '#ef4444', 18);
+        // 落地冲击波纹
+        spawnRingWave(destX, destY, { color: '#f87171', maxRadius: 46, duration: 360, lineWidth: 3.2, glow: '#dc2626' });
         triggerAttackFlash(toX, toY, killed);
         playSound(killed ? 'crit' : 'attack');
         triggerScreenShake(killed ? 8 : 5, 260);
@@ -2327,7 +2332,7 @@ export function spawnBanzaiDash(fromX, fromY, toX, toY, { killed = false, healAm
             spawnCommanderSkillEffect(destX, destY, '⚔️', '再次行动');
             spawnRingWave(destX, destY, { color: '#ffd799', maxRadius: 40, duration: 480, lineWidth: 2, glow: '#f06456' });
         }
-    }, delayMs);
+    }, travelMs);
 }
 
 export function updateBanzaiDashes(now) {
@@ -2342,28 +2347,79 @@ export function drawBanzaiDashes(ctx2d, now) {
     for (const d of banzaiDashes) {
         const elapsed = Math.max(0, now - d.startTime);
         const t = Math.min(1, elapsed / d.duration);
-        const travel = Math.min(1, elapsed / d.travelMs);
-        const headX = d.fromX + (d.toX - d.fromX) * travel;
-        const headY = d.fromY + (d.toY - d.fromY) * travel;
-        const alpha = (1 - t) * 0.9;
+        const leapMs = 110;
+        const hangMs = 55;
+        const dashMs = Math.max(80, d.travelMs - leapMs - hangMs);
+        const baseAngle = Math.atan2(d.toY - d.fromY, d.toX - d.fromX);
         ctx2d.save();
-        ctx2d.globalAlpha = alpha;
-        ctx2d.lineCap = 'round';
-        ctx2d.strokeStyle = '#dc2626';
-        ctx2d.shadowColor = '#f87171';
-        ctx2d.shadowBlur = 12;
-        ctx2d.lineWidth = 6 * (1 - t * 0.5);
-        ctx2d.beginPath();
-        ctx2d.moveTo(d.fromX, d.fromY);
-        ctx2d.lineTo(headX, headY);
-        ctx2d.stroke();
 
-        ctx2d.strokeStyle = '#fef2f2';
-        ctx2d.lineWidth = 2.2 * (1 - t * 0.4);
-        ctx2d.beginPath();
-        ctx2d.moveTo(d.fromX, d.fromY);
-        ctx2d.lineTo(headX, headY);
-        ctx2d.stroke();
+        // 阶段1-2：起跳与滞空刀锋蓄力闪光
+        if (elapsed < leapMs + hangMs + 60) {
+            const p = Math.min(1, elapsed / leapMs);
+            const liftY = d.fromY - 26 * (1 - (1 - p) * (1 - p));
+            const chargeAlpha = elapsed < leapMs ? p * 0.65 : Math.max(0, 1 - (elapsed - leapMs - hangMs) / 60) * 0.9;
+            if (chargeAlpha > 0.01) {
+                ctx2d.globalAlpha = chargeAlpha;
+                ctx2d.strokeStyle = '#fecaca';
+                ctx2d.shadowColor = '#ef4444';
+                ctx2d.shadowBlur = 14;
+                ctx2d.lineWidth = 2.4;
+                ctx2d.beginPath();
+                ctx2d.arc(d.fromX, liftY, 18 + (elapsed >= leapMs ? 4 : 0), baseAngle - 0.9, baseAngle + 0.9);
+                ctx2d.stroke();
+            }
+        }
+
+        // 阶段3：空中急速突进流光轨迹
+        if (elapsed >= leapMs + hangMs) {
+            const dashProgress = Math.min(1, (elapsed - leapMs - hangMs) / dashMs);
+            const dashEase = 1 - Math.pow(1 - dashProgress, 3);
+            const startY = d.fromY - 26;
+            const headX = d.fromX + (d.toX - d.fromX) * dashEase;
+            const headY = startY + (d.toY - startY) * dashEase;
+            const fadeOut = elapsed > d.travelMs ? Math.max(0, 1 - (elapsed - d.travelMs) / 260) : 1;
+
+            ctx2d.globalAlpha = fadeOut * 0.9;
+            ctx2d.lineCap = 'round';
+            ctx2d.strokeStyle = '#dc2626';
+            ctx2d.shadowColor = '#f87171';
+            ctx2d.shadowBlur = 14;
+            ctx2d.lineWidth = 6.5 * (0.45 + 0.55 * fadeOut);
+            ctx2d.beginPath();
+            ctx2d.moveTo(d.fromX, startY);
+            ctx2d.lineTo(headX, headY);
+            ctx2d.stroke();
+
+            ctx2d.strokeStyle = '#fef2f2';
+            ctx2d.lineWidth = 2.4 * (0.45 + 0.55 * fadeOut);
+            ctx2d.beginPath();
+            ctx2d.moveTo(d.fromX, startY);
+            ctx2d.lineTo(headX, headY);
+            ctx2d.stroke();
+        }
+
+        // 阶段4：抵达斩出弧形刀光
+        if (elapsed >= d.travelMs - 20) {
+            const slashT = Math.min(1, (elapsed - (d.travelMs - 20)) / 240);
+            const slashAlpha = Math.max(0, 1 - slashT);
+            const r = 34 + slashT * 14;
+            ctx2d.globalAlpha = slashAlpha * 0.95;
+            ctx2d.strokeStyle = '#fef2f2';
+            ctx2d.shadowColor = '#ef4444';
+            ctx2d.shadowBlur = 18;
+            ctx2d.lineWidth = 6 * (1 - slashT * 0.65);
+            ctx2d.lineCap = 'round';
+            ctx2d.beginPath();
+            ctx2d.arc(d.toX, d.toY, r, baseAngle - 1.05, baseAngle + 1.05);
+            ctx2d.stroke();
+
+            ctx2d.strokeStyle = '#fca5a5';
+            ctx2d.lineWidth = 2.5 * (1 - slashT * 0.5);
+            ctx2d.beginPath();
+            ctx2d.arc(d.toX, d.toY, r * 0.82, baseAngle - 0.85, baseAngle + 0.85);
+            ctx2d.stroke();
+        }
+
         ctx2d.restore();
     }
 }
@@ -2476,39 +2532,73 @@ export function drawGuerrillaAmbushes(ctx2d, now) {
         const baseAngle = Math.atan2(dy, dx);
         ctx2d.save();
 
-        // 1. 瞬影残像突袭轨迹（3重暗影残影 + 幽翠绯金刃气拖尾）
-        const dashT = Math.min(1, elapsed / 170);
-        for (let ghost = 0; ghost < 3; ghost++) {
-            const gt = Math.max(0, Math.min(1, dashT - ghost * 0.16));
-            const gx = a.fromX + dx * gt;
-            const gy = a.fromY + dy * gt;
-            const gAlpha = alpha * (0.48 - ghost * 0.12);
-            if (gAlpha <= 0.01) continue;
-            ctx2d.globalAlpha = gAlpha;
-            ctx2d.fillStyle = ghost === 0 ? '#166534' : '#14532d';
-            ctx2d.strokeStyle = '#86efac';
-            ctx2d.lineWidth = 1.6;
+        // 1. 投掷旋转飞镖轨迹（主飞镖 + 双侧护镖拖尾）
+        const flightMs = 165;
+        const dashT = Math.min(1, elapsed / flightMs);
+        const tailT = Math.max(0, dashT - 0.28);
+        const dartX = a.fromX + dx * dashT;
+        const dartY = a.fromY + dy * dashT - Math.sin(dashT * Math.PI) * 10;
+        const tailX = a.fromX + dx * tailT;
+        const tailY = a.fromY + dy * tailT - Math.sin(tailT * Math.PI) * 10;
+        const flightAlpha = elapsed <= flightMs
+            ? 0.95
+            : Math.max(0, 1 - (elapsed - flightMs) / 140);
+
+        if (flightAlpha > 0.01) {
+            ctx2d.globalAlpha = flightAlpha * 0.72;
+            ctx2d.lineCap = 'round';
+            ctx2d.strokeStyle = a.killed ? '#fde047' : '#4ade80';
+            ctx2d.shadowColor = a.killed ? '#ef4444' : '#86efac';
+            ctx2d.shadowBlur = 10;
+            ctx2d.lineWidth = 3.2;
             ctx2d.beginPath();
-            ctx2d.arc(gx, gy, 13 - ghost * 2, 0, Math.PI * 2);
-            ctx2d.fill();
+            ctx2d.moveTo(tailX, tailY);
+            ctx2d.lineTo(dartX, dartY);
             ctx2d.stroke();
+
+            // 旋转四芒飞镖本体
+            const spin = elapsed * 0.036;
+            const drawDart = (cx, cy, radius, rot, dAlpha) => {
+                ctx2d.save();
+                ctx2d.globalAlpha = dAlpha;
+                ctx2d.translate(cx, cy);
+                ctx2d.rotate(rot);
+                ctx2d.fillStyle = a.killed ? '#fef08a' : '#ecfdf5';
+                ctx2d.strokeStyle = a.killed ? '#ef4444' : '#22c55e';
+                ctx2d.lineWidth = 1.4;
+                ctx2d.beginPath();
+                for (let p = 0; p < 4; p++) {
+                    const ang = (p * Math.PI) / 2;
+                    const tipX = Math.cos(ang) * radius;
+                    const tipY = Math.sin(ang) * radius;
+                    const midAng = ang + Math.PI / 4;
+                    const innerX = Math.cos(midAng) * (radius * 0.28);
+                    const innerY = Math.sin(midAng) * (radius * 0.28);
+                    if (p === 0) ctx2d.moveTo(tipX, tipY);
+                    else ctx2d.lineTo(tipX, tipY);
+                    ctx2d.lineTo(innerX, innerY);
+                }
+                ctx2d.closePath();
+                ctx2d.fill();
+                ctx2d.stroke();
+                ctx2d.restore();
+            };
+
+            drawDart(dartX, dartY, 10.5, spin, flightAlpha);
+            const nx = -Math.sin(baseAngle);
+            const ny = Math.cos(baseAngle);
+            const subT = Math.max(0, dashT - 0.09);
+            if (subT > 0) {
+                const sx = a.fromX + dx * subT;
+                const sy = a.fromY + dy * subT - Math.sin(subT * Math.PI) * 8;
+                drawDart(sx + nx * 7, sy + ny * 7, 6.2, -spin * 1.15, flightAlpha * 0.78);
+                drawDart(sx - nx * 7, sy - ny * 7, 6.2, spin * 1.15, flightAlpha * 0.78);
+            }
         }
 
-        // 双色突进流光线
-        ctx2d.globalAlpha = alpha * 0.88;
-        ctx2d.lineCap = 'round';
-        ctx2d.strokeStyle = a.killed ? '#ef4444' : '#22c55e';
-        ctx2d.shadowColor = a.killed ? '#fca5a5' : '#86efac';
-        ctx2d.shadowBlur = 12;
-        ctx2d.lineWidth = 4.5 * alpha + 1;
-        ctx2d.beginPath();
-        ctx2d.moveTo(a.fromX, a.fromY);
-        ctx2d.lineTo(a.fromX + dx * dashT, a.fromY + dy * dashT);
-        ctx2d.stroke();
-
-        // 2. 目标处 X 形交叉利刃破隐斩击（仅未闪避时爆裂）
-        if (!a.dodged && elapsed >= 60) {
-            const slashT = Math.min(1, (elapsed - 60) / (a.duration - 60));
+        // 2. 飞镖命中目标后爆裂 X 形交叉斩光（仅未闪避时爆裂）
+        if (!a.dodged && elapsed >= flightMs - 20) {
+            const slashT = Math.min(1, (elapsed - (flightMs - 20)) / (a.duration - (flightMs - 20)));
             const slashAlpha = Math.max(0, 1 - slashT);
             const bladeLen = 28 + slashT * 14;
             for (const dir of [-0.72, 0.72]) {

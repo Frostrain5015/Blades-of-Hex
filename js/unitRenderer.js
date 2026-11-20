@@ -45,6 +45,41 @@ export function getUnitVisualPos(unit) {
         const baseX = unit.tile.x, baseY = unit.tile.y;
         let vx = baseX, vy = baseY;
 
+        if (unit._banzaiJump) {
+            const j = unit._banzaiJump;
+            const elapsed = Math.max(0, frameInfo.now - j.startTime);
+            const leapMs = 110;
+            const hangMs = 55;
+            const dashMs = Math.max(80, (j.impactDelay || 270) - leapMs - hangMs);
+            const totalMs = leapMs + hangMs + dashMs;
+            const settleMs = 80;
+            if (elapsed >= totalMs + settleMs) {
+                unit._banzaiJump = null;
+            } else if (elapsed < leapMs) {
+                const p = elapsed / leapMs;
+                const easeOut = 1 - (1 - p) * (1 - p);
+                vx = j.fromX;
+                vy = j.fromY - 26 * easeOut;
+                return { x: vx, y: vy };
+            } else if (elapsed < leapMs + hangMs) {
+                vx = j.fromX;
+                vy = j.fromY - 26;
+                return { x: vx, y: vy };
+            } else if (elapsed < totalMs) {
+                const p = (elapsed - leapMs - hangMs) / dashMs;
+                const dashEase = 1 - Math.pow(1 - p, 3);
+                const airArc = -26 * (1 - p * p);
+                vx = j.fromX + (j.destX - j.fromX) * dashEase;
+                vy = j.fromY + (j.destY - j.fromY) * dashEase + airArc;
+                return { x: vx, y: vy };
+            } else {
+                const p = (elapsed - totalMs) / settleMs;
+                vx = j.destX;
+                vy = j.destY + Math.sin(p * Math.PI) * 3;
+                return { x: vx, y: vy };
+            }
+        }
+
         if (unit.movePath) {
             const path = unit.movePath;
             const elapsed = frameInfo.now - unit.movePathStart;
@@ -423,40 +458,6 @@ export function drawUnit(unit, gameState, { deathGhost = false } = {}) {
             ctx.restore();
         }
 
-        // ── Commander name badge ──
-        if (unit.isCommanderUnit) {
-            const text = unit.getCommanderDisplayName();
-            if (text) {
-                const cx = visualX - HEX_SIZE * 0.40;
-                const cy = visualY + HEX_SIZE * 0.22;
-                ctx.save();
-                let fontSize = 7.5;
-                ctx.font = `bold ${fontSize}px "Noto Serif SC", "Microsoft YaHei", serif`;
-                while (ctx.measureText(text).width > 48 && fontSize > 5.5) {
-                    fontSize -= 0.5;
-                    ctx.font = `bold ${fontSize}px "Noto Serif SC", "Microsoft YaHei", serif`;
-                }
-                const m = ctx.measureText(text);
-                const bw = m.width + 8;
-                const bh = 13;
-                const bx = cx - bw / 2;
-                const by = cy;
-                ctx.fillStyle = 'rgba(0,0,0,0.78)';
-                roundRectPath(ctx, bx, by, bw, bh, 3);
-                ctx.fill();
-                ctx.strokeStyle = cc.main;
-                ctx.lineWidth = 1.2;
-                roundRectPath(ctx, bx, by, bw, bh, 3);
-                ctx.stroke();
-                ctx.fillStyle = cc.main;
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText(text, cx, cy + bh / 2);
-                ctx.restore();
-
-            }
-        }
-
         // ── 天眼无人机 ──
         if (unit._isDrone) {
             ctx.save();
@@ -500,6 +501,55 @@ export function drawUnit(unit, gameState, { deathGhost = false } = {}) {
         }
         ctx.restore();
     }
+
+/**
+ * 在城池血条框、工事前景与旗帜等元素之上绘制将领名牌，避免被城墙血条框遮挡。
+ */
+export function drawCommanderNameBadge(unit, gameState, { deathGhost = false } = {}) {
+    if (!unit?.isCommanderUnit || !unit.tile) return;
+    if (isUnitWaitingForAirdrop(unit, frameInfo.now)) return;
+    if (unit._airliftLandAt && frameInfo.now < unit._airliftLandAt) return;
+    if (unit._soulRecallLandAt && frameInfo.now < unit._soulRecallLandAt) return;
+    const viewerCamp = resolveViewerCamp(gameState);
+    if (gameState && (!deathGhost || isStealthUnit(unit))
+        && !isUnitVisibleToCamp(unit, viewerCamp, gameState, { ignoreAiBypass: true })) return;
+
+    const text = unit.getCommanderDisplayName?.();
+    if (!text) return;
+
+    const pos = getUnitVisualPos(unit);
+    const cc = getFlagColors(unit.camp?.colorId || unit.camp?.color);
+    const isConcealedStealth = isStealthUnit(unit)
+        && !(isStealthGuerrilla(unit) && hasHostileUnitNear(unit, gameState));
+    const cx = pos.x - HEX_SIZE * 0.40;
+    const cy = pos.y + HEX_SIZE * 0.22;
+
+    ctx.save();
+    if (isConcealedStealth) ctx.globalAlpha *= 0.65;
+    let fontSize = 7.5;
+    ctx.font = `bold ${fontSize}px "Noto Serif SC", "Microsoft YaHei", serif`;
+    while (ctx.measureText(text).width > 48 && fontSize > 5.5) {
+        fontSize -= 0.5;
+        ctx.font = `bold ${fontSize}px "Noto Serif SC", "Microsoft YaHei", serif`;
+    }
+    const m = ctx.measureText(text);
+    const bw = m.width + 8;
+    const bh = 13;
+    const bx = cx - bw / 2;
+    const by = cy;
+    ctx.fillStyle = 'rgba(0,0,0,0.78)';
+    roundRectPath(ctx, bx, by, bw, bh, 3);
+    ctx.fill();
+    ctx.strokeStyle = cc.main;
+    ctx.lineWidth = 1.2;
+    roundRectPath(ctx, bx, by, bw, bh, 3);
+    ctx.stroke();
+    ctx.fillStyle = cc.main;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, cx, cy + bh / 2);
+    ctx.restore();
+}
 
     // ① 攻击力乘区：基础面板 ×（1+「攻击力提高xx%」）+「攻击力+xx」固定加成
     //    百分比只作用于基础面板；士气不乘入攻击力，走 _resolveDamage 的增伤乘区

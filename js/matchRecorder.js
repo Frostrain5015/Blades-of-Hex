@@ -515,6 +515,7 @@ export function startMatchRecording(state, metadata = {}) {
         || `${formatMatchMapAcronym(mapIdentifier)}-${formatMatchTimestamp(startedAtDate)}`;
     active = {
         startedAtMonotonic: performance.now(),
+        broadcastEventCursor: 0,
         lastSnapshot: snapshot,
         lastLogs: [...(state.logHistory || [])],
         log: {
@@ -579,13 +580,34 @@ export function startMatchRecording(state, metadata = {}) {
     return active.log;
 }
 
+export function drainBroadcastMatchEvents() {
+    if (!active) return null;
+    const timeline = active.log.timeline;
+    const start = Math.min(active.broadcastEventCursor || 0, timeline.length);
+    const events = [];
+    for (let i = start; i < timeline.length; i++) {
+        const entry = timeline[i];
+        if (entry?.kind !== 'event') continue;
+        events.push({
+            eventType: entry.eventType,
+            turnCounter: entry.turnCounter,
+            round: entry.round,
+            turnCampKey: entry.turnCampKey,
+            payload: sanitize(entry.payload)
+        });
+    }
+    active.broadcastEventCursor = timeline.length;
+    return events.length > 0 ? events : null;
+}
+
 export function recordCommittedAction(state, {
     actionType,
     payload = null,
     actorCampKey = null,
     origin = 'local',
     originRole = null,
-    accepted = null
+    accepted = null,
+    remoteEvents = null
 } = {}) {
     if (state?._replayMode) return null;
     const session = ensureRecording(state);
@@ -621,6 +643,31 @@ export function recordCommittedAction(state, {
         }
     };
     session.log.timeline.push(item);
+    if (Array.isArray(remoteEvents) && remoteEvents.length > 0) {
+        for (const ev of remoteEvents) {
+            if (!ev?.eventType) continue;
+            if (ev.eventType === 'factionSkillActivated' && ev.payload?.presentationEventId) {
+                const duplicate = session.log.timeline.some(existing =>
+                    existing.kind === 'event'
+                    && existing.eventType === 'factionSkillActivated'
+                    && existing.payload?.presentationEventId === ev.payload.presentationEventId
+                );
+                if (duplicate) continue;
+            }
+            session.log.timeline.push({
+                kind: 'event',
+                sequence: session.log.timeline.length + 1,
+                elapsedMs: elapsedMs(),
+                turnCounter: Number.isFinite(ev.turnCounter) ? ev.turnCounter : item.turnCounter,
+                round: Number.isFinite(ev.round) ? ev.round : item.round,
+                turnCampKey: ev.turnCampKey || item.actorCampKey,
+                eventType: ev.eventType,
+                causedByActionId: item.actionId,
+                payload: sanitize(ev.payload || {})
+            });
+        }
+        session.broadcastEventCursor = session.log.timeline.length;
+    }
     if (currentAction?.actionType === actionType && currentAction.session === session) {
         currentAction.actionId = item.actionId;
         for (const event of currentAction.events) event.causedByActionId = item.actionId;

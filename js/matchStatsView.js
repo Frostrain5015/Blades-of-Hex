@@ -1,7 +1,7 @@
 import { getFlagColors } from '../rules/camps.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
 import { NPC_DIALOGUE_PORTRAITS } from '../campaign/portraits.js';
-import { createFlagSvgUrl, createStandardFlagUrl, isStandardFlagEmoji } from '../rules/diplomacy.js';
+import { createFlagSvgUrl, createStandardFlagUrl, isStandardFlagEmoji, normalizeFlagPresetUrl } from '../rules/diplomacy.js';
 import { buildMatchStatsDocument, isReplayableMatchLog, selectMvpUnits } from './matchStats.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -76,7 +76,7 @@ function resolveCampFlagVisual(camp, index = 0) {
     const palette = camp?.campKey === 'neutral' && !camp?.neutralThemeId
         ? getFlagColors('gray')
         : (getFlagColors(camp?.colorId) || getFlagColors(color) || { main: color, light: color, dark: color });
-    const rawUrl = camp?.flagUrl || camp?.flagPreset || null;
+    const rawUrl = normalizeFlagPresetUrl(camp?.flagUrl || camp?.flagPreset || null);
     let url = typeof rawUrl === 'string' && SAFE_FLAG_URL_PATTERN.test(rawUrl) ? rawUrl : null;
     if (!url && camp?.flagConfig && typeof camp.flagConfig === 'object') {
         url = createFlagSvgUrl(camp.flagConfig, camp.colorId || color);

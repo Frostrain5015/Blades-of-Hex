@@ -39,7 +39,7 @@ import {
     clearTransientEffects,
     HEAVY_CANNON_IMPACT_MS, KATYUSHA_IMPACT_MS, KATYUSHA_IMPACT_TIMES, stageKatyushaHealth, spawnHeavyCannonShell, spawnKatyushaBarrage, spawnBanzaiDash, spawnDodgeShimmer
 } from './effects.js';
-import { isTileVisible, updateAllFogOfWar } from './fogOfWar.js';
+import { beginFogPresentationHold, isTileVisible, updateAllFogOfWar } from './fogOfWar.js';
 import { HexTile, computeCampBorders, computeDistrictBorders } from './HexTile.js';
 import { Unit } from './Unit.js';
 import './unitPresentationAdapter.js';
@@ -60,7 +60,7 @@ import { FACTION_PALETTE, PLAYER_FACTION_COLOR_KEYS, assignAiFactionColors, camp
 import {
     campFromKey, getRoleCamp, setPlayerFactionColor, setPlayerFactionFlagEmoji, setPlayerFactionFlagPreset,
     setPlayerFactionName, getStandardFactionName, factionNameCharacters, MAX_FACTION_NAME_LENGTH,
-    getViewingCampKey, getFlagPresetColor, ensureCultureFactionPresets, resetCulturePresetsToCustomFlags, FLAG_PRESETS, STANDARD_FLAG_EMOJIS
+    getViewingCampKey, getFlagPresetColor, ensureCultureFactionPresets, resetCulturePresetsToCustomFlags, normalizeFlagPresetUrl, FLAG_PRESETS, STANDARD_FLAG_EMOJIS
 } from '../rules/diplomacy.js';
 import {
     FACTION_RULE_MODES, isCultureSystemEnabled, isFactionSynergyRuleActive, normalizeFactionRuleMode
@@ -70,7 +70,7 @@ import { rollFactionTurnOrder } from '../rules/turns.js';
 import { downloadCurrentMatchLog, downloadCurrentMatchReview, getCurrentMatchLog, recordCommittedAction, resolvePendingLocalAction, startMatchRecording } from './matchRecorder.js';
 import { createReplaySession } from './matchReplay.js';
 import { initMatchStatsPanel } from './matchStatsView.js';
-import { ATTACK_PRESENTATION, CARRIER_STRAFE_IMPACT_MS, classifyAttackPresentation, getDiveStrafeMuzzlePosition } from '../rules/attackPresentation.js';
+import { AIRSTRIKE_FLIGHT, AIRSTRIKE_TARGET_PROGRESS, ATTACK_PRESENTATION, CARRIER_STRAFE_IMPACT_MS, classifyAttackPresentation, getDiveStrafeMuzzlePosition } from '../rules/attackPresentation.js';
 import { createFlagPreview } from './flagRenderer.js';
 import { renderResultFlagPreviews } from './resultFlagPreview.js';
 import {
@@ -146,11 +146,12 @@ function _applySavedFlagCustomizations(factionKeys, preferenceKey = null) {
             if (setPlayerFactionName(gameState, factionKey, entry.name)) changed = true;
         }
         if (!synergyMode) {
-            const presetColor = getFlagPresetColor(entry.preset);
+            const preset = normalizeFlagPresetUrl(entry.preset);
+            const presetColor = getFlagPresetColor(preset);
             const alreadyLocked = Object.entries(gameState.factions || {}).some(([key, faction]) =>
                 key !== factionKey && faction.active !== false && faction.controller !== 'ai'
                 && getFlagPresetColor(faction.flagPreset) === presetColor);
-            if (presetColor && !alreadyLocked && setPlayerFactionFlagPreset(gameState, factionKey, entry.preset)) changed = true;
+            if (presetColor && !alreadyLocked && setPlayerFactionFlagPreset(gameState, factionKey, preset)) changed = true;
         }
         if (gameState.factions?.[factionKey]?.colorId) {
             gameState.factionColorSelections[factionKey] = gameState.factions[factionKey].colorId;
@@ -3292,7 +3293,39 @@ async function handleRemoteAction(msg) {
             document.body.style.pointerEvents = '';
             _deploymentStarted = true;
         }
+        let savedFogHolds = null;
+        if (msg.actionType === 'airCommand' && msg.effects?.kind === 'recon') {
+            beginFogPresentationHold(gameState, getViewingCamp(), AIRSTRIKE_TARGET_PROGRESS * AIRSTRIKE_FLIGHT.durationMs);
+            savedFogHolds = gameState._fogPresentationHolds || null;
+        }
         applyRemoteState(msg.state, HexTile, Unit);
+        if (savedFogHolds) gameState._fogPresentationHolds = savedFogHolds;
+        // 远端移动/跳斩：快照落地后立即绑定起点到终点的动画路径，避免在后续 await/renderGame 期间先闪现到目的地。
+        if (msg.actionType === 'move' && msg.effects?.path?.length >= 2) {
+            const movedUnit = gameState.tiles.reduce((found, t) =>
+                found || (t.unit?.id === msg.effects.unitId ? t.unit : null), null);
+            movedUnit?.startMovePath?.(msg.effects.path);
+        } else if (msg.actionType === 'banzaiCharge' && msg.effects?.unitId) {
+            const banzaiUnit = gameState.tiles.reduce((found, t) =>
+                found || (t.unit?.id === msg.effects.unitId ? t.unit : null), null);
+            if (banzaiUnit && Number.isFinite(msg.effects.fromX) && Number.isFinite(msg.effects.fromY)
+                && Number.isFinite(msg.effects.destX) && Number.isFinite(msg.effects.destY)) {
+                banzaiUnit.startMovePath?.(msg.effects.path || [
+                    { x: msg.effects.fromX, y: msg.effects.fromY },
+                    { x: msg.effects.destX, y: msg.effects.destY }
+                ]);
+                banzaiUnit._banzaiJump = {
+                    fromX: msg.effects.fromX,
+                    fromY: msg.effects.fromY,
+                    toX: Number.isFinite(msg.effects.toX) ? msg.effects.toX : msg.effects.destX,
+                    toY: Number.isFinite(msg.effects.toY) ? msg.effects.toY : msg.effects.destY,
+                    destX: msg.effects.destX,
+                    destY: msg.effects.destY,
+                    startTime: performance.now(),
+                    impactDelay: Math.max(180, Number(msg.effects.impactDelay) || 260)
+                };
+            }
+        }
         if (needsGameBootstrap) startMatchRecording(gameState, { matchId: msg.matchId || undefined });
         else recordCommittedAction(gameState, {
             actionType: 'stateCorrection',
@@ -3423,7 +3456,39 @@ async function handleRemoteAction(msg) {
             const unit = gameState.tileMap.get(`${hit.q},${hit.r}`)?.unit;
             if (unit?.id === hit.unitId) delayedTargets.push({ unit, hit, katyusha: true, delayMs: KATYUSHA_IMPACT_MS });
         }
+        let savedFogHolds = null;
+        if (msg.actionType === 'airCommand' && msg.effects?.kind === 'recon') {
+            beginFogPresentationHold(gameState, getViewingCamp(), AIRSTRIKE_TARGET_PROGRESS * AIRSTRIKE_FLIGHT.durationMs);
+            savedFogHolds = gameState._fogPresentationHolds || null;
+        }
         applyRemoteState(msg.state, HexTile, Unit);
+        if (savedFogHolds) gameState._fogPresentationHolds = savedFogHolds;
+        // 远端移动/跳斩：快照落地后立即绑定起点到终点的动画路径，避免在后续 await/renderGame 期间先闪现到目的地。
+        if (msg.actionType === 'move' && msg.effects?.path?.length >= 2) {
+            const movedUnit = gameState.tiles.reduce((found, t) =>
+                found || (t.unit?.id === msg.effects.unitId ? t.unit : null), null);
+            movedUnit?.startMovePath?.(msg.effects.path);
+        } else if (msg.actionType === 'banzaiCharge' && msg.effects?.unitId) {
+            const banzaiUnit = gameState.tiles.reduce((found, t) =>
+                found || (t.unit?.id === msg.effects.unitId ? t.unit : null), null);
+            if (banzaiUnit && Number.isFinite(msg.effects.fromX) && Number.isFinite(msg.effects.fromY)
+                && Number.isFinite(msg.effects.destX) && Number.isFinite(msg.effects.destY)) {
+                banzaiUnit.startMovePath?.(msg.effects.path || [
+                    { x: msg.effects.fromX, y: msg.effects.fromY },
+                    { x: msg.effects.destX, y: msg.effects.destY }
+                ]);
+                banzaiUnit._banzaiJump = {
+                    fromX: msg.effects.fromX,
+                    fromY: msg.effects.fromY,
+                    toX: Number.isFinite(msg.effects.toX) ? msg.effects.toX : msg.effects.destX,
+                    toY: Number.isFinite(msg.effects.toY) ? msg.effects.toY : msg.effects.destY,
+                    destX: msg.effects.destX,
+                    destY: msg.effects.destY,
+                    startTime: performance.now(),
+                    impactDelay: Math.max(180, Number(msg.effects.impactDelay) || 260)
+                };
+            }
+        }
         const volleyStartedAt = performance.now();
         if (msg.actionType === 'airCommand' && msg.effects?.kind === 'airdrop') {
             const { targetQ, targetR, results } = msg.effects;
@@ -3545,7 +3610,8 @@ async function handleRemoteAction(msg) {
             actorCampKey: campToKey(originCamp),
             origin: 'remote',
             originRole: msg.originRole || null,
-            accepted: true
+            accepted: true,
+            remoteEvents: msg.effects?.matchEvents || null
         });
     }
 
@@ -3587,7 +3653,7 @@ function _playActionPresentation(actionType, e, { katyushaStartedAt = undefined,
             if (e) {
                 const movedUnit = gameState.tiles.reduce((found, t) =>
                     found || (t.unit?.id === e.unitId ? t.unit : null), null);
-                if (movedUnit && e.path && (!gameState._replayMode || !movedUnit.movePath)) {
+                if (movedUnit && e.path && !movedUnit.movePath) {
                     movedUnit.startMovePath(e.path);
                     if (e.marineLanding) emit('fx:marineLanding', { ...e, x: movedUnit.tile.x, y: movedUnit.tile.y, delayMs: movedUnit.movePathDuration });
                 } else if (movedUnit && e.marineLanding) {
@@ -4265,7 +4331,8 @@ function _playActionPresentation(actionType, e, { katyushaStartedAt = undefined,
                 playStukaStrafe(target, e.results || [], launcherCamp, { antiAir: e.antiAir, aaSources: e.aaSources });
                 playSound('airstrike');
             } else if (e.kind === 'recon') {
-                spawnCommanderSkillEffect(target.x, target.y, '🔭', '侦察机');
+                spawnAirstrikeEffect(target.x, target.y, [], 'recon', target.q, target.r, null, null, launcherCamp, performance.now(), { antiAir: e.antiAir, aaSources: e.aaSources });
+                playSound('airstrike');
             }
             const impactDelay = AIR_COMMAND_IMPACT_DELAY_MS[e.kind];
             if (Number.isFinite(impactDelay)) {
@@ -4298,8 +4365,20 @@ function _playActionPresentation(actionType, e, { katyushaStartedAt = undefined,
                 const banzaiUnit = gameState.tiles.reduce((found, t) =>
                     found || (t.unit?.id === e.unitId ? t.unit : null), null);
                 if (banzaiUnit && Number.isFinite(e.fromX) && Number.isFinite(e.fromY) && Number.isFinite(e.destX) && Number.isFinite(e.destY)
-                    && (!gameState._replayMode || !banzaiUnit.movePath)) {
+                    && !banzaiUnit.movePath) {
                     banzaiUnit.startMovePath(e.path || [{ x: e.fromX, y: e.fromY }, { x: e.destX, y: e.destY }]);
+                }
+                if (banzaiUnit && !banzaiUnit._banzaiJump && Number.isFinite(e.fromX) && Number.isFinite(e.destX)) {
+                    banzaiUnit._banzaiJump = {
+                        fromX: e.fromX,
+                        fromY: e.fromY,
+                        toX: Number.isFinite(e.toX) ? e.toX : e.destX,
+                        toY: Number.isFinite(e.toY) ? e.toY : e.destY,
+                        destX: e.destX,
+                        destY: e.destY,
+                        startTime: performance.now(),
+                        impactDelay: Math.max(180, Number(e.impactDelay) || 260)
+                    };
                 }
                 if (Number.isFinite(e.fromX) && Number.isFinite(e.toX)) {
                     spawnBanzaiDash(e.fromX, e.fromY, e.toX, e.toY, {

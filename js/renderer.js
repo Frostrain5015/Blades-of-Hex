@@ -56,7 +56,7 @@ import { getViewingCamp } from './state.js';
 import { canAttack, getRoleCamp } from '../rules/diplomacy.js';
 import { drawFxLayer, updateFxFns } from './fxRegistry.js';
 import { drawBattlefieldFlags } from './flagRenderer.js';
-import { drawUnitBadgeAboveFog, drawUnitFlagFinial, getUnitVisualPos, UNIT_BADGE_RADIUS, UNIT_HUD_OUTER_RADIUS } from './unitRenderer.js';
+import { drawCommanderNameBadge, drawUnitBadgeAboveFog, drawUnitFlagFinial, getUnitVisualPos, UNIT_BADGE_RADIUS, UNIT_HUD_OUTER_RADIUS } from './unitRenderer.js';
 import { resolveActiveObjectiveHighlightTiles } from '../campaign/runtime/objectiveHighlights.js';
 import {
     drawOperationOrigin,
@@ -632,8 +632,15 @@ function _renderGame() {
     // City markers, flag poles and hover/selection overlays have no Pixi
     // equivalent, so they stay on Canvas in every delegation mode.
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawCityMapMarker();
-    for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawFlagPole();
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawOverlay();
+    // 国界线/区划线置于所有部队、旗杆、先锋旗与将领元素之下。
+    if (settings.showGrid !== false) drawAllBorders(ctx, borderTiles, borderTileMap);
+    const riverSegments = gameState?.riverTopology?.segmentsByKey;
+    drawDistrictBorders(ctx, _filterEdgesSkippingRivers(districtBorderEdges, riverSegments));
+    // 跳过与河段重合的国界：(qa,ra)↔(qb,rb) 边上有河流则跳过，让河段视觉清晰。
+    const campNoRiver = _filterEdgesSkippingRivers(campBorderEdges, riverSegments);
+    drawCampBorders(ctx, campNoRiver);
+    for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawFlagPole();
 
     // ── 将领特效图层：ground（地块覆盖层之后、先锋旗立绘之前）──
     drawFxLayer('ground', ctx, now);
@@ -643,13 +650,8 @@ function _renderGame() {
     for (const { x, y } of linkedBrigadePositions) drawKmtLinkParticles(ctx, x, y, now);
     // 将领透明底立绘（先锋旗）— 在单位之下，旗帜/徽章/标识全部覆盖立绘
     drawCommanderPennants();
-    // 国界线/区划线（先锋旗之下、单位之上）
-    if (settings.showGrid !== false) drawAllBorders(ctx, borderTiles, borderTileMap);
-    const riverSegments = gameState?.riverTopology?.segmentsByKey;
-    drawDistrictBorders(ctx, _filterEdgesSkippingRivers(districtBorderEdges, riverSegments));
-    // 跳过与河段重合的国界：(qa,ra)↔(qb,rb) 边上有河流则跳过，让河段视觉清晰。
-    const campNoRiver = _filterEdgesSkippingRivers(campBorderEdges, riverSegments);
-    drawCampBorders(ctx, campNoRiver);
+    // 城市燃烧城墙框 + 瘫痪标识：置于操作预览路线与单位之前，避免压住移动中单位或切断预览箭头。
+    _drawCityWallFrames(ctx, now);
     // ── 将领特效图层：underUnits（立绘之后、单位徽章之前；圣骑士剑环后半圈）──
     drawFxLayer('underUnits', ctx, now);
     // 纯本地操作预览先画到单位之下，球体自然遮住路线内部，避免起终点断口。
@@ -679,9 +681,6 @@ function _renderGame() {
             for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawForegroundMapDetails(ctx);
         }
     }
-    // 城市燃烧城墙框 + 瘫痪标识：全渲染模式统一在 Canvas 覆盖层绘制
-    // （Pixi 地形纹理由同一份 Canvas 地形代码烘焙，几何天然对齐）。
-    _drawCityWallFrames(ctx, now);
     // Every cloth surface is deformed in one WebGL2 batch. Canvas2D finials
     // are deliberately composited afterwards so the cloth cannot cover them.
     drawBattlefieldFlags(ctx, gameState, now);
@@ -689,6 +688,17 @@ function _renderGame() {
         const tile = tiles[i];
         tile.drawFlagFinial();
         if (tile.unit) drawUnitFlagFinial(tile.unit, gameState);
+    }
+    // 将领名牌置于城池血条框、工事前景与旗帜之上，保证名牌不被遮挡。
+    for (let i = 0, len = tiles.length; i < len; i++) {
+        const unit = tiles[i].unit;
+        if (unit) drawCommanderNameBadge(unit, gameState);
+    }
+    if (deathGhosts?.length) {
+        for (let i = 0; i < deathGhosts.length; i++) {
+            const ghost = deathGhosts[i];
+            if (ghost?.unit && now < ghost.until) drawCommanderNameBadge(ghost.unit, gameState, { deathGhost: true });
+        }
     }
 
     // ── 火海视觉特效 & 将领特效图层：aboveUnits（单位徽章与旗帜之后绘制，保证可读性）──
@@ -1092,16 +1102,17 @@ function _renderGame() {
             if (visualTile) return getPresentedTileVisibilityState(visualTile, viewingCamp, gameState, nowPerf);
             return getTileVisibilityStateByCoord(q, r, viewingCamp, gameState);
         };
-        // 迷雾覆绘会盖住之前画的国界线/行政区界线 —— 对已探索（无视野）地块的边线重绘
-        if (campBorderEdges && campBorderEdges.length > 0) {
-            for (const edge of campBorderEdges) {
+        // 迷雾覆绘会盖住之前画的国界线/行政区界线 —— 仅对两侧均为已探索（无视野）地块的边线重绘，
+        // 同时跳过与河流重合的边，避免国界/区界线画在河流或可见部队/旗帜上方。
+        const fogCampEdges = _filterEdgesSkippingRivers(campBorderEdges, riverSegments);
+        if (fogCampEdges && fogCampEdges.length > 0) {
+            for (const edge of fogCampEdges) {
                 const sA = visibilityStateForCoord(edge.qa, edge.ra);
                 const sB = visibilityStateForCoord(edge.qb, edge.rb);
                 if (sA === 'unexplored' || sB === 'unexplored') continue;
-                const bothExplored = sA !== 'visible' && sB !== 'visible';
-                const alpha = bothExplored ? 0.25 : 1.0;
+                if (sA === 'visible' || sB === 'visible') continue;
                 ctx.save();
-                ctx.globalAlpha = alpha;
+                ctx.globalAlpha = 0.25;
                 ctx.lineCap = 'round';
                 ctx.lineJoin = 'round';
                 ctx.shadowColor = 'rgba(80,80,80,0.5)';
@@ -1125,14 +1136,15 @@ function _renderGame() {
                 ctx.restore();
             }
         }
-        if (districtBorderEdges && districtBorderEdges.length > 0) {
-            for (const edge of districtBorderEdges) {
+        const fogDistrictEdges = _filterEdgesSkippingRivers(districtBorderEdges, riverSegments);
+        if (fogDistrictEdges && fogDistrictEdges.length > 0) {
+            for (const edge of fogDistrictEdges) {
                 const sA = visibilityStateForCoord(edge.qa, edge.ra);
                 const sB = visibilityStateForCoord(edge.qb, edge.rb);
                 if (sA === 'unexplored' || sB === 'unexplored') continue;
-                const bothExplored = sA !== 'visible' && sB !== 'visible';
+                if (sA === 'visible' || sB === 'visible') continue;
                 ctx.save();
-                ctx.globalAlpha = bothExplored ? 0.2 : 1.0;
+                ctx.globalAlpha = 0.2;
                 ctx.lineCap = 'round';
                 ctx.lineJoin = 'round';
                 ctx.setLineDash([8, 5]);
@@ -1515,6 +1527,7 @@ function drawAirstrikeEffects(now) {
         }
 
         const isAirdrop = fx.type === 'airdrop';
+        const isRecon = fx.type === 'recon';
 
         // 目标相对航线：投弹/爆炸时刻不再随目标屏幕横坐标漂移，
         // 与 AIR_COMMAND_IMPACT_DELAY_MS 的延迟扣血时刻保持对齐
@@ -1552,7 +1565,7 @@ function drawAirstrikeEffects(now) {
         ctx.font = '54px sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.shadowColor = engineFire ? '#ff3300' : '#ff8844';
+        ctx.shadowColor = engineFire ? '#ff3300' : (isRecon ? '#38bdf8' : '#ff8844');
         ctx.shadowBlur = engineFire ? 12 : 8;
         ctx.fillText('✈️', 0, 0);
         ctx.shadowBlur = 0;
@@ -1562,9 +1575,33 @@ function drawAirstrikeEffects(now) {
             _renderAirstrikeEngineFire(planeX, planeY, passAng, t, planeAlpha, 1, 5, fxSeed, now);
         }
 
-        // 通用防空炮火（地毯轰炸 + 普通空袭 + 空降）
+        // 通用防空炮火（地毯轰炸 + 普通空袭 + 空降 + 侦察机）
         if (fx.q != null && t > 0.15 && t < 0.85) {
-            _renderAAFlak(planeX, planeY, fx.q, fx.r, t, fxSeed, _ac, isAirdrop, fx);
+            _renderAAFlak(planeX, planeY, fx.q, fx.r, t, fxSeed, _ac, isAirdrop || isRecon, fx);
+        }
+
+        // 侦察机飞越目标上空时触发雷达扫描揭示波纹
+        if (isRecon) {
+            const tTarget = AIRSTRIKE_TARGET_PROGRESS;
+            if (t >= tTarget) {
+                const scanT = Math.min(1, (t - tTarget) / Math.max(0.15, 1 - tTarget));
+                const scanAlpha = (1 - scanT) * 0.78;
+                ctx.save();
+                ctx.strokeStyle = `rgba(127, 212, 255, ${scanAlpha})`;
+                ctx.lineWidth = 2.6 * (1 - scanT * 0.5);
+                ctx.shadowColor = '#38bdf8';
+                ctx.shadowBlur = 12;
+                ctx.beginPath();
+                ctx.arc(cx, cy, 14 + scanT * (HEX_SIZE * 2.1), 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.arc(cx, cy, 8 + scanT * (HEX_SIZE * 1.25), 0, Math.PI * 2);
+                ctx.strokeStyle = `rgba(224, 247, 255, ${scanAlpha * 0.85})`;
+                ctx.lineWidth = 1.6;
+                ctx.stroke();
+                ctx.restore();
+            }
+            continue;
         }
 
         // sequential drops: release times relative to when plane passes over target

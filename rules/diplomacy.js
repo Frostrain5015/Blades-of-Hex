@@ -73,8 +73,18 @@ export const FLAG_PRESETS = Object.freeze({
     'img/flags/svg/jp.svg': '日本'
 });
 
+export const LEGACY_FLAG_PRESET_ALIASES = Object.freeze({
+    'img/flags/kuomintang.svg': 'img/flags/svg/tw.svg'
+});
+
+export function normalizeFlagPresetUrl(value) {
+    if (typeof value !== 'string') return value;
+    return LEGACY_FLAG_PRESET_ALIASES[value] || value;
+}
+
 export function isFlagPreset(value) {
-    return typeof value === 'string' && Object.hasOwn(FLAG_PRESETS, value);
+    const normalized = normalizeFlagPresetUrl(value);
+    return typeof normalized === 'string' && Object.hasOwn(FLAG_PRESETS, normalized);
 }
 
 function randomFlagIndex(count) {
@@ -108,11 +118,13 @@ const FLAG_PRESET_NAMES = Object.freeze({
 });
 
 export function getFlagPresetColor(preset) {
-    return isFlagPreset(preset) ? FLAG_PRESET_COLORS[preset] : null;
+    const normalized = normalizeFlagPresetUrl(preset);
+    return isFlagPreset(normalized) ? FLAG_PRESET_COLORS[normalized] : null;
 }
 
 export function getStandardFactionName(factionKey, customName, preset = null) {
-    return normalizeFactionName(customName) || (isFlagPreset(preset) ? FLAG_PRESET_NAMES[preset] || FLAG_PRESETS[preset] : null)
+    const normalized = normalizeFlagPresetUrl(preset);
+    return normalizeFactionName(customName) || (isFlagPreset(normalized) ? FLAG_PRESET_NAMES[normalized] || FLAG_PRESETS[normalized] : null)
         || CAMP_DATA[factionKey]?.name || factionKey;
 }
 
@@ -320,15 +332,16 @@ export function setPlayerFactionFlagEmoji(state, factionKey, emoji) {
 }
 
 export function setPlayerFactionFlagPreset(state, factionKey, preset) {
+    const normalized = normalizeFlagPresetUrl(preset);
     const faction = state?.factions?.[factionKey];
     if (state?.campaignMode || (!state?.campaignMode && normalizeFactionRuleMode(state?.factionRuleMode) === FACTION_RULE_MODES.SYNERGY)
-        || !PLAYER_SEAT_KEYS.includes(factionKey) || !faction || !isFlagPreset(preset)) return false;
-    faction.flagPreset = preset;
+        || !PLAYER_SEAT_KEYS.includes(factionKey) || !faction || !isFlagPreset(normalized)) return false;
+    faction.flagPreset = normalized;
     if (isCultureSystemEnabled(state)) faction.customName = '';
-    faction.name = getStandardFactionName(factionKey, isCultureSystemEnabled(state) ? '' : faction.customName, preset);
-    setFactionColor(state, factionKey, getFlagPresetColor(preset));
-    faction.flagUrl = preset;
-    faction.flagAlt = FLAG_PRESETS[preset];
+    faction.name = getStandardFactionName(factionKey, isCultureSystemEnabled(state) ? '' : faction.customName, normalized);
+    setFactionColor(state, factionKey, getFlagPresetColor(normalized));
+    faction.flagUrl = normalized;
+    faction.flagAlt = FLAG_PRESETS[normalized];
     return true;
 }
 
