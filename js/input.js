@@ -450,6 +450,8 @@ const _fellowRobeMemo = {};
 function _collectBoardActions(unit, tile = null) {
     if (gameState._replayMode) return [];
     const actions = [];
+    const persistentActions = [];
+    const setupComplete = gameState.commanderPhase === 'done';
     const gate = getRiverGate(gameState);
     if (gate && tile?.q === gate.q && tile.r === gate.r && _isLocalActionCamp(tile.camp)) {
         const northOpen = getRiverGateOpenLane(gameState) === 'north';
@@ -462,11 +464,21 @@ function _collectBoardActions(unit, tile = null) {
             canUse, reason: canUse ? '' : (localTurn ? '本轮已调闸' : '非己方回合'), theme: 'specialization'
         });
     }
-    if (!unit && !tile && !gameState.cardTargeting
-        && gameState.commanderPhase === 'done'
-        && isMechanicEnabled(gameState, 'airCommands')) {
+    if (setupComplete && isMechanicEnabled(gameState, 'airCommands')) {
+        const canOpenAirCommands = tile?.isCity && tile.installation?.type === 'airfield'
+            && tile.installation.status === 'ready' && _isLocalActionCamp(tile.camp);
         const active = !!gameState.airViewActive;
-        actions.push({
+        persistentActions.push(canOpenAirCommands ? {
+            key: `airCommands:${tile.q}:${tile.r}`,
+            buttonId: 'boardOpenAirCommands',
+            kind: 'openAirCommands',
+            tileQ: tile.q, tileR: tile.r,
+            icon: '🛫',
+            label: '空军',
+            canUse: true,
+            reason: '',
+            theme: 'specialization'
+        } : {
             key: 'air-view:toggle',
             buttonId: 'boardAirViewToggle',
             kind: 'toggleAirView',
@@ -478,11 +490,11 @@ function _collectBoardActions(unit, tile = null) {
             theme: active ? 'airViewActive' : 'airView'
         });
     }
-    if (isMechanicEnabled(gameState, 'fortifications') && gameState.commanderPhase === 'done') {
+    if (setupComplete && isMechanicEnabled(gameState, 'fortifications')) {
         const hasOtherTargeting = !!gameState.cardTargeting
             && !gameState.cardTargeting.cardId?.startsWith('build_');
         const canUse = !gameState.gameOver && _isLocalActionTurn() && !hasOtherTargeting;
-        actions.push({
+        persistentActions.push({
             key: 'construction:global',
             buttonId: 'boardConstructionMenu',
             kind: 'openConstruction',
@@ -491,22 +503,6 @@ function _collectBoardActions(unit, tile = null) {
             canUse,
             reason: canUse ? '' : hasOtherTargeting ? '请先结束当前选址' : '当前不是你的行动回合',
             theme: 'construction'
-        });
-    }
-    // 有机场的城市：一级菜单显示✈按钮代替双击开启空军面板
-    if (isMechanicEnabled(gameState, 'airCommands')
-        && tile?.installation?.type === 'airfield' && tile.installation.status === 'ready'
-        && _isLocalActionCamp(tile.camp)) {
-        actions.push({
-            key: `airCommands:${tile.q}:${tile.r}`,
-            buttonId: 'boardOpenAirCommands',
-            kind: 'openAirCommands',
-            tileQ: tile.q, tileR: tile.r,
-            icon: '🛫',
-            label: '空军',
-            canUse: true,
-            reason: '',
-            theme: 'specialization'
         });
     }
     if (isMechanicEnabled(gameState, 'airCommands')
@@ -524,7 +520,7 @@ function _collectBoardActions(unit, tile = null) {
             theme: 'construction'
         });
     }
-    if (!unit) return actions;
+    if (!unit) return [...actions, ...persistentActions];
 
     const isControllable = _isLocalActionCamp(unit.camp);
     const unavailableReason = _sameCampInput(unit.camp, _getMyCampInput())
@@ -666,7 +662,7 @@ function _collectBoardActions(unit, tile = null) {
     if (reinforcement) actions.push(reinforcement);
     const portRepair = _getPortRepairAction(unit);
     if (portRepair) actions.push(portRepair);
-    return actions;
+    return [...actions, ...persistentActions];
 }
 
 function _formatBoardActionTitle(action) {

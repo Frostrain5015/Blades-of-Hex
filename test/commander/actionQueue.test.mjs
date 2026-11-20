@@ -44,7 +44,10 @@ export async function run(browser) {
         const construction = document.getElementById('boardConstructionMenu');
         const repair = document.getElementById('boardFieldRepair');
         const reinforce = document.getElementById('boardReinforce');
-        assert(actionButtons.length === 4, '工程师驻城显示机场、建设、抢修与补员共4项动作');
+        const bottomButtonIds = () => [...actionBar.querySelectorAll('button')].slice(-2).map(button => button.id).join('|');
+        const airViewAndConstruction = 'boardAirViewToggle|boardConstructionMenu';
+        assert(actionButtons.length === 5, '工程师驻城显示机场建设、抢修、补员、空军视图与建造工事');
+        assert(bottomButtonIds() === airViewAndConstruction, '选中单位时空军视图和建造工事仍占据底部两个位置');
         assert(actionBar?.classList.contains('visible'), '选中单位时画布内动作条淡入');
         assert(!!airfield && !!construction && !!repair && !!reinforce, '队列使用新版统一建设动作标识');
         assert(construction?.getAttribute('aria-disabled') === 'false' && repair?.getAttribute('aria-disabled') === 'true', '建设可用；没有相邻受损建筑时抢修明确禁用');
@@ -90,6 +93,18 @@ export async function run(browser) {
         assert(gameState.airViewActive === false
             && !document.getElementById('boardAirViewToggle')?.classList.contains('is-active')
             && document.getElementById('boardAirViewToggle')?.getAttribute('aria-pressed') === 'false', '再次点击空军视图按钮可关闭');
+
+        input.showSelectionHudForTile(constructionTarget);
+        assert(bottomButtonIds() === airViewAndConstruction, '选中空地时两个常驻入口保持原位');
+        city.installation = { type: 'airfield', status: 'ready' };
+        input.showSelectionHudForTile(city);
+        assert(bottomButtonIds() === 'boardOpenAirCommands|boardConstructionMenu'
+            && !document.getElementById('boardAirViewToggle')
+            && document.getElementById('boardOpenAirCommands')?.style.getPropertyValue('--board-action-background').includes('#7258a8'),
+        '选中己方机场城市时同一位置换成紫色空军指令');
+        input.showSelectionHudForTile(constructionTarget);
+        assert(bottomButtonIds() === airViewAndConstruction && !document.getElementById('boardOpenAirCommands'),
+        '离开机场城市后同一位置恢复空军视图');
 
         const glyphCalls = [];
         const fakeContext = {
