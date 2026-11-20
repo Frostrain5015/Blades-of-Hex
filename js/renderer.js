@@ -2466,7 +2466,8 @@ function _buildAirViewSignature(viewerCamp) {
         const unitToken = u
             ? `${u.id}:${u.hp > 0 ? 1 : 0}:${campToKey(u.camp)}:${u.type}:${u.specializationKey || ''}:${u.commander || ''}:${u._rank ?? u.rank ?? 0}:${u._commanderSuppressed ? 1 : 0}:${isUnitVisibleToCamp(u, viewerCamp, gameState) ? 1 : 0}`
             : '';
-        tileTokens.push(`${tile.q},${tile.r},${campToKey(tile.camp)},${af},${fort}:${fortCamp},${unitToken}`);
+        const carrierRange = u?.type === 'carrier' && u.hp > 0 ? u.getEffectiveRange?.() : '';
+        tileTokens.push(`${tile.q},${tile.r},${campToKey(tile.camp)},${af},${fort}:${fortCamp},${unitToken},${carrierRange ?? ''}`);
     }
     return [
         viewerKey,
@@ -2514,12 +2515,17 @@ function _getAirViewSession(viewerCamp) {
     const friendlyContours = buildHexRegionContours(friendlyCells, HEX_SIZE);
 
     const playableTiles = (gameState.tiles || []).filter(isPlayableBoardTile);
-    const airfieldRanges = new Map();
-    for (const af of data.airfields) {
-        const rangeTiles = playableTiles.filter(tile => hexDistance(af.tile, tile) <= af.range);
+    const platforms = [
+        ...data.airfields.map(airfield => ({ ...airfield, isCarrier: false })),
+        ...data.carriers.map(carrier => ({ ...carrier, isCarrier: true }))
+    ];
+    const platformRanges = new Map();
+    for (const platform of platforms) {
+        const rangeTiles = playableTiles.filter(tile => hexDistance(platform.tile, tile) <= platform.range);
         const cells = rangeTiles.map(tile => ({ q: tile.q, r: tile.r, center: tile }));
-        airfieldRanges.set(af.key, {
-            af,
+        const rangeKey = platform.isCarrier ? `carrier:${platform.key}` : platform.key;
+        platformRanges.set(rangeKey, {
+            platform,
             tiles: rangeTiles,
             contours: buildHexRegionContours(cells, HEX_SIZE)
         });
@@ -2534,7 +2540,8 @@ function _getAirViewSession(viewerCamp) {
         friendlyCells,
         friendlyContours,
         overlapCells,
-        airfieldRanges
+        platforms,
+        platformRanges
     };
     return _airViewCache;
 }
@@ -2598,15 +2605,19 @@ function _drawUnifiedAirViewLayer(now, session, options = {}) {
         });
     }
 
-    for (const af of session.data.airfields) {
+    for (const platform of session.platforms) {
+        if (platform.isCarrier && !options.showCarriers) continue;
+        const center = platform.isCarrier
+            ? { x: platform.tile.x - HEX_SIZE * 0.44, y: platform.tile.y - HEX_SIZE * 0.42 }
+            : platform.tile;
         drawAirViewAirfieldMarker(ctx, {
-            center: af.tile,
-            size: HEX_SIZE,
-            isFriendly: af.isFriendly,
-            isReady: af.status === 'ready',
-            isLauncher: launcherKey !== null && af.key === launcherKey,
+            center,
+            size: platform.isCarrier ? HEX_SIZE * 0.75 : HEX_SIZE,
+            isFriendly: platform.isFriendly,
+            isReady: platform.isCarrier || platform.status === 'ready',
+            isLauncher: !platform.isCarrier && platform.key === launcherKey,
             time,
-            phase: af.q * 0.7,
+            phase: platform.q * 0.7,
             alpha,
             reducedMotion
         });
@@ -2640,10 +2651,11 @@ function _drawUnifiedAirViewLayer(now, session, options = {}) {
 
     if (drawHoverRanges) {
         for (const key of _airViewHoverRangeAlphas.keys()) {
-            if (!session.airfieldRanges.has(key)) _airViewHoverRangeAlphas.delete(key);
+            if (!session.platformRanges.has(key)) _airViewHoverRangeAlphas.delete(key);
         }
-        for (const [key, entry] of session.airfieldRanges.entries()) {
-            const active = hoveredKey === key;
+        for (const [key, entry] of session.platformRanges.entries()) {
+            const { platform } = entry;
+            const active = hoveredKey === platform.key;
             let curAlpha = _airViewHoverRangeAlphas.get(key) || 0;
             if (reducedMotion) {
                 curAlpha = active ? 1 : 0;
@@ -2660,17 +2672,17 @@ function _drawUnifiedAirViewLayer(now, session, options = {}) {
             ctx.save();
             ctx.beginPath();
             for (const tile of entry.tiles) hexPath(ctx, tile.x, tile.y, HEX_SIZE * 0.992);
-            ctx.fillStyle = entry.af.isFriendly ? '#28d97c' : '#ff4636';
+            ctx.fillStyle = platform.isFriendly ? '#28d97c' : '#ff4636';
             ctx.globalAlpha = alpha * 0.04 * eased;
             ctx.fill();
             ctx.restore();
 
             strokeHexRegionContours(ctx, entry.contours, {
-                stroke: entry.af.isFriendly ? 'rgba(95, 238, 176, 0.84)' : 'rgba(255, 130, 120, 0.84)',
+                stroke: platform.isFriendly ? 'rgba(95, 238, 176, 0.84)' : 'rgba(255, 130, 120, 0.84)',
                 lineWidth: 2.5,
                 inner: 'rgba(240, 252, 255, 0.60)',
                 innerWidth: 0.95,
-                glow: entry.af.isFriendly ? 'rgba(40, 217, 124, 0.62)' : 'rgba(255, 70, 54, 0.62)',
+                glow: platform.isFriendly ? 'rgba(40, 217, 124, 0.62)' : 'rgba(255, 70, 54, 0.62)',
                 glowBlur: reducedMotion ? 8 : 7 + pulse * 4,
                 alpha: alpha * eased * (0.86 + pulse * 0.14)
             });
@@ -2708,6 +2720,7 @@ function drawAirViewOverlay(now) {
         friendlyWeight: 1,
         alpha: eased,
         launcherKey: null,
+        showCarriers: true,
         drawHoverRanges: wantOpen,
         dt,
         hoveredKey

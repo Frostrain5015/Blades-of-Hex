@@ -14,6 +14,7 @@ const { AIRSTRIKE_FLIGHT, AIRSTRIKE_TARGET_PROGRESS, isUnitWaitingForAirdrop, sh
 const { iconEffects, airstrikeEffects } = await import('../js/effects.js');
 const { buildBattlefieldSnapshot } = await import('../js/rendering/battlefieldSnapshot.js');
 const { resolveTargetingPreview } = await import('../rules/targeting.js');
+const { resolveAirViewState } = await import('../rules/airView.js');
 const gl = await import('../js/gameLogic.js');
 const { startMatchRecording, getCurrentMatchLog, buildMatchReview } = await import('../js/matchRecorder.js');
 
@@ -111,6 +112,26 @@ test('空军上校把航母射程由5提高到7', () => {
     const targets = gl.getAttackableTiles(carrier);
     assert.ok(targets.includes(enhancedTarget));
     assert.ok(!targets.includes(outsideTarget));
+});
+
+test('空军视图显示可见的存活航母，并使用舰载机的有效射程', () => {
+    const alliedSea = waterTile(0, 0);
+    const visibleSea = waterTile(1, 0);
+    const hiddenSea = waterTile(2, 0);
+    const wreckSea = waterTile(3, 0);
+    setupMatch([alliedSea, visibleSea, hiddenSea, wreckSea]);
+    gameState.skirmishFog = true;
+    alliedSea.unit = new Unit('carrier', P1, alliedSea, false, null, 'colonel');
+    visibleSea.unit = new Unit('carrier', P2, visibleSea);
+    hiddenSea.unit = new Unit('carrier', P2, hiddenSea);
+    wreckSea.unit = new Unit('carrier', P2, wreckSea);
+    wreckSea.unit.hp = 0;
+
+    const view = resolveAirViewState(gameState, P1, { isTileVisible: tile => tile !== hiddenSea });
+    assert.deepEqual(view.carriers.map(c => [c.key, c.isFriendly, c.range]), [
+        ['0,0', true, 7],
+        ['1,0', false, 5]
+    ]);
 });
 
 test('机场扫射同步提交空城结构伤害，伤害浮字延迟至弹着', () => {

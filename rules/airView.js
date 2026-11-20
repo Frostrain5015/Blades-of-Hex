@@ -1,4 +1,4 @@
-// rules/airView.js — 空军视图（机场、己方/非己方有效防空覆盖与交叠区域）的单一纯规则入口。
+// rules/airView.js — 空军视图（机场、航母、防空覆盖及交叠区域）的单一纯规则入口。
 
 import { campToKey } from './camps.js';
 import { isFriendly } from './diplomacy.js';
@@ -10,6 +10,7 @@ import { getKmtLinkDefenseBonus } from './kmtStronghold.js';
 import { getRoyalBattleshipAirReduction, ROYAL_ESCORT_RADIUS } from './naval.js';
 import { AIRFIELD_BASE_RANGE, getAirCommandRange } from './airCommands.js';
 import { isUnitVisibleToCamp } from './visibility.js';
+import { UNIT_CONFIG } from './units.js';
 
 function tileKeyOf(tile) {
     return `${tile.q},${tile.r}`;
@@ -32,6 +33,7 @@ function sumCoverageAtTile(targetTile, sources) {
 /**
  * 解析当前视角下的空军视图数据：
  * - 己方/非己方可见机场及其雾安航程（隐藏敌方上校时不泄露 +2 航程）；
+ * - 可见航母及其有效射程；
  * - 己方/非己方有效防空源（严格执行「无单位驻守的高射机枪阵地不视为有效防空设施」）；
  * - 己方防空格、非己方防空格、交叠格与两档覆盖强度。
  */
@@ -45,6 +47,7 @@ export function resolveAirViewState(state, viewerCamp, options = {}) {
     const tileVisible = tile => !state?.skirmishFog || isTileVisible(tile, viewerCamp, state);
 
     const airfields = [];
+    const carriers = [];
     const friendlySources = [];
     const hostileSources = [];
     const fortificationsEnabled = isMechanicEnabled(state, 'fortifications');
@@ -97,6 +100,19 @@ export function resolveAirViewState(state, viewerCamp, options = {}) {
 
         const unit = tile.unit;
         if (unit && unit.hp > 0) {
+            if (unit.type === 'carrier') {
+                const friendly = isFriendly(state, unit.camp, viewerCampKey);
+                if (friendly || (tileVisible(tile) && isUnitVisibleToCamp(unit, viewerCamp, state))) {
+                    carriers.push({
+                        tile,
+                        key,
+                        q: tile.q,
+                        r: tile.r,
+                        isFriendly: friendly,
+                        range: unit.getEffectiveRange?.() ?? UNIT_CONFIG.carrier.range
+                    });
+                }
+            }
             const royalReduction = getRoyalBattleshipAirReduction(unit, state);
             const profile = royalReduction > 0
                 ? { radius: ROYAL_ESCORT_RADIUS, reduction: royalReduction }
@@ -154,6 +170,7 @@ export function resolveAirViewState(state, viewerCamp, options = {}) {
 
     return {
         airfields,
+        carriers,
         friendlyCells,
         hostileCells,
         overlapCells,
