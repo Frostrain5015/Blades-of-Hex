@@ -15,7 +15,7 @@ import {
 import { campToKey } from '../../rules/camps.js';
 import { BOARD_RULES } from '../../rules/constants.js';
 import { getFactionKeys, getRelation } from '../../rules/diplomacy.js';
-import { hexDistance, HEX_NEIGHBORS } from '../../rules/hex.js';
+import { HEX_NEIGHBORS } from '../../rules/hex.js';
 import { isMechanicEnabled } from '../../rules/mechanics.js';
 import { getSurfaceBaseColor, getTileSurface, isWaterSurface } from '../../rules/surfaces.js';
 import { resolveTargetingPreview, targetingTileKey } from '../../rules/targeting.js';
@@ -690,15 +690,6 @@ function buildInteraction(gameState, playableEntries, playableKeySet, viewerCamp
 
     const selectedUnitTileKey = validKey(gameState.selectedUnit?.tile);
     const selectedUnit = selectedUnitTileKey ? unitForViewer(sourceByKey.get(selectedUnitTileKey), viewerCampKey, gameState) : null;
-    const airRangeTileKeys = selectedUnit?.type === 'carrier'
-        ? sortedUniqueKeys(
-            playableEntries
-                .map(entry => entry.tile)
-                .filter(tile => hexDistance(selectedUnit.tile, tile)
-                    <= (selectedUnit.getEffectiveRange?.() ?? selectedUnit.config?.range ?? 0)),
-            playableKeySet
-        )
-        : [];
     // Canvas gates every interaction hint on the local player's turn; the DTO
     // carries the caller-resolved flag so Pixi honours the same rule.
     const humanTurn = options.humanTurn !== false && !gameState.aiActing;
@@ -714,7 +705,6 @@ function buildInteraction(gameState, playableEntries, playableKeySet, viewerCamp
             selectedAtMs: finite(gameState.selectionTime, 0),
             moveTileKeys,
             attackTileKeys,
-            airRangeTileKeys,
             chainAttackTileKeys,
             deselecting: Boolean(gameState.deselecting),
             deselectionStartedAtMs: finite(gameState.deselectionTime, 0),

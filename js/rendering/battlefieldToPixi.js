@@ -6,7 +6,6 @@ import {
 } from '../operationPreviewRenderer.js';
 import { UNIT_BADGE_RADIUS } from '../unitBadgeRenderer.js';
 import { isPlayableBoardTile } from '../../rules/boardLayout.js';
-import { buildHexRegionContours } from './hexRegionContours.js';
 
 const RELATION_COLORS = Object.freeze({
     self: '#72e18b',
@@ -284,39 +283,6 @@ export function battlefieldSnapshotToPixi(snapshot, options = {}) {
     // border also encloses the origin tile, exactly like Canvas
     // drawUnitActionTargetingPreview.
     const rangeRegions = [];
-    const airRangeKeys = interactionVisible ? (selection.airRangeTileKeys || []) : [];
-    if (airRangeKeys.length) {
-        const cells = airRangeKeys.flatMap(key => {
-            const tile = tilesByKey.get(key);
-            const coordinate = coordinatesFromKey(key);
-            return isPlayableBoardTile(tile) && coordinate ? [{ ...coordinate, center: tile.center }] : [];
-        });
-        rangeRegions.push({
-            id: 'air-range',
-            cells: [],
-            edges: buildHexRegionContours(cells, hexSize),
-            solidBorder: true,
-            fillPolygons: [],
-            color: '#78c8ff',
-            borderColor: '#78c8ff',
-            innerLineColor: '#e6f5ff',
-            fillAlpha: 0,
-            lineAlpha: 0.62,
-            linePulseAlpha: 0.13,
-            lineWidth: 2.6,
-            glowColor: '#5ab4ff',
-            glowAlpha: 0.55,
-            glowBlur: 7,
-            glowPulseBlur: 4,
-            innerLineAlpha: 0.40,
-            innerLinePulseAlpha: 0.20,
-            innerLineWidth: 1,
-            pulsePeriodMs: 300,
-            startedAtMs: selection.selectedAtMs || 0,
-            endingStartedAtMs: 0,
-            endingDurationMs: 220
-        });
-    }
     const normalMoveKeys = interactionVisible ? (selection.moveTileKeys || []) : [];
     const closingMoveKeys = normalMoveKeys.length ? [] : (selection.deselectMoveTileKeys || []);
     const moveKeys = normalMoveKeys.length ? normalMoveKeys : closingMoveKeys;

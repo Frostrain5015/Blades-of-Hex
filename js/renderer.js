@@ -2443,6 +2443,7 @@ let _airViewCache = null;
 let _airViewFadeAlpha = 0;
 let _airViewLastNow = 0;
 const _airViewHoverRangeAlphas = new Map();
+const AIR_TARGETING_FRIENDLY_WEIGHT = 0.35;
 
 function _buildAirViewSignature(viewerCamp) {
     const viewerKey = campToKey(viewerCamp);
@@ -2552,6 +2553,7 @@ function _drawUnifiedAirViewLayer(now, session, options = {}) {
 
     const friendlyWeight = Math.max(0, Math.min(1, options.friendlyWeight ?? 1));
     const launcherKey = options.launcherKey ?? null;
+    const launcherIsCarrier = options.launcherIsCarrier === true;
     const drawHoverRanges = options.drawHoverRanges === true;
     const dt = options.dt || 0;
     const hoveredKey = options.hoveredKey ?? null;
@@ -2607,15 +2609,12 @@ function _drawUnifiedAirViewLayer(now, session, options = {}) {
 
     for (const platform of session.platforms) {
         if (platform.isCarrier && !options.showCarriers) continue;
-        const center = platform.isCarrier
-            ? { x: platform.tile.x - HEX_SIZE * 0.44, y: platform.tile.y - HEX_SIZE * 0.42 }
-            : platform.tile;
         drawAirViewAirfieldMarker(ctx, {
-            center,
-            size: platform.isCarrier ? HEX_SIZE * 0.75 : HEX_SIZE,
+            center: platform.tile,
+            size: HEX_SIZE,
             isFriendly: platform.isFriendly,
             isReady: platform.isCarrier || platform.status === 'ready',
-            isLauncher: !platform.isCarrier && platform.key === launcherKey,
+            isLauncher: platform.isCarrier === launcherIsCarrier && platform.key === launcherKey,
             time,
             phase: platform.q * 0.7,
             alpha,
@@ -2896,7 +2895,7 @@ function drawCardTargetingPreview(now) {
             ? `${cardTargeting.launcherQ},${cardTargeting.launcherR}`
             : null;
         _drawUnifiedAirViewLayer(now, airSession, {
-            friendlyWeight: 0.35,
+            friendlyWeight: AIR_TARGETING_FRIENDLY_WEIGHT,
             alpha: 0.96 * groupEntry.alpha,
             launcherKey,
             drawHoverRanges: false
@@ -3029,17 +3028,6 @@ function drawUnitActionTargetingPreview(now, deselecting) {
     }
     const unit = gameState.selectedUnit;
     if (!unit?.tile || !unit.canAct || unit.isNewRecruit) return;
-
-    if (unit.type === 'carrier') {
-        const range = unit.getEffectiveRange?.() ?? unit.config.range;
-        const airRangeKeys = new Set(
-            gameState.tiles
-                .filter(tile => hexDistance(unit.tile, tile) <= range)
-                .map(targetingTileKey)
-                .filter(Boolean)
-        );
-        _drawAirRange(airRangeKeys, now);
-    }
 
     const moveTiles = unit.remainingMP > 0 ? gameState.movableTiles : [];
     if (moveTiles.length) {
@@ -3180,13 +3168,27 @@ function drawRangeApertures(now) {
     if (gameState.aiActing || !_isHumanTurn()) return;
 
     const deselecting = gameState.deselecting;
-    if (!deselecting && !gameState.cardTargeting && (!gameState.selectedUnit || !gameState.selectedUnit.canAct || gameState.selectedUnit.isNewRecruit)) return;
+    const unit = gameState.selectedUnit;
+    if (!deselecting && !gameState.cardTargeting && (!unit?.canAct || unit.isNewRecruit)) return;
 
     if (gameState.cardTargeting) {
         // 卡牌交互（结构预览/伞兵徽章/防空来源标/溅射范围等）视觉最复杂且低频，
         // 始终由 Canvas 绘制以保证与单机表现逐像素一致。
         drawCardTargetingPreview(now);
         return;
+    }
+
+    if (!deselecting && unit?.type === 'carrier' && unit.tile && unit.canAct && !unit.isNewRecruit
+        && !gameState.gameOver && !gameState._replayMode && isMechanicEnabled(gameState, 'airCommands')) {
+        const viewerCamp = getViewingCamp();
+        if (campToKey(unit.camp) === campToKey(viewerCamp)) {
+            _drawUnifiedAirViewLayer(now, _getAirViewSession(viewerCamp), {
+                friendlyWeight: AIR_TARGETING_FRIENDLY_WEIGHT,
+                launcherKey: targetingTileKey(unit.tile),
+                launcherIsCarrier: true,
+                showCarriers: true
+            });
+        }
     }
 
     // 选中/悬停热路径（移动范围、攻击目标框、退选淡出）可委托给 Pixi。
