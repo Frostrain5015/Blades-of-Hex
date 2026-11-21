@@ -979,6 +979,7 @@ def main():
     parser.add_argument("--selfplay", default="artifacts/datasets/selfplay-dagger.jsonl")
     parser.add_argument("--val-match", default="up-20261116194704")
     parser.add_argument("--epochs", type=int, default=20)
+    parser.add_argument("--rl-epochs", type=int, default=0)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--out-model", default="ai/models/policy-prototype.json")
     parser.add_argument("--out-eval", default="artifacts/datasets/policy-prototype-eval.json")
@@ -1040,7 +1041,7 @@ def main():
     stage1_row_ranges = []
     stage1_meta = []
     val_cached_cat = None
-    if mlp.use_gpu:
+    if mlp.use_gpu and sum(it[0].shape[0] for it in stage1_data) <= 1_500_000:
         X_pool_gpu = cp.asarray(np.concatenate([it[0] for it in stage1_data], axis=0))
         cur_row = 0
         for (X_n, y, pw, tv, vw) in stage1_data:
@@ -1102,6 +1103,43 @@ def main():
     mlp.load_state_dict(best_state)
     # Stage 2: 冻结最佳策略主干，使用全部自对局 TD 回报精调 Q-Value Head (Wv, bv)
     mlp.refine_value_head(train_data, epochs=16, batch_size=64, lr=8e-3)
+
+    # Stage 3 (Optional): 自对局 AWR 离线强化学习策略迭代（按 Advantage = outcomeValue - V(s) 重加权更新全策略网络）
+    if args.rl_epochs > 0:
+        rl_cands = [(X_n, y, pw, tv, vw) for (X_n, y, pw, tv, vw) in train_data if tv is not None and 0 <= y < X_n.shape[0]]
+        rl_items = []
+        if rl_cands:
+            X_chosen = np.stack([it[0][it[1]] for it in rl_cands], axis=0)
+            _, vals_pred = mlp.forward(X_chosen, train=False)
+            for idx_r, (X_n, y, pw, tv, vw) in enumerate(rl_cands):
+                adv = float(tv) - float(vals_pred[idx_r])
+                base_pw = pw if pw > 0 else 0.35
+                rl_pw = float(max(0.15, min(3.0, math.exp(max(-4.0, min(4.0, adv / 0.55)))))) * base_pw
+                rl_items.append((X_n, y, rl_pw, tv, vw))
+        if rl_items:
+            rl_pool_gpu = None
+            rl_ranges = []
+            rl_meta = []
+            if mlp.use_gpu and sum(it[0].shape[0] for it in stage1_data) <= 1_500_000:
+                rl_pool_gpu = cp.asarray(np.concatenate([it[0] for it in rl_items], axis=0))
+                cr = 0
+                for (X_n, y, pw_r, tv_r, vw_r) in rl_items:
+                    nr = X_n.shape[0]
+                    rl_ranges.append(np.arange(cr, cr + nr, dtype=np.int32))
+                    rl_meta.append((nr, y, pw_r, tv_r, vw_r))
+                    cr += nr
+            for _ in range(args.rl_epochs):
+                rperm = rng.permutation(len(rl_items))
+                for start in range(0, len(rperm), args.batch_size):
+                    b_idxs = rperm[start:start + args.batch_size]
+                    if mlp.use_gpu and rl_pool_gpu is not None:
+                        b_meta = [rl_meta[k] for k in b_idxs]
+                        idx_gpu = cp.asarray(np.concatenate([rl_ranges[k] for k in b_idxs]))
+                        mlp.step(b_meta, lr_scale=0.18, X_cat_override=rl_pool_gpu[idx_gpu])
+                    else:
+                        mlp.step([rl_items[k] for k in b_idxs], lr_scale=0.18)
+            mlp.refine_value_head(train_data, epochs=6, batch_size=64, lr=6e-3)
+
     best_state = mlp.state_dict()
     mlp_val = evaluate_split(human_val_items_raw, human_val_recs, mlp, mean, std)
     sp_val = evaluate_split(sp_val_items_raw, sp_val_recs, mlp, mean, std) if sp_val_items_raw else None

@@ -27,7 +27,6 @@ function buildMatrix(targetCount) {
     const mapPool = [
         { map: 'crown-ring', players: 2 },
         { map: 'uncharted-passage', players: 2 },
-        { map: 'river-valley', players: 2 },
         { map: 'crown-ring', players: 3 },
         { map: 'uncharted-passage', players: 3 }
     ];
@@ -102,6 +101,7 @@ function runGame(game) {
 async function runPool(games) {
     const results = [];
     let cursor = 0;
+    let rw = 0, rd = 0, rl = 0;
     async function worker() {
         while (cursor < games.length) {
             const game = games[cursor++];
@@ -109,7 +109,19 @@ async function runPool(games) {
             const result = await runGame(game);
             result.elapsedMs = Date.now() - startedAt;
             results.push(result);
-            console.log(`[${label}] ${game.id} 完成（${Math.round(result.elapsedMs / 1000)}s, exit=${result.code}）`);
+            let detail = `exit=${result.code}`;
+            try {
+                const rev = JSON.parse(await readFile(`${outDir}/${game.id}.match-review.json`, 'utf8'));
+                const winner = rev.result?.winnerCampKey || null;
+                const won = winner === game.hardCamp;
+                const isDraw = !winner || winner === 'draw';
+                if (won) rw++; else if (isDraw) rd++; else rl++;
+                const hard = (rev.overview?.camps || []).find(c => c.campKey === game.hardCamp) || {};
+                const tag = won ? '✅胜' : (isDraw ? '➖平' : '❌负');
+                const modeTag = `${game.map}${game.players === 3 ? ' 3P' : ''}${game.fog ? ' 迷雾' : ''}`;
+                detail = `${tag} | ${modeTag} | 伤${hard.damageDealt || 0} 杀${hard.kills || 0}/死${hard.losses || 0} 城${hard.captures || 0}→${hard.finalCities || 0} R${rev.overview?.rounds || '?'} | 累计 ${rw}W-${rd}D-${rl}L`;
+            } catch { /* 缺文件按失败处理 */ }
+            console.log(`[${label}] ${game.id}（${Math.round(result.elapsedMs / 1000)}s）${detail}`);
             if (result.code !== 0) console.log(result.stderr);
         }
     }
@@ -162,6 +174,10 @@ async function summarize(results) {
     const summary = {
         label, games, wins, draws, losses,
         winRate: games ? wins / games : 0,
+        drawRate: games ? draws / games : 0,
+        lossRate: games ? losses / games : 0,
+        nonLossRate: games ? (wins + draws) / games : 0,
+        scoreRate: games ? (wins + 0.5 * draws) / games : 0,
         avgDamage,
         avgRating,
         hardTotals: totals,
@@ -175,7 +191,7 @@ async function summarize(results) {
             : `${row.game} ${row.map}${row.players === 3 ? ' 3P' : ''}${row.fog ? ' 迷雾' : ''} → ${row.winner || '平局'}`
                 + `${row.hardWon ? ' ✅' : ' ❌'} 击杀${row.hardKills} 阵亡${row.hardLosses} 占城${row.hardCaptures} 终局城${row.hardFinalCities} R${row.rounds}`);
     }
-    console.log(`\n困难档战绩 ${wins}胜 ${draws}平 ${losses}负（胜率 ${(summary.winRate * 100).toFixed(0)}%）`);
+    console.log(`\n困难档战绩 ${wins}胜 ${draws}平 ${losses}负（胜率 ${(summary.winRate * 100).toFixed(1)}% / 平局率 ${(summary.drawRate * 100).toFixed(1)}% / 负率 ${(summary.lossRate * 100).toFixed(1)}% / 得分率 ${(summary.scoreRate * 100).toFixed(1)}%）`);
     console.log(`困难档合计：击杀${totals.kills} 阵亡${totals.losses} 伤害${totals.damage} 攻击${totals.attacks} 占城${totals.captures}`);
 }
 
