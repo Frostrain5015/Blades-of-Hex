@@ -16,7 +16,6 @@ import { resolveHybridFusionProfile, TIER_CAPABILITIES } from './weights.js';
 import { evaluateMicroBehaviorTree } from './behaviorTree.js';
 import { computeBeamTacticalBonuses } from './beamSearch.js';
 import { computeMinimaxAlphaBetaBonuses } from './minimaxSearch.js';
-import { computeTurnJointRolloutBonuses } from './turnJointSearch.js';
 import { shouldPlanActiveSkill } from '../doctrine.js';
 import { hasFullAiIntelligence } from '../difficulty.js';
 import { campToKey } from '../../rules/camps.js';
@@ -1348,15 +1347,6 @@ function scoreCandidatesImperator(state, helpers, camp, world, strategy, imperat
         if (vetoFlags[i]) continue;
         const mmBonus = minimaxBonuses.get(candidates[i].key);
         if (mmBonus) utilities[i] += mmBonus * minimaxScale;
-    }
-
-    const jointBonuses = computeTurnJointRolloutBonuses(state, world, strategy, candidates, {
-        preScores: utilities,
-        vetoFlags
-    });
-    for (let i = 0; i < candidates.length; i++) {
-        if (vetoFlags[i]) continue;
-        utilities[i] += (jointBonuses.get(candidates[i].key) || 0) * minimaxScale;
     }
 
     return { utilities, vetoFlags };

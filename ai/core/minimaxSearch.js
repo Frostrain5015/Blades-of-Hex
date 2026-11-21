@@ -8,9 +8,6 @@
 import { campToKey } from '../../rules/camps.js';
 import { TACTICAL_CARD_DATA } from '../../rules/cards.js';
 import { COMMANDER_CONFIG } from '../../rules/commanders.js';
-import { UNIT_CONFIG } from '../../rules/units.js';
-import { getAntiAirReduction } from '../../rules/antiAir.js';
-import { COMBAT_BALANCE } from '../../rules/constants.js';
 import { estimateSiegeDamage } from '../doctrine.js';
 import { hpGold, residualGold } from './weights.js';
 import { isFieldCapturer } from './roster.js';
@@ -283,29 +280,6 @@ export function applyMaxCandidateToSim(baseSim, cand, world) {
         return sim;
     }
 
-    if ((cand.actionType === 'airCommand' && cand.commandKind === 'airdrop')
-        || (cand.actionType === 'tacticalCard' && cand.cardId === 'airdrop')) {
-        const key = `${cand.q},${cand.r}`;
-        const city = baseSim.cities.get(key);
-        if (baseSim.occupied.has(key) || (city && city.owner !== 'mine' && city.hp > 0)) return null;
-        const sim = applyMaxCandidateToSim(baseSim, { actionType: 'recruit', unitType: 'infantry', q: cand.q, r: cand.r }, world);
-        if (!sim) return null;
-        const unit = sim.myUnits.get(`sim_rec_${cand.q}_${cand.r}`);
-        if (cand.actionType === 'tacticalCard') {
-            unit.hp = Math.min(unit.maxHp, TACTICAL_CARD_DATA.airdrop.balance.infantryHp);
-        } else {
-            const tile = world.tileMap?.get(key);
-            const reduction = tile ? getAntiAirReduction(tile, world.myCamp, world.tileMap, { state: world.gameState, airspace: true }) : 0;
-            unit.hp = Math.max(1, unit.maxHp - Math.round(unit.maxHp * Math.min(COMBAT_BALANCE.defense.maximumReduction, reduction)));
-        }
-        if (city && city.owner !== 'mine') {
-            const captured = sim.cities.get(key);
-            captured.owner = 'mine';
-            captured.campKey = world.myCampKey;
-        }
-        return sim;
-    }
-
     if (cand.actionType === 'attack') {
         const attacker = baseSim.myUnits.get(cand.unitId);
         if (!attacker || !attacker.canAct || attacker.stunned) return null;
@@ -315,7 +289,7 @@ export function applyMaxCandidateToSim(baseSim, cand, world) {
 
         if (cand.isCitySiege) {
             const city = sim.cities.get(cKey);
-            if (!city || city.owner === 'mine' || city.hp <= 0 || coordDist(attacker, city) > attacker.range) return null;
+            if (!city || city.owner === 'mine' || city.hp <= 0) return null;
             const cityTile = world.tileMap?.get(cKey);
             const siegeDmg = Number(world.estimateSiegeDamage?.(attacker.unitRef, cityTile)
                 ?? estimateSiegeDamage(attacker.unitRef, cityTile)
@@ -328,7 +302,7 @@ export function applyMaxCandidateToSim(baseSim, cand, world) {
 
         const targetMap = sim.rivalUnits.has(cand.targetId) ? sim.rivalUnits : sim.neutralUnits;
         const target = targetMap.get(cand.targetId);
-        if (!target || target.hp <= 0 || coordDist(attacker, target) > attacker.range) return null;
+        if (!target || target.hp <= 0) return null;
 
         const dmg = estimateHitDmg(world, attacker, target);
         const pool = target.hp + target.shield;
@@ -400,8 +374,7 @@ export function applyMaxCandidateToSim(baseSim, cand, world) {
         if (baseSim.occupied.has(siteKey)) return null;
         const sim = cloneSimState(baseSim);
         const utype = cand.unitType || 'infantry';
-        const cfg = world.helpers?.UNIT_CONFIG?.[utype] || UNIT_CONFIG[utype];
-        if (!cfg) return null;
+        const cfg = world.helpers?.UNIT_CONFIG?.[utype] || { hp: 180, attack: 26, range: 1, speed: 3, cost: 8, movementDomain: 'land' };
         const fakeId = `sim_rec_${cand.q}_${cand.r}`;
         const fakeRef = { type: utype, hp: cfg.hp, maxHp: cfg.hp, config: cfg };
         sim.myUnits.set(fakeId, {
@@ -437,16 +410,16 @@ export function applyMaxCandidateToSim(baseSim, cand, world) {
         if (cid === 'heal' || cid === 'shield') {
             const ally = sim.myUnits.get(cand.targetId)
                 || Array.from(sim.myUnits.values()).find(u => u.q === cand.q && u.r === cand.r);
-            if (!ally) return null;
+            if (!ally) return sim;
             if (cid === 'heal') {
-                ally.hp = Math.min(ally.maxHp, ally.hp + Math.round(ally.maxHp * TACTICAL_CARD_DATA.heal.balance.healMaxHpPct));
+                ally.hp = Math.min(ally.maxHp, ally.hp + Math.round(ally.maxHp * 0.30));
             } else {
                 ally.shield += Number(TACTICAL_CARD_DATA.shield?.balance?.shield || 60);
             }
             return sim;
         }
         if (['lightning', 'imprison', 'poison', 'orbitalStrike'].includes(cid)) {
-            const dmg = Number(TACTICAL_CARD_DATA[cid]?.balance?.damage || (cid === 'lightning' ? TACTICAL_CARD_DATA.lightning.balance.maxDamage : 0));
+            const dmg = Number(TACTICAL_CARD_DATA[cid]?.balance?.damage || (cid === 'lightning' ? 60 : 0));
             const target = sim.rivalUnits.get(cand.targetId)
                 || sim.neutralUnits.get(cand.targetId)
                 || Array.from(sim.rivalUnits.values()).find(e => e.q === cand.q && e.r === cand.r);
@@ -462,7 +435,7 @@ export function applyMaxCandidateToSim(baseSim, cand, world) {
                     target.shield = sRem;
                 }
                 if (cid === 'imprison') target.stunned = true;
-            } else return null;
+            }
             return sim;
         }
         return sim;
@@ -473,7 +446,7 @@ export function applyMaxCandidateToSim(baseSim, cand, world) {
         const target = baseSim.rivalUnits.get(cand.targetId)
             || baseSim.neutralUnits.get(cand.targetId)
             || Array.from(baseSim.rivalUnits.values()).find(e => e.q === cand.q && e.r === cand.r);
-        if (!attacker || !attacker.canAct || attacker.stunned || !target) return null;
+        if (!attacker || !target) return null;
         const sim = cloneSimState(baseSim);
         const simAtt = sim.myUnits.get(cand.unitId);
         const targetMap = sim.rivalUnits.has(target.id) ? sim.rivalUnits : sim.neutralUnits;
