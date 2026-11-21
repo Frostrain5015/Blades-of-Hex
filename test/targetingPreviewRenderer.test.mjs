@@ -5,11 +5,13 @@ import { BOARD_RULES } from '../rules/constants.js';
 import { HEX_NEIGHBORS } from '../rules/hex.js';
 import {
     TARGETING_PREVIEW_KINDS,
+    buildSniperCorridor,
     clipToBoard,
     drawAirViewAaSourceBadge,
     drawAirViewAirfieldMarker,
     drawAirViewOverlapHatches,
     drawAntiAirCoveragePreview,
+    drawSniperCorridor,
     drawUnitTargetPreview,
     renderTargetingPreview
 } from '../js/targetingPreviewRenderer.js';
@@ -43,6 +45,7 @@ function createContext() {
         lineWidth: ctx.lineWidth,
         lineDashOffset: ctx.lineDashOffset,
         shadowColor: ctx.shadowColor,
+        shadowBlur: ctx.shadowBlur,
         globalCompositeOperation: ctx.globalCompositeOperation
     }]);
     ctx.setLineDash = (...args) => calls.push(['setLineDash', ...args]);
@@ -56,6 +59,21 @@ function freeze(value) {
 }
 
 const center = freeze({ x: 120, y: 90 });
+{
+    const tile = q => ({ q, r: 0, ...axialToBoardPixel(q, 0) });
+    const path = [0, 1, 2, 3, 4].map(tile);
+    const corridor = buildSniperCorridor({ origin: path[0], path, hits: [{ tile: path[2] }, { tile: path[4] }] }, 30);
+    assert.equal(corridor.cells.length, 4);
+    assert.equal(corridor.contours.length, 1, 'The corridor has a single outer border');
+    assert.equal(corridor.contours[0].length, 18, 'Shared cell edges do not become part of the border');
+    assert.ok(corridor.start.x > path[0].x && corridor.end.x > path[4].x);
+    const ctx = createContext();
+    drawSniperCorridor(ctx, corridor, 1.5);
+    assert.ok(ctx.calls.some(call => call[0] === 'setLineDash' && call[1].length === 2));
+    assert.equal(ctx.calls.filter(call => call[0] === 'arc').length, 1, 'Only the last hit gets the round reticle');
+    assert.ok(ctx.calls.filter(call => call[0] === 'stroke').every(call => call.at(-1).shadowBlur === 0));
+}
+
 for (const kind of TARGETING_PREVIEW_KINDS) {
     const ctx = createContext();
     const descriptor = freeze({ center, size: 30, kind, active: true, time: 1.25, phase: 0.5 });
@@ -161,6 +179,24 @@ for (const kind of TARGETING_PREVIEW_KINDS) {
     assert.equal(drawn, 120);
     const strokes = ctx.calls.filter(call => call[0] === 'stroke').length;
     assert.ok(strokes < 25, `Batched inactive tiles/centers should stay compact (got ${strokes} strokes for 80 targets)`);
+}
+
+{
+    const ctx = createContext();
+    ctx.globalAlpha = 0.8;
+    ctx.shadowBlur = 5;
+    const unitTargets = Array.from({ length: 40 }, (_, index) => ({
+        center: { x: 100 + index * 32, y: 100 },
+        size: 30, kind: 'attach', active: index === 20, time: 1.2
+    }));
+    unitTargets.push({ center, size: 30, kind: 'attach', alpha: 0 });
+    assert.equal(renderTargetingPreview(ctx, freeze({ unitTargets })), 40);
+    const strokes = ctx.calls.filter(call => call[0] === 'stroke').map(call => call.at(-1));
+    assert.equal(strokes.length, 4, 'Idle badges share one stroke and the focused badge has three halo layers');
+    assert.ok(strokes.every(stroke => stroke.shadowBlur === 0 && stroke.strokeStyle === '#d9b55c'));
+    assert.ok(strokes.slice(1).some(stroke => stroke.lineWidth > 2), 'The focused badge retains a layered highlight');
+    assert.equal(ctx.shadowBlur, 5);
+    assert.equal(ctx.globalAlpha, 0.8);
 }
 
 {

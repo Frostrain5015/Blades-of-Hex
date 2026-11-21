@@ -81,15 +81,20 @@ import {
     targetingTileKey
 } from '../rules/targeting.js';
 import {
+    buildSniperCorridor,
     clipToBoard,
     drawAirViewAaSourceBadge,
     drawAirViewAirfieldMarker,
     drawAirViewOverlapHatches,
     drawAntiAirCoveragePreview,
     drawHologramMotif,
+    drawSniperAimTargets,
+    drawSniperCorridor,
     renderTargetingPreview,
     strokeHexRegionContours
 } from './targetingPreviewRenderer.js';
+import { findCultureStrikeCaster, planCultureStrike } from '../rules/cultureStrike.js';
+import { drawCultureStrikeEffects } from './cultureStrikeFx.js';
 import { resolveAirViewState } from '../rules/airView.js';
 import { buildHexRegionContours } from './rendering/hexRegionContours.js';
 import { isPlayableBoardTile } from '../rules/boardLayout.js';
@@ -2806,6 +2811,28 @@ function _drawAirliftDestinationLink(preview, hoveredTile) {
     ctx.restore();
 }
 
+function drawSniperTargeting(session, caster, hoveredKey, now) {
+    const candidates = session.preview.candidateTiles;
+    if (!session.sniperCorridors) {
+        const corridors = new Map();
+        for (const aim of candidates) {
+            if (corridors.has(targetingTileKey(aim))) continue;
+            const strike = planCultureStrike(caster, aim, gameState);
+            const corridor = strike && buildSniperCorridor(strike, HEX_SIZE);
+            if (!corridor) continue;
+            for (const tile of strike.path.slice(1)) corridors.set(targetingTileKey(tile), corridor);
+        }
+        session.sniperCorridors = corridors;
+    }
+    const corridor = session.sniperCorridors.get(hoveredKey);
+    ctx.save();
+    if (clipToBoard(ctx, { shapes: session.boardClipShapes, cache: true })) {
+        if (corridor) drawSniperCorridor(ctx, corridor, settings.reducedMotion ? 0 : now / 1000);
+        else drawSniperAimTargets(ctx, candidates, HEX_SIZE);
+    }
+    ctx.restore();
+}
+
 function drawCardTargetingPreview(now) {
     const cardTargeting = gameState.cardTargeting;
     if (!cardTargeting) return;
@@ -2816,9 +2843,13 @@ function drawCardTargetingPreview(now) {
     const hoveredKey = targetingTileKey(hovered);
     const activeKey = hoveredKey && isPlayableBoardTile(hovered)
         && preview.candidateTileKeys.has(hoveredKey) ? hoveredKey : null;
-    if (activeKey && cardTargeting.cardId === 'culture_strike') {
+    if (cardTargeting.cardId === 'culture_strike') {
         const caster = findCultureStrikeCaster(gameState, cardTargeting.unitId);
-        const strike = planCultureStrike(caster, hovered, gameState);
+        if (caster?.type === 'cpc_guerrilla') {
+            drawSniperTargeting(session, caster, hoveredKey, now);
+            return;
+        }
+        const strike = activeKey && planCultureStrike(caster, hovered, gameState);
         if (strike) {
             ctx.save();
             ctx.strokeStyle = strike.landing ? '#f9d371' : '#f5825f';
@@ -2837,7 +2868,7 @@ function drawCardTargetingPreview(now) {
         }
     }
     const time = now / 1000;
-    const boardClip = { shapes: session.boardClipShapes };
+    const boardClip = { shapes: session.boardClipShapes, cache: preview.intent === TARGET_INTENTS.ATTACH };
     const colonelUnit = preview.air?.colonelOriginUnitId
         ? gameState.tiles.find(tile => tile.unit?.id === preview.air.colonelOriginUnitId)?.unit
         : null;
@@ -4223,6 +4254,3 @@ function drawCommanderPennants() {
 
 
 // E2 亡灵法师 —— 魂卒召回：黑烟团从法师位置飞向目标位置
-
-import { findCultureStrikeCaster, planCultureStrike } from '../rules/cultureStrike.js';
-import { drawCultureStrikeEffects } from './cultureStrikeFx.js';

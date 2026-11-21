@@ -34,6 +34,7 @@ export const TARGETING_PREVIEW_COLORS = Object.freeze({
 const KIND_SET = new Set(TARGETING_PREVIEW_KINDS);
 const CORNERS = Object.freeze([[-1, -1], [1, -1], [1, 1], [-1, 1]]);
 const TAU = Math.PI * 2;
+const boardClipCache = new WeakMap();
 
 /**
  * Shared descriptor contract (documentation only):
@@ -151,13 +152,30 @@ function appendPolygonPath(ctx, points) {
  * The caller should wrap this call in save()/restore(), or use renderTargetingPreview.
  *
  * @param {CanvasRenderingContext2D} ctx
- * @param {{shapes:ReadonlyArray<object>, size?:number, scale?:number}} descriptor
+ * @param {{shapes:ReadonlyArray<object>, size?:number, scale?:number, cache?:boolean}} descriptor
  * @returns {boolean} Whether a non-empty clip was installed.
  */
 export function clipToBoard(ctx, descriptor = {}) {
     const shapes = Array.isArray(descriptor.shapes) ? descriptor.shapes : [];
     const fallbackSize = positive(descriptor.size, 0);
     const scale = positive(descriptor.scale, 1.005);
+    // Opt in when the caller replaces the shapes array on geometry changes.
+    if (descriptor.cache && typeof Path2D === 'function') {
+        let cached = boardClipCache.get(shapes);
+        if (!cached || cached.scale !== scale || cached.size !== fallbackSize) {
+            const path = new Path2D();
+            let appended = false;
+            for (const shape of shapes) {
+                const points = pointsFor(shape, fallbackSize);
+                if (points.length >= 3) appended = appendPolygonPath(path, scaledPoints(points, scale)) || appended;
+            }
+            cached = { path: appended ? path : null, scale, size: fallbackSize };
+            boardClipCache.set(shapes, cached);
+        }
+        if (!cached.path) return false;
+        ctx.clip(cached.path);
+        return true;
+    }
     let appended = false;
     ctx.beginPath();
     for (const shape of shapes) {
@@ -1077,6 +1095,182 @@ function drawBatchedInactiveAreaCenters(ctx, descriptors) {
     return drawn;
 }
 
+function appendTargetCorners(ctx, { x, y }, half, arm) {
+    for (const [sx, sy] of CORNERS) {
+        ctx.moveTo(x + sx * (half - arm), y + sy * half);
+        ctx.lineTo(x + sx * half, y + sy * half);
+        ctx.lineTo(x + sx * half, y + sy * (half - arm));
+    }
+}
+
+function appendAttachmentGlyph(ctx, { x, y }, radius) {
+    const side = radius * 0.78;
+    ctx.moveTo(x, y - radius);
+    ctx.lineTo(x + side, y);
+    ctx.lineTo(x, y + radius);
+    ctx.lineTo(x - side, y);
+    ctx.closePath();
+    ctx.moveTo(x, y - radius * 0.48);
+    ctx.lineTo(x, y + radius * 0.48);
+}
+
+export function buildSniperCorridor(strike, size) {
+    const tiles = strike.path.slice(1);
+    const last = tiles.at(-1);
+    if (!last) return null;
+    const { origin } = strike;
+    const length = Math.hypot(last.x - origin.x, last.y - origin.y);
+    if (!length) return null;
+    const ux = (last.x - origin.x) / length;
+    const uy = (last.y - origin.y) / length;
+    return {
+        cells: tiles.map(tile => regularHexPoints(tile, size)),
+        contours: buildHexRegionContours(tiles.map(tile => ({ q: tile.q, r: tile.r, center: tile })), size),
+        hits: strike.hits.map(({ tile }) => tile),
+        start: { x: origin.x + ux * size * 0.48, y: origin.y + uy * size * 0.48 },
+        end: { x: last.x + ux * size * 0.62, y: last.y + uy * size * 0.62 },
+        ux, uy, size
+    };
+}
+
+export function drawSniperCorridor(ctx, corridor, time = 0) {
+    const { cells, contours, hits, start, end, ux, uy, size } = corridor;
+    ctx.save();
+    ctx.shadowBlur = 0;
+    // Paint the moving wash in three batches. The perimeter only follows exposed edges.
+    const buckets = [[], [], []];
+    for (const [i, points] of cells.entries()) {
+        const wave = (1 + Math.sin(time * 4.5 - i * 0.65)) / 2;
+        buckets[Math.min(2, Math.floor(wave * 3))].push(points);
+    }
+    for (const [i, bucket] of buckets.entries()) {
+        if (!bucket.length) continue;
+        ctx.fillStyle = `rgba(255,106,49,${0.18 + i * 0.043})`;
+        ctx.beginPath();
+        for (const points of bucket) appendPolygonPath(ctx, points);
+        ctx.fill();
+    }
+    ctx.beginPath();
+    for (const points of contours) appendPolygonPath(ctx, points);
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = 'rgba(241,91,33,.25)';
+    ctx.lineWidth = size * 0.16;
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,153,71,.86)';
+    ctx.lineWidth = size * 0.055;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(start.x, start.y);
+    ctx.lineTo(end.x, end.y);
+    ctx.strokeStyle = 'rgba(255,202,120,.83)';
+    ctx.lineWidth = size * 0.062;
+    ctx.setLineDash([size * 0.27, size * 0.22]);
+    ctx.lineDashOffset = -time * 46;
+    ctx.stroke();
+    ctx.setLineDash([]);
+    const tail = size * 0.31;
+    const wing = size * 0.15;
+    ctx.beginPath();
+    ctx.moveTo(end.x, end.y);
+    ctx.lineTo(end.x - ux * tail - uy * wing, end.y - uy * tail + ux * wing);
+    ctx.lineTo(end.x - ux * tail + uy * wing, end.y - uy * tail - ux * wing);
+    ctx.closePath();
+    ctx.fillStyle = '#ffd18c';
+    ctx.fill();
+
+    drawSniperAimTargets(ctx, hits, size);
+    if (hits.length) {
+        const target = hits.at(-1);
+        ctx.beginPath();
+        ctx.arc(target.x, target.y, size * 0.58, 0, TAU);
+        ctx.setLineDash([size * 0.14, size * 0.11]);
+        ctx.strokeStyle = 'rgba(255,71,59,.95)';
+        ctx.stroke();
+    }
+    ctx.restore();
+}
+
+export function drawSniperAimTargets(ctx, targets, size) {
+    if (!targets.length) return;
+    ctx.save();
+    ctx.shadowBlur = 0;
+    ctx.beginPath();
+    for (const tile of targets) appendTargetCorners(ctx, tile, size * 0.66, size * 0.22);
+    ctx.strokeStyle = '#ff8060';
+    ctx.lineWidth = size * 0.057;
+    ctx.stroke();
+    ctx.restore();
+}
+
+function drawAttachmentTargets(ctx, descriptors) {
+    const batches = new Map();
+    const focused = [];
+    for (const descriptor of descriptors) {
+        if (!validPoint(descriptor.center)) continue;
+        const color = colorFor('attach', descriptor.color);
+        const size = positive(descriptor.size, 30);
+        const alpha = opacity(descriptor.alpha, 1);
+        if (alpha <= 0) continue;
+        if (descriptor.active) {
+            focused.push({ ...descriptor, color, size, alpha });
+            continue;
+        }
+        const bucketAlpha = Math.round(alpha * 20) / 20;
+        if (bucketAlpha <= 0) continue;
+        const bucketSize = Math.max(1, Math.round(size));
+        const key = `${color}|${bucketAlpha}|${bucketSize}`;
+        let bucket = batches.get(key);
+        if (!bucket) {
+            bucket = { color, alpha: bucketAlpha, size: bucketSize, centers: [] };
+            batches.set(key, bucket);
+        }
+        bucket.centers.push(descriptor.center);
+    }
+
+    if (!batches.size && !focused.length) return 0;
+    ctx.save();
+    const baseAlpha = ctx.globalAlpha;
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+    ctx.lineCap = 'square';
+    ctx.lineJoin = 'miter';
+    ctx.globalCompositeOperation = 'source-over';
+
+    let drawn = 0;
+    for (const { color, alpha, size, centers } of batches.values()) {
+        ctx.strokeStyle = color;
+        ctx.globalAlpha = baseAlpha * alpha * 0.76;
+        ctx.lineWidth = size * 0.044;
+        ctx.beginPath();
+        for (const center of centers) {
+            appendTargetCorners(ctx, center, size * 0.675, size * 0.19);
+            appendAttachmentGlyph(ctx, center, size * 0.23);
+        }
+        ctx.stroke();
+        drawn += centers.length;
+    }
+
+    // A few wide translucent strokes give the focused badge a halo without a
+    // real-time blur pass. Its animation stays independent of the quiet batch.
+    for (const { center, color, size, time, phase, alpha } of focused) {
+        const wave = waveAt(time, 2.15, phase);
+        ctx.strokeStyle = color;
+        ctx.beginPath();
+        appendTargetCorners(ctx, center, size * (0.72 + wave * 0.038), size * 0.225);
+        appendAttachmentGlyph(ctx, center, size * (0.269 + wave * 0.011));
+        for (const [width, weight] of [[0.19, 0.10], [0.107, 0.23], [0.055, 0.99]]) {
+            ctx.lineWidth = size * width;
+            ctx.globalAlpha = baseAlpha * alpha * weight;
+            ctx.stroke();
+        }
+        drawn++;
+    }
+
+    ctx.restore();
+    return drawn;
+}
+
 /**
  * Render a complete preview scene from immutable visual descriptors.
  * Draw order is coverage -> origins -> tile targets -> area centers -> units.
@@ -1099,7 +1293,12 @@ export function renderTargetingPreview(ctx, scene = {}) {
         drawn += areaCenters.length > 1
             ? drawBatchedInactiveAreaCenters(ctx, areaCenters)
             : areaCenters.reduce((count, descriptor) => count + Number(drawAreaCenterPreview(ctx, descriptor)), 0);
-        for (const descriptor of list(scene.unitTargets)) drawn += Number(drawUnitTargetPreview(ctx, descriptor));
+        const attachmentTargets = [];
+        for (const descriptor of list(scene.unitTargets)) {
+            if (descriptor.kind === 'attach') attachmentTargets.push(descriptor);
+            else drawn += Number(drawUnitTargetPreview(ctx, descriptor));
+        }
+        drawn += drawAttachmentTargets(ctx, attachmentTargets);
     } finally {
         ctx.restore();
     }
