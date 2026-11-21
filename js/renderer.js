@@ -2849,23 +2849,6 @@ function drawCardTargetingPreview(now) {
             drawSniperTargeting(session, caster, hoveredKey, now);
             return;
         }
-        const strike = activeKey && planCultureStrike(caster, hovered, gameState);
-        if (strike) {
-            ctx.save();
-            ctx.strokeStyle = strike.landing ? '#f9d371' : '#f5825f';
-            ctx.lineWidth = HEX_SIZE * (strike.landing ? 0.09 : 0.24);
-            ctx.globalAlpha = strike.landing ? 0.74 : 0.44;
-            ctx.lineJoin = 'round';
-            ctx.beginPath();
-            ctx.moveTo(strike.origin.x, strike.origin.y);
-            for (const tile of strike.path.slice(1)) ctx.lineTo(tile.x, tile.y);
-            ctx.stroke();
-            ctx.globalAlpha = 0.9;
-            ctx.lineWidth = HEX_SIZE * 0.055;
-            for (const { tile } of strike.hits) drawCultureTargetOutline(tile, '#ff7968', HEX_SIZE * 0.52);
-            if (strike.landing) drawCultureTargetOutline(strike.landing, '#76dfcf', HEX_SIZE * 0.66);
-            ctx.restore();
-        }
     }
     const time = now / 1000;
     const boardClip = { shapes: session.boardClipShapes, cache: preview.intent === TARGET_INTENTS.ATTACH };
@@ -3075,13 +3058,6 @@ function drawCardTargetingPreview(now) {
     }
 
     _drawAirliftDestinationLink(preview, hovered);
-}
-
-function drawCultureTargetOutline(tile, color, radius) {
-    ctx.strokeStyle = color;
-    ctx.beginPath();
-    ctx.arc(tile.x, tile.y, radius, 0, 2 * Math.PI);
-    ctx.stroke();
 }
 
 function _drawDeselectingActionPreview(now) {
