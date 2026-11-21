@@ -6,7 +6,7 @@ const entry = relativePath => fileURLToPath(new URL(relativePath, import.meta.ur
 
 function copyRuntimeStaticAssets(outDir) {
     const directories = ['img', 'sounds', 'js/lib', 'campaign/content'];
-    const files = ['campaign/terrain-preview-shared.js'];
+    const files = ['campaign/terrain-preview-shared.js', 'campaign/terrain-preview-skills.js'];
     return {
         name: 'copy-runtime-static-assets',
         apply: 'build',
@@ -62,12 +62,8 @@ export default defineConfig(({ mode }) => {
             rollupOptions: {
                 input: {
                     game: entry('./index.html'),
-                    terrainPreview: entry('./campaign/terrain-texture-preview.html'),
-                    terrain: entry('./campaign/terrain-preview-terrain.html'),
-                    actions: entry('./campaign/terrain-preview-actions.html'),
-                    targeting: entry('./campaign/terrain-preview-targeting.html'),
                     air: entry('./campaign/terrain-preview-air.html'),
-                    water: entry('./campaign/terrain-preview-water.html')
+                    skills: entry('./campaign/terrain-preview-skills.html')
                 },
                 output: {
                     manualChunks(id) {
