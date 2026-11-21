@@ -6,8 +6,9 @@
 //
 // 严格保持纯前端浏览器可打包（仅依赖 ai/core/* 与 rules/*）。
 
-import { TACTICAL_CARD_DATA } from '../../rules/cards.js';
+import { UNIT_CONFIG } from '../../rules/units.js';
 import { getHistoricalRecruitCost } from '../../rules/cultures.js';
+import { getAirCommandCost } from '../../rules/airCommands.js';
 import {
     applyMaxCandidateToSim,
     evaluateMinimaxBoard,
@@ -20,13 +21,17 @@ const nowMs = () => globalThis.performance?.now?.() ?? Date.now();
 function estimateCandidateCost(state, world, cand) {
     if (!cand) return 0;
     if (cand.actionType === 'recruit') {
-        return Number(getHistoricalRecruitCost(state, world.myCamp, cand.unitType) || 8);
+        if (Number.isFinite(cand.cost)) return cand.cost;
+        const baseCost = UNIT_CONFIG[cand.unitType]?.cost;
+        if (!Number.isFinite(baseCost)) return Infinity;
+        const historicalCost = getHistoricalRecruitCost(baseCost, state, world.myCamp, cand.unitType);
+        return world.helpers?.getCommanderRecruitCost
+            ? world.helpers.getCommanderRecruitCost(historicalCost, world.myCamp) : historicalCost;
     }
-    if (cand.actionType === 'tacticalCard') {
-        return Number(TACTICAL_CARD_DATA[cand.cardId]?.cost || 0);
+    if (cand.actionType === 'airCommand') {
+        const launcher = state.tileMap?.get(`${cand.fromQ},${cand.fromR}`);
+        return launcher ? getAirCommandCost(cand.commandKind, launcher, state) : Infinity;
     }
-    if (cand.actionType === 'drawCard') return Number(cand.drawCost || 4);
-    if (cand.actionType === 'airCommand') return Number(cand.cost || 5);
     return 0;
 }
 
@@ -39,7 +44,7 @@ export function computeTurnJointRolloutBonuses(state, world, strategy, candidate
     timeBudgetMs = 24
 } = {}) {
     const bonuses = new Map();
-    if (!world || !candidates || candidates.length < 3 || !world.rivalUnits?.length) {
+    if (!world || !candidates || candidates.length < 2 || !world.rivalUnits?.length) {
         return bonuses;
     }
 
@@ -52,7 +57,10 @@ export function computeTurnJointRolloutBonuses(state, world, strategy, candidate
     for (let i = 0; i < candidates.length; i++) {
         if (vetoFlags && vetoFlags[i]) continue;
         const c = candidates[i];
-        if (!['attack', 'move', 'recruit', 'tacticalCard', 'droneSuicide', 'banzaiCharge'].includes(c.actionType)) continue;
+        if (!['attack', 'move', 'recruit', 'tacticalCard', 'airCommand', 'droneSuicide', 'banzaiCharge'].includes(c.actionType)) continue;
+        if (c.actionType === 'airCommand' && c.commandKind !== 'airdrop') continue;
+        // Only cards whose immediate effects are represented by the simulator can affect a rollout.
+        if (c.actionType === 'tacticalCard' && !['heal', 'shield', 'lightning', 'imprison', 'airdrop'].includes(c.cardId)) continue;
         const cost = estimateCandidateCost(state, world, c);
         if (cost > rootGold) continue;
         if (c.actionType === 'tacticalCard' && c.cardId !== 'commanderDeploy' && rootCardUses <= 0) continue;
@@ -70,11 +78,14 @@ export function computeTurnJointRolloutBonuses(state, world, strategy, candidate
     let beam = [];
     const bestLeafByRoot = new Map();
     for (const item of rootPool) {
-        if (nowMs() - tStart >= timeBudgetMs) break;
         const nextSim = applyMaxCandidateToSim(rootSim, item.cand, world);
         if (!nextSim) continue;
         const boardVal = evaluateMinimaxBoard(nextSim, world, strategy);
         const usedKeys = new Set([item.cand.key]);
+        const usedCards = new Map();
+        if (item.cand.actionType === 'tacticalCard') usedCards.set(item.cand.cardId, 1);
+        const usedAirfields = new Set();
+        if (item.cand.actionType === 'airCommand') usedAirfields.add(`${item.cand.fromQ},${item.cand.fromR}:${item.cand.commandKind}`);
         const nextUses = item.cand.actionType === 'tacticalCard' && item.cand.cardId !== 'commanderDeploy'
             ? rootCardUses - 1 : rootCardUses;
         beam.push({
@@ -83,6 +94,8 @@ export function computeTurnJointRolloutBonuses(state, world, strategy, candidate
             gold: rootGold - item.cost,
             cardUses: nextUses,
             usedKeys,
+            usedCards,
+            usedAirfields,
             boardVal
         });
         bestLeafByRoot.set(item.cand.key, { sim: nextSim, boardVal });
@@ -100,6 +113,13 @@ export function computeTurnJointRolloutBonuses(state, world, strategy, candidate
             for (const item of expandPool) {
                 if (expanded >= 5) break;
                 if (node.usedKeys.has(item.cand.key)) continue;
+                const airfieldKey = `${item.cand.fromQ},${item.cand.fromR}:${item.cand.commandKind}`;
+                if (item.cand.actionType === 'airCommand' && node.usedAirfields.has(airfieldKey)) continue;
+                if (item.cand.actionType === 'tacticalCard') {
+                    const hand = state.playerHands?.[world.myCampKey] || [];
+                    const available = hand.filter(card => (typeof card === 'string' ? card : card?.id || card?.cardId) === item.cand.cardId).length;
+                    if ((node.usedCards.get(item.cand.cardId) || 0) >= available) continue;
+                }
                 if (item.cost > node.gold) continue;
                 if (item.cand.actionType === 'tacticalCard' && item.cand.cardId !== 'commanderDeploy' && node.cardUses <= 0) continue;
                 const nextSim = applyMaxCandidateToSim(node.sim, item.cand, world);
@@ -108,6 +128,12 @@ export function computeTurnJointRolloutBonuses(state, world, strategy, candidate
                 const boardVal = evaluateMinimaxBoard(nextSim, world, strategy);
                 const nextUsed = new Set(node.usedKeys);
                 nextUsed.add(item.cand.key);
+                const nextCards = new Map(node.usedCards);
+                const nextAirfields = new Set(node.usedAirfields);
+                if (item.cand.actionType === 'airCommand') nextAirfields.add(airfieldKey);
+                if (item.cand.actionType === 'tacticalCard') {
+                    nextCards.set(item.cand.cardId, (nextCards.get(item.cand.cardId) || 0) + 1);
+                }
                 const nextUses = item.cand.actionType === 'tacticalCard' && item.cand.cardId !== 'commanderDeploy'
                     ? node.cardUses - 1 : node.cardUses;
                 nextBeam.push({
@@ -116,6 +142,8 @@ export function computeTurnJointRolloutBonuses(state, world, strategy, candidate
                     gold: node.gold - item.cost,
                     cardUses: nextUses,
                     usedKeys: nextUsed,
+                    usedCards: nextCards,
+                    usedAirfields: nextAirfields,
                     boardVal
                 });
                 const prev = bestLeafByRoot.get(node.rootKey);
@@ -130,7 +158,6 @@ export function computeTurnJointRolloutBonuses(state, world, strategy, candidate
 
     // 对每条根分支的最佳整回合叶子运行对抗式 2-Ply 反扑复检
     for (const [rootKey, leaf] of bestLeafByRoot.entries()) {
-        if (nowMs() - tStart >= timeBudgetMs) break;
         const { val: advLeafVal } = searchMinReplyWithAlphaBeta(leaf.sim, world, strategy, -Infinity, dummyStats);
         const gain = advLeafVal - baselineVal;
         const bonus = Math.max(-18, Math.min(28, gain * 0.18));

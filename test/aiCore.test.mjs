@@ -20,7 +20,8 @@ import {
 } from '../ai/core/weights.js';
 import { evaluateMicroBehaviorTree, selectEngineerFortificationAction } from '../ai/core/behaviorTree.js';
 import { computeBeamTacticalBonuses } from '../ai/core/beamSearch.js';
-import { computeMinimaxAlphaBetaBonuses } from '../ai/core/minimaxSearch.js';
+import { applyMaxCandidateToSim, computeMinimaxAlphaBetaBonuses, snapshotAdversarialState } from '../ai/core/minimaxSearch.js';
+import { computeTurnJointRolloutBonuses } from '../ai/core/turnJointSearch.js';
 import { POLICY_MODEL_META, scorePolicyAndValueCandidates } from '../ai/core/hybridScorer.js';
 import { estimateForceValue } from '../ai/strategy.js';
 import { planFollowupAttack, planTurn } from '../ai/core/planner.js';
@@ -1685,6 +1686,58 @@ test('局部束搜索（Beam Search）识别先攻城破墙再跟进占城的 2 
     ];
     const bonuses = computeBeamTacticalBonuses(state, world, strategy, candidates);
     assert.ok((bonuses.get(siegeKey) || 0) >= 15, `束搜索应识别弓手破墙后步兵可立刻占城的连招收益：bonus=${bonuses.get(siegeKey)}`);
+});
+
+test('整回合联合搜索评估可防守的行动并遵守否决和招募预算', async () => {
+    const { buildWorld, decideStrategy } = await loadCore();
+    const me = { id: 'player1' }, foe = { id: 'player2' }, neutral = { id: 'neutral' };
+    const home = makeTile(0, 0, { isCity: true, camp: me, districtId: 1, hp: 0 });
+    const guard = makeTile(1, 0);
+    const wander = makeTile(-1, 0);
+    const threat = makeTile(2, 0);
+    const enemyHome = makeTile(6, 0, { isCity: true, camp: foe, districtId: 2 });
+    const unit = makeUnit(1, 'infantry', me, guard);
+    makeUnit(10, 'cavalry', foe, threat);
+    makeUnit(11, 'infantry', foe, enemyHome);
+    const tiles = [home, guard, wander, threat, enemyHome];
+    const state = makeState(tiles, { player1: me, player2: foe, neutral }, {
+        currentCamp: me, round: 14, turnCount: 28,
+        playerGold: { player1: 7, player2: 12, neutral: 0 }
+    });
+    const world = buildWorld(state, makeHelpers(tiles), me, TIER_CAPABILITIES.hard);
+    const strategy = decideStrategy(world);
+    const candidates = [
+        { key: 'defend', actionType: 'move', unitId: unit.id, q: 0, r: 0 },
+        { key: 'wander', actionType: 'move', unitId: unit.id, q: -1, r: 0 },
+        { key: 'recruit', actionType: 'recruit', unitType: 'infantry', cost: 8, q: 0, r: 0 }
+    ];
+    const bonuses = computeTurnJointRolloutBonuses(state, world, strategy, candidates, { timeBudgetMs: 1000 });
+    assert.ok((bonuses.get('defend') || 0) > (bonuses.get('wander') || 0));
+    assert.equal(bonuses.has('recruit'), false);
+    const vetoed = computeTurnJointRolloutBonuses(state, world, strategy, candidates, {
+        vetoFlags: [1, 0, 0], timeBudgetMs: 1000
+    });
+    assert.equal(vetoed.has('defend'), false);
+});
+
+test('联合搜索模拟空降占领破城，拒绝未破城或被占据的目标', async () => {
+    const { buildWorld } = await loadCore();
+    const me = { id: 'player1' }, foe = { id: 'player2' };
+    const own = makeTile(0, 0, { isCity: true, camp: me });
+    const target = makeTile(2, 0, { isCity: true, camp: foe, hp: 0 });
+    makeUnit(1, 'infantry', me, own);
+    const tiles = [own, target];
+    const state = makeState(tiles, { player1: me, player2: foe }, { currentCamp: me });
+    const world = buildWorld(state, makeHelpers(tiles), me, TIER_CAPABILITIES.hard);
+    const sim = snapshotAdversarialState(state, world);
+    const action = { actionType: 'airCommand', commandKind: 'airdrop', q: 2, r: 0 };
+    const result = applyMaxCandidateToSim(sim, action, world);
+    assert.equal(result.cities.get('2,0').owner, 'mine');
+    assert.equal(result.myUnits.get('sim_rec_2_0').canAct, false);
+    assert.equal(sim.cities.get('2,0').owner, 'rival');
+    assert.equal(applyMaxCandidateToSim(result, action, world), null);
+    sim.cities.get('2,0').hp = 30;
+    assert.equal(applyMaxCandidateToSim(sim, action, world), null);
 });
 
 test('双头策略+价值网络推理返回有限 logit 与有界长期价值评估', () => {
