@@ -644,7 +644,7 @@ function buildRoutePath(gameState, sourceByKey, playableKeySet, selectedUnitTile
 }
 
 function buildInteraction(gameState, playableEntries, playableKeySet, viewerCampKey, options) {
-    const sourceByKey = new Map(playableEntries.map(entry => [entry.key, entry.tile]));
+    const sourceByKey = options.sourceByKey || new Map(playableEntries.map(entry => [entry.key, entry.tile]));
     const validKey = tile => {
         const key = keyFromTile(tile);
         return key && playableKeySet.has(key) ? key : null;
@@ -662,7 +662,7 @@ function buildInteraction(gameState, playableEntries, playableKeySet, viewerCamp
         : { ...gameState, tiles: playableEntries.map(entry => entry.tile), tileMap: sourceByKey };
     const cardTargeting = gameState.cardTargeting || null;
     const targetingCamp = options.targetingCamp ?? gameState.currentCamp ?? viewerCampKey;
-    const preview = options.targetingPreview || (cardTargeting ? resolveTargetingPreview(normalizedState, cardTargeting, {
+    const preview = options.targetingPreview || (!options.overlayOnly && cardTargeting ? resolveTargetingPreview(normalizedState, cardTargeting, {
         myCamp: targetingCamp,
         hoveredTile: hoveredTile || null,
         isTileVisible: tile => resolveVisibility(tile, gameState, viewerCampKey, options) === 'visible'
@@ -677,9 +677,11 @@ function buildInteraction(gameState, playableEntries, playableKeySet, viewerCamp
             targetKinds.get(key).add(kind);
         }
     };
-    addKind(moveTileKeys, 'move');
-    addKind(attackTileKeys, 'attack');
-    addKind(cardCandidateTileKeys, 'card');
+    if (!options.overlayOnly) {
+        addKind(moveTileKeys, 'move');
+        addKind(attackTileKeys, 'attack');
+        addKind(cardCandidateTileKeys, 'card');
+    }
     const targetCandidates = [...targetKinds.entries()]
         .map(([key, kinds]) => ({
             tileKey: key,
@@ -744,22 +746,101 @@ function inferRadius(realTiles) {
 // ownership colors, surfaces (incl. fade transitions), terrain, fortifications
 // and city topology. Interaction, units, fog visibility and border overlays
 // are painted by other layers, so they must not invalidate the texture.
-function computeTerrainSignature(layout, camps, renderTiles) {
+function computeTerrainSignature(layout, camps, renderTiles, finalColorsOnly = false) {
     const parts = [`layout:${layout}`];
     for (const camp of camps) parts.push(`${camp.key}=${camp.color}`);
     for (const tile of renderTiles) {
         const surface = tile.surface;
-        const transition = surface.transition
+        const transition = !finalColorsOnly && surface.transition
             ? `${surface.transition.from}>${surface.transition.to}@${surface.transition.startedAtMs}/${surface.transition.durationMs}`
             : '';
         parts.push(
-            `${tile.key}|${tile.campKey ?? ''}|${surface.kind}|${surface.color}|${transition}`
+            `${tile.key}|${tile.campKey ?? ''}|${surface.kind}|${(finalColorsOnly && surface.transition?.to) || surface.color}|${transition}`
             + `|${tile.terrain?.type ?? ''}|${tile.fortification?.type ?? ''}`
             + `|${tile.installation?.type ?? ''}:${tile.installation?.status ?? ''}`
             + `|${tile.city ? `${tile.city.kind}#${tile.city.districtId}` : ''}`
         );
     }
     return `terrain-v${BATTLEFIELD_SNAPSHOT_VERSION}:${fnv1a32(parts.join('\n'))}`;
+}
+
+const overlayTopologyCache = new WeakMap();
+
+// The live Pixi backend only draws interaction hints and displays a separately
+// painted terrain texture. Never build fog DTOs, borders or filler tiles for it.
+export function buildBattlefieldOverlaySnapshot(gameState, options = {}) {
+    const viewerCampKey = resolveViewerCamp(gameState, options);
+    const layout = normalizeBoardLayout(gameState.boardLayout ?? gameState.board?.layout);
+    let topology = overlayTopologyCache.get(gameState.tiles);
+    if (!topology || topology.tileMap !== gameState.tileMap || topology.count !== gameState.tiles.length) {
+        const entries = buildPlayableTiles(gameState);
+        const sourceByKey = new Map(entries.map(entry => [entry.key, entry.tile]));
+        topology = { entries, sourceByKey, keys: new Set(sourceByKey.keys()), tileMap: gameState.tileMap, count: gameState.tiles.length };
+        overlayTopologyCache.set(gameState.tiles, topology);
+    }
+    const { entries, sourceByKey, keys } = topology;
+    const terrainTiles = entries.map(({ key, tile }) => ({
+        key,
+        campKey: campToKey(tile.camp),
+        surface: surfaceFromTile(tile),
+        terrain: { type: tile.terrain },
+        fortification: tile.fortification ? { type: tile.fortification } : null,
+        installation: tile.installation ? { type: tile.installation.type, status: tile.installation.status } : null,
+        city: tile.isCity ? { kind: 'city', districtId: tile.districtId }
+            : tile.isVillage ? { kind: 'village', districtId: tile.villageDistrictId } : null
+    }));
+    // Pixi already owns the end-state texture once a crossfade starts. Finishing
+    // the transition does not invalidate that same texture again.
+    const terrainSignature = computeTerrainSignature(layout, buildCamps(gameState, entries), terrainTiles, true);
+    const hasHints = gameState.selectedUnit || gameState.deselectMoveTiles?.length || gameState.deselectAtkTiles?.length;
+    let interaction = null;
+    if (hasHints) {
+        interaction = buildInteraction(gameState, entries, keys, viewerCampKey, { ...options, sourceByKey, overlayOnly: true });
+    }
+    const tiles = [];
+    const units = [];
+    if (interaction) fillOverlayGeometry(interaction, sourceByKey, gameState, viewerCampKey, options, tiles, units);
+    const signature = `overlay-v${BATTLEFIELD_SNAPSHOT_VERSION}:${fnv1a32(JSON.stringify([interaction, tiles, units]))}`;
+    return {
+        kind: BATTLEFIELD_SNAPSHOT_KIND,
+        version: BATTLEFIELD_SNAPSHOT_VERSION,
+        board: { logicalWidth: BOARD_RULES.logicalWidth, logicalHeight: BOARD_RULES.logicalHeight, hexSize: BOARD_RULES.hexSize },
+        viewerCampKey,
+        tiles,
+        units,
+        interaction,
+        signature,
+        terrainSignature,
+        terrainTiles
+    };
+}
+
+function fillOverlayGeometry(interaction, sourceByKey, gameState, viewerCampKey, options, tiles, units) {
+    const { selection, route } = interaction;
+    const relevantKeys = new Set([
+        selection.unitTileKey, selection.deselectOriginTileKey, route?.sourceKey, route?.targetKey, route?.viaKey,
+        ...(route?.bfsKeys || []), ...selection.moveTileKeys, ...selection.attackTileKeys,
+        ...selection.chainAttackTileKeys, ...selection.deselectMoveTileKeys, ...selection.deselectAttackTileKeys
+    ]);
+    const now = performance.now();
+    for (const key of relevantKeys) {
+        const tile = sourceByKey.get(key);
+        if (!tile) continue;
+        const center = clonePoint(tile) || axialToBoardPixel(tile.q, tile.r);
+        const unit = unitForViewer(tile, viewerCampKey, gameState);
+        tiles.push({ key, center, unitId: primitiveId(unit?.id) });
+        if (unit) {
+            const firstPoint = unit.movePath?.length >= 2 ? clonePoint(unit.movePath[0]) : null;
+            units.push({
+                id: primitiveId(unit.id),
+                tileKey: key,
+                visualCenter: firstPoint || center,
+                renderable: unit.hp > 0 && !isUnitWaitingForAirdrop(unit, now)
+                    && resolveVisibility(tile, gameState, viewerCampKey, options) === 'visible',
+                action: { canAct: Boolean(unit.canAct), isNewRecruit: Boolean(unit.isNewRecruit) }
+            });
+        }
+    }
 }
 
 /**

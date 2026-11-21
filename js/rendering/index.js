@@ -28,6 +28,7 @@ export { BattlefieldRendererBoundary, createBattlefieldRenderer } from './create
 export {
     BATTLEFIELD_SNAPSHOT_KIND,
     BATTLEFIELD_SNAPSHOT_VERSION,
+    buildBattlefieldOverlaySnapshot,
     buildBattlefieldSnapshot,
     shouldSyncBattlefieldSnapshot
 } from './battlefieldSnapshot.js';

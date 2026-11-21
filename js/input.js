@@ -1,5 +1,5 @@
 import { getUndergroundIntelligenceStatus } from '../rules/undergroundIntelligence.js';
-import { CULTURE_STRIKES, cultureStrikeCooldown, cultureStrikeUnavailable, listCultureStrikePlans } from '../rules/cultureStrike.js';
+import { CULTURE_STRIKES, cultureStrikeCooldown, cultureStrikeUnavailable, hasCultureStrikeTarget } from '../rules/cultureStrike.js';
 import { HEX_SIZE, canvas, cardCanvas, settings, saveSettings, MORALE_CONFIG, TERRAIN_CONFIG, FORTIFICATION_CONFIG, LOGICAL_W, LOGICAL_H, WEATHER_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, UNIT_CONFIG, COLONEL_CARDS, COLONEL_CARD_GOLD, getCardMeta, getRoundIndex, getFactionCount, getFlagColors, hexDistance } from './config.js';
 import { allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
 import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getEffectiveWeather } from './commanderInterface.js';
@@ -564,7 +564,7 @@ function _collectBoardActions(unit, tile = null) {
     if (strike) {
         const cooldown = cultureStrikeCooldown(unit, gameState);
         let reason = isControllable ? cultureStrikeUnavailable(unit, gameState) : unavailableReason;
-        if (!reason && !listCultureStrikePlans(unit, gameState).length) reason = '没有合法目标';
+        if (!reason && !hasCultureStrikeTarget(unit, gameState)) reason = '没有合法目标';
         actions.push({
             key: `cultureStrike:${unit.id}`, buttonId: 'boardCultureStrike', kind: 'cultureStrike',
             unitId: unit.id, icon: strike.icon, label: strike.name, cooldown,

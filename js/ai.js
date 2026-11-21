@@ -69,6 +69,7 @@ import { hasFullAiIntelligence, resolveAiDifficultyProfile } from '../ai/difficu
 import { getRound, getRoundIndex } from '../rules/turns.js';
 import { waitForFactionSynergyPresentations } from './factionSynergyPresentation.js';
 import { withMatchAction } from './matchRecorder.js';
+import { measure, perfEnabled } from './perf.js';
 
 const AI_DELAY = 1500;
 const ACTION_TIMEOUT = 8000; // 单次行动超时：8秒
@@ -1214,11 +1215,10 @@ export async function processOpponentTurn(aiCamp) {
             await delay(AI_DELAY);
             for (let step = 0; step < 48; step++) {
                 if (gameState.gameOver || gameState.currentCamp !== aiCamp || !gameState.aiActing) break;
-                const pick = personality.selectNextAction(gameState, helpers, aiCamp, {
-                    blockedKeys,
-                    movedUnitIds,
-                    forceMarchedUnitIds
-                });
+                const options = { blockedKeys, movedUnitIds, forceMarchedUnitIds };
+                const pick = perfEnabled()
+                    ? measure('ai.hybridDecision', () => personality.selectNextAction(gameState, helpers, aiCamp, options))
+                    : personality.selectNextAction(gameState, helpers, aiCamp, options);
                 const action = pick?.action;
                 if (!action || action.type === 'endTurn') break;
                 const executed = await executeAction(action, aiCamp);

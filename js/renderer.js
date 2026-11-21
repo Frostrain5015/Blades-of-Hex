@@ -105,7 +105,7 @@ import { areCommanderMechanicsSuppressed, sharedHexEdgeSegmentKey } from '../rul
 import { hasAureliaOathEffect } from '../rules/aurelia.js';
 import { getOracleStatueAnchor, hasCelestineSynergyActive, getCelestineOracleState } from '../rules/celestine.js';
 import { measure, perfEnabled } from './perf.js';
-import { getCanvasPixelRatio } from './canvasRuntime.js';
+import { getCanvasPixelRatio, resizeCanvasBackingStore } from './canvasRuntime.js';
 
 let lastTime = performance.now();
 let _lastParticleSpawn = 0;
@@ -606,6 +606,45 @@ function _drawBoardBorders(tiles, tileMap, districts, camps) {
     ctx.drawImage(_boardBorderLayer.canvas, -BORDER_LAYER_PADDING, -BORDER_LAYER_PADDING, width, height);
 }
 
+const _fogGradients = new WeakMap();
+
+function _getFogGradient(tile, unexplored) {
+    let gradients = _fogGradients.get(tile);
+    if (!gradients) {
+        gradients = {};
+        _fogGradients.set(tile, gradients);
+    }
+    const key = unexplored ? 'unexplored' : 'explored';
+    if (gradients[key]) return gradients[key];
+    const { x, y } = tile;
+    const gradient = ctx.createRadialGradient(x, y, HEX_SIZE * (unexplored ? 0.1 : 0.3), x, y, HEX_SIZE * 1.05);
+    if (unexplored) {
+        gradient.addColorStop(0, '#06070e');
+        gradient.addColorStop(0.6, '#080911');
+        gradient.addColorStop(1, 'rgba(12,13,22,0.95)');
+    } else {
+        gradient.addColorStop(0, '#000');
+        gradient.addColorStop(1, 'rgba(0,0,0,0.7)');
+    }
+    gradients[key] = gradient;
+    return gradient;
+}
+
+function _drawFogTile(tile, fog, tileBaseOptions) {
+    if (fog.alpha <= 0) return;
+    const unexplored = fog.state === 'unexplored';
+    if (!unexplored) {
+        if (tile.isVisualFiller) drawVisualFillerTile(ctx, tile);
+        else tile.drawBase(ctx, tileBaseOptions);
+    }
+    const opacity = ctx.globalAlpha;
+    ctx.globalAlpha = opacity * Math.min(1, fog.alpha);
+    ctx.fillStyle = _getFogGradient(tile, unexplored);
+    hexPath(ctx, tile.x, tile.y, HEX_SIZE);
+    ctx.fill();
+    ctx.globalAlpha = opacity;
+}
+
 function _renderGame() {
     const now = performance.now();
     const dt = Math.min((now - lastTime) / 1000, 0.05);
@@ -613,8 +652,8 @@ function _renderGame() {
     frameInfo.now = now;
 
     // 屏幕震动
+    if (screenShake.time > 0) screenShake.time = Math.max(0, screenShake.endsAt - now);
     if (screenShake.time > 0) {
-        screenShake.time -= 16;
         const intensity = screenShake.time / screenShake.duration;
         screenShake.x = (Math.random() - 0.5) * 8 * intensity;
         screenShake.y = (Math.random() - 0.5) * 8 * intensity;
@@ -718,7 +757,8 @@ function _renderGame() {
     }
     // Every cloth surface is deformed in one WebGL2 batch. Canvas2D finials
     // are deliberately composited afterwards so the cloth cannot cover them.
-    drawBattlefieldFlags(ctx, gameState, now);
+    if (perfEnabled()) measure('drawBattlefieldFlags', () => drawBattlefieldFlags(ctx, gameState, now));
+    else drawBattlefieldFlags(ctx, gameState, now);
     for (let i = 0, len = tiles.length; i < len; i++) {
         const tile = tiles[i];
         tile.drawFlagFinial();
@@ -1083,51 +1123,11 @@ function _renderGame() {
         const nowPerf = performance.now();
         for (let i = 0, len = tiles.length; i < len; i++) {
             const tile = tiles[i];
-            const { alpha, state } = getFogAlpha(tile, viewingCamp, gameState, nowPerf);
-            if (alpha <= 0) continue;
-            if (state === 'unexplored') {
-                // 径向渐变：全不透明，边缘略深
-                hexPath(ctx, tile.x, tile.y, HEX_SIZE);
-                const grad = ctx.createRadialGradient(tile.x, tile.y, HEX_SIZE * 0.1, tile.x, tile.y, HEX_SIZE * 1.05);
-                const a = Math.min(1, alpha);
-                grad.addColorStop(0, `rgba(6,7,14,${a})`);
-                grad.addColorStop(0.6, `rgba(8,9,17,${a})`);
-                grad.addColorStop(1, `rgba(12,13,22,${a * 0.95})`);
-                ctx.fillStyle = grad;
-                ctx.fill();
-            } else {
-                // explored：覆绘地形基底遮盖部队/特效，再叠加暗色遮罩
-                tile.drawBase(ctx, tileBaseOptions);
-                hexPath(ctx, tile.x, tile.y, HEX_SIZE);
-                const grad = ctx.createRadialGradient(tile.x, tile.y, HEX_SIZE * 0.3, tile.x, tile.y, HEX_SIZE * 1.05);
-                grad.addColorStop(0, `rgba(0,0,0,${alpha})`);
-                grad.addColorStop(1, `rgba(0,0,0,${alpha * 0.7})`);
-                ctx.fillStyle = grad;
-                ctx.fill();
-            }
+            _drawFogTile(tile, getFogAlpha(tile, viewingCamp, gameState, nowPerf), tileBaseOptions);
         }
         if (visualGrid) {
             for (const tile of visualGrid.fillers) {
-                const { alpha, state } = getFogAlpha(tile.sourceTile, viewingCamp, gameState, nowPerf);
-                if (alpha <= 0) continue;
-                if (state === 'unexplored') {
-                    hexPath(ctx, tile.x, tile.y, HEX_SIZE);
-                    const grad = ctx.createRadialGradient(tile.x, tile.y, HEX_SIZE * 0.1, tile.x, tile.y, HEX_SIZE * 1.05);
-                    const a = Math.min(1, alpha);
-                    grad.addColorStop(0, `rgba(6,7,14,${a})`);
-                    grad.addColorStop(0.6, `rgba(8,9,17,${a})`);
-                    grad.addColorStop(1, `rgba(12,13,22,${a * 0.95})`);
-                    ctx.fillStyle = grad;
-                    ctx.fill();
-                } else {
-                    drawVisualFillerTile(ctx, tile);
-                    hexPath(ctx, tile.x, tile.y, HEX_SIZE);
-                    const grad = ctx.createRadialGradient(tile.x, tile.y, HEX_SIZE * 0.3, tile.x, tile.y, HEX_SIZE * 1.05);
-                    grad.addColorStop(0, `rgba(0,0,0,${alpha})`);
-                    grad.addColorStop(1, `rgba(0,0,0,${alpha * 0.7})`);
-                    ctx.fillStyle = grad;
-                    ctx.fill();
-                }
+                _drawFogTile(tile, getFogAlpha(tile.sourceTile, viewingCamp, gameState, nowPerf), tileBaseOptions);
             }
         }
         const visibilityStateForCoord = (q, r) => {
@@ -1223,7 +1223,8 @@ function _renderGame() {
 
     // 烧牌动画 + 空袭/空运特效（通用对策卡，常驻最高图层）
     drawCardUseAnimation(now);
-    drawAirstrikeEffects(now);
+    if (perfEnabled()) measure('drawAirstrikeEffects', () => drawAirstrikeEffects(now));
+    else drawAirstrikeEffects(now);
     drawAirliftEffects(now);
 
     // ── 将领特效图层：top（最高图层；魂卒回魂黑烟）──
@@ -3562,11 +3563,37 @@ function getCardSlideCurrent(i) {
 
 function _ease(t) { return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; }
 
+const _pokerCardSprites = new Map();
+document.fonts?.addEventListener('loadingdone', () => _pokerCardSprites.clear());
+
 function _drawPokerCard(cctx, cx, cy, cardW, cardH, cfg, opts = {}) {
-    const { disabled, isTargeting, isDeploy, alreadyDeployed, isHovered, alpha, isCopyCard } = opts;
+    const ratio = Math.min(window.devicePixelRatio || 1, 2);
+    const { disabled, isTargeting, isDeploy, alreadyDeployed, isHovered, alpha, isCopyCard, commanderId, goldCost } = opts;
+    const portrait = isDeploy && commanderId ? getPortrait(commanderId) : null;
+    const key = JSON.stringify([cardW, cardH, cfg.name, cfg.icon, disabled, isTargeting, isDeploy,
+        alreadyDeployed, isHovered, isCopyCard, commanderId, goldCost]);
+    let cached = _pokerCardSprites.get(key);
+    const padding = 18;
+    const width = cardW + padding * 2;
+    const height = cardH + padding * 2;
+    if (!cached || cached.ratio !== ratio || cached.portrait !== portrait) {
+        const canvas = document.createElement('canvas');
+        resizeCanvasBackingStore(canvas, width, height, ratio);
+        const target = canvas.getContext('2d');
+        target.setTransform(canvas.width / width, 0, 0, canvas.height / height, canvas.width / 2, canvas.height / 2);
+        _paintPokerCard(target, cardW, cardH, cfg, opts, portrait);
+        if (_pokerCardSprites.size >= 48) _pokerCardSprites.delete(_pokerCardSprites.keys().next().value);
+        cached = { canvas, ratio, portrait };
+        _pokerCardSprites.set(key, cached);
+    }
     cctx.save();
     if (alpha !== undefined) cctx.globalAlpha = alpha;
-    cctx.translate(cx, cy);
+    cctx.drawImage(cached.canvas, cx - width / 2, cy - height / 2, width, height);
+    cctx.restore();
+}
+
+function _paintPokerCard(cctx, cardW, cardH, cfg, opts, deployPortrait) {
+    const { disabled, isTargeting, isDeploy, alreadyDeployed, isHovered, isCopyCard } = opts;
 
     cctx.shadowColor = 'rgba(0,0,0,0.5)';
     cctx.shadowBlur = isHovered ? 10 : 6;
@@ -3591,8 +3618,6 @@ function _drawPokerCard(cctx, cx, cy, cardW, cardH, cfg, opts = {}) {
     cctx.beginPath();
     cctx.roundRect(-cardW / 2, -cardH / 2, cardW, cardH, 10);
     cctx.stroke();
-
-    const deployPortrait = (isDeploy && opts.commanderId) ? getPortrait(opts.commanderId) : null;
 
     if (deployPortrait) {
         // 圆形将领头像替代 emoji 图标
@@ -3645,7 +3670,6 @@ function _drawPokerCard(cctx, cx, cy, cardW, cardH, cfg, opts = {}) {
         cctx.fillText('$' + opts.goldCost, cardW / 2 - 4, -cardH / 2 + 4);
         cctx.textAlign = 'center'; cctx.textBaseline = 'middle';
     }
-    cctx.restore();
 }
 
 function _resolveDeployMeta(cardEntry, campKey) {
@@ -3778,9 +3802,7 @@ export function drawCardCanvas(now) {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const cssW = cardCanvas.clientWidth || 360;
     const cssH = cardCanvas.clientHeight || 620;
-    if (cardCanvas.width !== cssW * dpr || cardCanvas.height !== cssH * dpr) {
-        cardCanvas.width = cssW * dpr; cardCanvas.height = cssH * dpr;
-    }
+    resizeCanvasBackingStore(cardCanvas, cssW, cssH, dpr);
     const cctx = cardCtx;
     cctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     cctx.clearRect(0, 0, cssW, cssH);

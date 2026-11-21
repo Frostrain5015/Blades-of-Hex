@@ -7,7 +7,7 @@ import { chooseCultureStrike } from './cultureStrikes.js';
 import policyModel from '../models/policy-prototype.json' with { type: 'json' };
 import { buildWorld } from './perceive.js';
 import { decideStrategy } from './strategize.js';
-import { planTurn, planFollowupAttack } from './planner.js';
+import { planTurnInWorld, planFollowupAttackInWorld } from './planner.js';
 import { isFieldCapturer } from './roster.js';
 import { shouldDrawCard } from './cards.js';
 import { resolveHybridFusionProfile, TIER_CAPABILITIES } from './weights.js';
@@ -506,52 +506,56 @@ function gelu(x) {
     return 0.5 * x * (1.0 + Math.tanh(0.7978845608 * (x + 0.044715 * x * x * x)));
 }
 
-function forwardPolicyAndValueRow(rawFeatures) {
+function transposeWeights(weights, columnCount) {
+    return Array.from({ length: columnCount }, (_, column) => Float64Array.from(weights, row => row[column]));
+}
+
+const { W1, b1, W2, b2, W3, b3, Wv, bv } = policyModel.weights;
+const firstLayerRows = transposeWeights(W1, b1.length);
+const secondLayerRows = transposeWeights(W2, b2.length);
+
+function forwardPolicyAndValueRow(rawFeatures, norm, a1, a2, logits, values, index) {
     const mean = policyModel.normMean;
     const std = policyModel.normStd;
-    const { W1, b1, W2, b2, W3, b3, Wv, bv } = policyModel.weights;
-    const dim = policyModel.featureDim;
-    const h1 = b1.length;
-    const h2 = b2.length;
 
-    const norm = new Float64Array(dim);
-    for (let i = 0; i < dim; i++) {
+    for (let i = 0; i < norm.length; i++) {
         const z = (rawFeatures[i] - mean[i]) / std[i];
         norm[i] = z > 8.0 ? 8.0 : (z < -8.0 ? -8.0 : z);
     }
 
-    const a1 = new Float64Array(h1);
-    for (let j = 0; j < h1; j++) {
+    for (let j = 0; j < a1.length; j++) {
         let sum = b1[j];
-        for (let i = 0; i < dim; i++) {
-            sum += norm[i] * W1[i][j];
+        const weights = firstLayerRows[j];
+        for (let i = 0; i < norm.length; i++) {
+            sum += norm[i] * weights[i];
         }
         a1[j] = gelu(sum);
     }
 
-    const a2 = new Float64Array(h2);
-    for (let k = 0; k < h2; k++) {
+    for (let k = 0; k < a2.length; k++) {
         let sum = b2[k];
-        for (let j = 0; j < h1; j++) {
-            sum += a1[j] * W2[j][k];
+        const weights = secondLayerRows[k];
+        for (let j = 0; j < a1.length; j++) {
+            sum += a1[j] * weights[j];
         }
         a2[k] = gelu(sum);
     }
 
     let logit = b3;
-    for (let k = 0; k < h2; k++) {
+    for (let k = 0; k < a2.length; k++) {
         logit += a2[k] * W3[k];
     }
 
     let value = 0;
     if (Array.isArray(Wv)) {
         let vRaw = Number(bv || 0);
-        for (let k = 0; k < h2; k++) {
+        for (let k = 0; k < a2.length; k++) {
             vRaw += a2[k] * Wv[k];
         }
         value = Math.tanh(vRaw);
     }
-    return { logit, value };
+    logits[index] = logit;
+    values[index] = value;
 }
 
 /**
@@ -613,7 +617,6 @@ export function scorePolicyAndValueCandidates(state, camp, candidates, helpers, 
     const rivalHpSum = rivalUnits.reduce((s, u) => s + Number(u.hp || 0), 0);
     const hpAdv = ownHpSum / Math.max(100.0, ownHpSum + rivalHpSum);
 
-    const legalMovesByUnit = new Map();
     const legalAttacksByUnit = new Map();
     let nLegalMoves = 0;
     let nLegalAttacks = 0;
@@ -622,7 +625,6 @@ export function scorePolicyAndValueCandidates(state, camp, candidates, helpers, 
     for (const unit of ownUnits) {
         const moves = unit.canAct && !unit.isNewRecruit && helpers.getMovableTiles ? helpers.getMovableTiles(unit) : [];
         const attacks = unit.canAct && !unit.isNewRecruit && helpers.getAttackableTiles ? helpers.getAttackableTiles(unit) : [];
-        legalMovesByUnit.set(unit.id, moves);
         legalAttacksByUnit.set(unit.id, attacks);
         nLegalMoves += moves.length;
         nLegalAttacks += attacks.length;
@@ -697,6 +699,9 @@ export function scorePolicyAndValueCandidates(state, camp, candidates, helpers, 
     const logits = new Float64Array(candidates.length);
     const values = new Float64Array(candidates.length);
     const row = new Float64Array(Math.max(112, policyModel.featureDim));
+    const norm = new Float64Array(policyModel.featureDim);
+    const a1 = new Float64Array(b1.length);
+    const a2 = new Float64Array(b2.length);
 
     for (let idx = 0; idx < candidates.length; idx++) {
         row.fill(0);
@@ -920,9 +925,7 @@ export function scorePolicyAndValueCandidates(state, camp, candidates, helpers, 
         row[extBase + 19] = clockUrgency;
         row[extBase + 20] = spendHeadroom;
 
-        const out = forwardPolicyAndValueRow(row);
-        logits[idx] = out.logit;
-        values[idx] = out.value;
+        forwardPolicyAndValueRow(row, norm, a1, a2, logits, values, idx);
     }
     return { logits, values };
 }
@@ -1031,7 +1034,7 @@ function computeDrawCardUtility(world, strategy, planDrawPlanned, plannedSpend =
     return { utility: 10, boosted: false };
 }
 
-function scoreCandidatesImperator(state, helpers, camp, world, strategy, imperatorPlan, candidates, fusion = null) {
+function scoreCandidatesImperator(state, camp, world, strategy, imperatorPlan, candidates, fusion = null) {
     const planRankMap = new Map();
     const plannedCardCoords = new Set();
     const plannedMoveUnitIds = new Set();
@@ -1186,7 +1189,7 @@ function scoreCandidatesImperator(state, helpers, camp, world, strategy, imperat
             } else if (rank === undefined && plannedMoveUnitIds.has(c.unitId)) {
                 const au = world.myUnits.find(x => x.id === c.unitId);
                 const freePoke = au && Number(au.remainingMP || 0) === 0 && !c.isCitySiege && c.targetId
-                    ? planFollowupAttack(state, helpers, camp, TIER_CAPABILITIES.hard, c.unitId, c.targetId)
+                    ? planFollowupAttackInWorld(world, c.unitId, c.targetId)
                     : null;
                 if (freePoke && freePoke.counter === 0 && freePoke.damage > 0) {
                     utility = Math.max(utility, 72) + attackBias;
@@ -1196,7 +1199,7 @@ function scoreCandidatesImperator(state, helpers, camp, world, strategy, imperat
                     vetoFlags[i] = 1;
                 }
             } else if (!c.isCitySiege && c.targetId) {
-                const trade = planFollowupAttack(state, helpers, camp, TIER_CAPABILITIES.hard, c.unitId, c.targetId);
+                const trade = planFollowupAttackInWorld(world, c.unitId, c.targetId);
                 const tu = rivalUnitMap.get(c.targetId);
                 const nearHostileCity = tu?.tile && hostileCityTiles.some(hc => hexDistCoords(tu.tile.q, tu.tile.r, hc.q, hc.r) <= 2);
                 const lateAllInPush = strategy.posture === 'allin' && world.roundsRemaining <= 5 && nearHostileCity;
@@ -1406,12 +1409,27 @@ export function candidateToExecutorAction(cand, state, plannedAct = null) {
 export function selectHybridAction(gameState, helpers, myCamp, options = {}) {
     const world = buildWorld(gameState, helpers, myCamp, TIER_CAPABILITIES.hard);
     const strategy = decideStrategy(world);
-    const imperatorPlan = planTurn(gameState, helpers, myCamp, TIER_CAPABILITIES.hard);
+    const imperatorPlan = planTurnInWorld(world, strategy);
     const blockedKeys = options.blockedKeys || null;
     const movedUnitIds = options.movedUnitIds || null;
     const forceMarchedUnitIds = options.forceMarchedUnitIds || null;
 
-    let candidates = enumerateHybridCandidates(gameState, myCamp, helpers, world);
+    // Enumerating actions and building model features use the same legal targets.
+    // Cache within this decision only, after the planner has reverted virtual actions.
+    const moves = new WeakMap();
+    const attacks = new WeakMap();
+    const targetingHelpers = {
+        ...helpers,
+        getMovableTiles(unit) {
+            if (!moves.has(unit)) moves.set(unit, helpers.getMovableTiles?.(unit) ?? []);
+            return moves.get(unit);
+        },
+        getAttackableTiles(unit) {
+            if (!attacks.has(unit)) attacks.set(unit, helpers.getAttackableTiles?.(unit) ?? []);
+            return attacks.get(unit);
+        }
+    };
+    let candidates = enumerateHybridCandidates(gameState, myCamp, targetingHelpers, world);
     candidates = candidates.filter(c => {
         if (c.actionType === 'endTurn') return true;
         if (blockedKeys && blockedKeys.has(c.key)) return false;
@@ -1454,10 +1472,10 @@ export function selectHybridAction(gameState, helpers, myCamp, options = {}) {
     const fusion = resolveHybridFusionProfile(world.doctrine, cultureId, strategy.posture);
 
     const { logits: mlpLogits, values: qValues } = scorePolicyAndValueCandidates(
-        gameState, myCamp, candidates, helpers, fusion.styleTag
+        gameState, myCamp, candidates, targetingHelpers, fusion.styleTag
     );
     const { utilities: impUtils, vetoFlags } = scoreCandidatesImperator(
-        gameState, helpers, myCamp, world, strategy, imperatorPlan, candidates, fusion
+        gameState, myCamp, world, strategy, imperatorPlan, candidates, fusion
     );
 
     const mlpStats = computeStats(mlpLogits, vetoFlags);

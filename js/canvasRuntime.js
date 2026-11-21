@@ -17,10 +17,19 @@ export function getCanvasPixelRatio() {
     return dpr;
 }
 
+export function resizeCanvasBackingStore(surface, width, height, ratio) {
+    const pixelWidth = Math.round(width * ratio);
+    const pixelHeight = Math.round(height * ratio);
+    const widthChanged = surface.width !== pixelWidth;
+    const heightChanged = surface.height !== pixelHeight;
+    if (widthChanged) surface.width = pixelWidth;
+    if (heightChanged) surface.height = pixelHeight;
+    return widthChanged || heightChanged;
+}
+
 export function initCanvas() {
     dpr = Math.min(window.devicePixelRatio || 1, 2);
-    canvas.width = LOGICAL_W * dpr;
-    canvas.height = LOGICAL_H * dpr;
+    resizeCanvasBackingStore(canvas, LOGICAL_W, LOGICAL_H, dpr);
     canvas.style.width = `${LOGICAL_W}px`;
     canvas.style.height = `${LOGICAL_H}px`;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);

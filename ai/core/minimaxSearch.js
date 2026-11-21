@@ -478,10 +478,11 @@ export function applyMaxCandidateToSim(baseSim, cand, world) {
 /**
  * 为 MIN 层生成最高威胁的敌方反扑候选（按夺城 -> 击杀将领 -> 破防/点杀 MVV-LVA 排序）。
  */
-export function generateAdversarialMinActions(sim, world, maxActions = 10) {
+export function generateAdversarialMinActions(sim, world, maxActions = 10, deadline = Infinity) {
     const actions = [];
 
     for (const enemy of sim.rivalUnits.values()) {
+        if (nowMs() >= deadline) break;
         if (enemy.hp <= 0 || enemy.stunned) continue;
 
         // 1. 直接步入己方或中立 0HP 空城（夺城反转）
@@ -524,6 +525,7 @@ export function generateAdversarialMinActions(sim, world, maxActions = 10) {
 
         // 3. 集火击杀/重创己方暴露单位与守城兵
         for (const mine of sim.myUnits.values()) {
+            if (nowMs() >= deadline) break;
             if (mine.hp <= 0) continue;
             const d = coordDist(enemy, mine);
             if (d > enemy.speed + enemy.range) continue;
@@ -620,17 +622,20 @@ function applyMinAction(baseSim, act, world) {
     return null;
 }
 
-function searchMinReplyWithAlphaBeta(simAfterMax, world, strategy, alpha, stats) {
+function searchMinReplyWithAlphaBeta(simAfterMax, world, strategy, alpha, stats, deadline) {
+    if (nowMs() >= deadline) return null;
     let minVal = evaluateMinimaxBoard(simAfterMax, world, strategy);
     if (minVal <= alpha) {
         stats.cutoffs++;
         return { val: minVal, pruned: true };
     }
 
-    const threats = generateAdversarialMinActions(simAfterMax, world, 10);
+    const threats = generateAdversarialMinActions(simAfterMax, world, 10, deadline);
+    if (nowMs() >= deadline) return null;
     if (threats.length === 0) return { val: minVal, pruned: false };
 
     for (let i = 0; i < threats.length; i++) {
+        if (nowMs() >= deadline) return null;
         const t1 = threats[i];
         const res1 = applyMinAction(simAfterMax, t1, world);
         if (!res1) continue;
@@ -649,6 +654,7 @@ function searchMinReplyWithAlphaBeta(simAfterMax, world, strategy, alpha, stats)
                 const openCity = res1.sim.cities.get(res1.openedCaptureAt);
                 if (openCity && openCity.hp <= 0 && !res1.sim.occupied.has(res1.openedCaptureAt)) {
                     for (const e2 of res1.sim.rivalUnits.values()) {
+                        if (nowMs() >= deadline) return null;
                         if (e2.id === t1.actorId || e2.campKey !== t1.campKey || !e2.isCapturer || e2.stunned) continue;
                         if (coordDist(e2, openCity) <= e2.speed) {
                             const s2 = cloneSimState(res1.sim);
@@ -675,6 +681,7 @@ function searchMinReplyWithAlphaBeta(simAfterMax, world, strategy, alpha, stats)
 
             let checkedFollowups = 0;
             for (let j = 0; j < threats.length && checkedFollowups < 4; j++) {
+                if (nowMs() >= deadline) return null;
                 if (j === i) continue;
                 const t2 = threats[j];
                 if (t2.actorId === t1.actorId || t2.campKey !== t1.campKey) continue;
@@ -711,12 +718,14 @@ export function computeMinimaxAlphaBetaBonuses(state, world, strategy, candidate
         return { bonuses, stats };
     }
 
-    const tStart = nowMs();
+    if (!(timeBudgetMs > 0)) return { bonuses, stats };
+    const deadline = nowMs() + timeBudgetMs;
     const rootSim = snapshotAdversarialState(state, world);
 
     // 挑选需要接受对抗复检的关键候选：Top 预评分候选 + 所有涉及己方受威胁城防的回防/招募/夺城/低血将领撤退
     const scoredIndices = [];
     for (let i = 0; i < candidates.length; i++) {
+        if (nowMs() >= deadline) return { bonuses, stats };
         if (vetoFlags && vetoFlags[i]) continue;
         const c = candidates[i];
         if (!['attack', 'move', 'recruit', 'tacticalCard', 'droneSuicide', 'banzaiCharge', 'cultureStrike'].includes(c.actionType)) continue;
@@ -734,18 +743,21 @@ export function computeMinimaxAlphaBetaBonuses(state, world, strategy, candidate
     const rootPool = scoredIndices.slice(0, maxRootBranches);
     if (rootPool.length === 0) return { bonuses, stats };
 
-    const { val: baselineVal } = searchMinReplyWithAlphaBeta(rootSim, world, strategy, -Infinity, stats);
+    const baseline = searchMinReplyWithAlphaBeta(rootSim, world, strategy, -Infinity, stats, deadline);
+    if (!baseline) return { bonuses, stats };
     let alpha = -Infinity;
     const rawValues = [];
 
     for (const item of rootPool) {
-        if (nowMs() - tStart >= timeBudgetMs) break;
+        if (nowMs() >= deadline) break;
         const postMax = applyMaxCandidateToSim(rootSim, item.cand, world);
         if (!postMax) continue;
-        stats.evaluatedRoots++;
         // 使用渴望窗口 (alpha - 75)：只剪掉显著劣于最优解 75 分以上的致命败招，避免连带误伤其他正收益协同攻势
         const cutoffBound = Number.isFinite(alpha) ? alpha - 75 : -Infinity;
-        const { val, pruned } = searchMinReplyWithAlphaBeta(postMax, world, strategy, cutoffBound, stats);
+        const result = searchMinReplyWithAlphaBeta(postMax, world, strategy, cutoffBound, stats, deadline);
+        if (!result) break;
+        stats.evaluatedRoots++;
+        const { val, pruned } = result;
         if (!pruned && val > alpha) alpha = val;
         rawValues.push({ key: item.cand.key, val, pruned, cutoffBound });
     }
@@ -755,7 +767,7 @@ export function computeMinimaxAlphaBetaBonuses(state, world, strategy, candidate
         if (pruned) {
             scaled = Math.max(-70, Math.min(-18, -18 + (val - cutoffBound) * 0.35));
         } else {
-            const gainOverPass = val - baselineVal;
+            const gainOverPass = val - baseline.val;
             scaled = Math.max(-68, Math.min(86, gainOverPass * 0.36));
         }
         if (Number.isFinite(scaled) && Math.abs(scaled) >= 1.5) {

@@ -142,6 +142,27 @@ export function listCultureStrikePlans(unit, state) {
     });
 }
 
+export function hasCultureStrikeTarget(unit, state) {
+    if (cultureStrikeUnavailable(unit, state)) return false;
+    if (unit.type === 'cpc_guerrilla') {
+        const origin = unit.tile;
+        for (const [dq, dr] of HEX_NEIGHBORS) {
+            for (let steps = 1; ; steps++) {
+                const tile = tileAt(state, origin.q + dq * steps, origin.r + dr * steps);
+                if (!isPlayableBoardTile(tile)) break;
+                const blocker = viewUnit(state, tile, unit.camp);
+                if (blocker) {
+                    if (canHit(state, unit, tile, blocker)) return true;
+                    break;
+                }
+            }
+        }
+        return false;
+    }
+    return state.tiles.some(tile => tile.unit && isPlayableBoardTile(tile)
+        && state.tileMap?.get(coord(tile)) === tile && chainPlan(unit, tile, state, false));
+}
+
 export function findCultureStrikeCaster(state, id) {
     return state.tiles.find(tile => tile.unit?.id === id)?.unit;
 }

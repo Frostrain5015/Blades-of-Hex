@@ -82,11 +82,12 @@ import {
     RENDERER_BACKEND,
     PixiBattlefieldRenderer,
     battlefieldSnapshotToPixi,
-    buildBattlefieldSnapshot,
+    buildBattlefieldOverlaySnapshot,
     createBattlefieldRenderer,
     shouldSyncBattlefieldSnapshot
 } from './rendering/index.js';
 import { battlefieldDelegation, setBattlefieldDelegation } from './rendering/delegation.js';
+import { measure, perfEnabled, recordPerfSample } from './perf.js';
 import {
     AIR_COMMAND_IMPACT_DELAY_MS
 } from '../rules/airCommands.js';
@@ -325,29 +326,30 @@ function _syncBattlefieldScene(now) {
     if (now - _battlefieldSnapshotCheckedAt < 50) return;
     _battlefieldSnapshotCheckedAt = now;
     try {
-        const next = buildBattlefieldSnapshot(gameState, {
+        const makeSnapshot = () => buildBattlefieldOverlaySnapshot(gameState, {
             viewingCamp: getViewingCamp(),
             humanTurn: isHumanTurnForInteractionHints()
         });
-        if (!shouldSyncBattlefieldSnapshot(_battlefieldSnapshot, next)) {
-            return;
-        }
+        const next = perfEnabled() ? measure('buildBattlefieldOverlaySnapshot', makeSnapshot) : makeSnapshot();
+        const sceneChanged = shouldSyncBattlefieldSnapshot(_battlefieldSnapshot, next);
         // 地形贴图只在地形相关状态（占领变色/地表/工事/城镇）变化时重画。
         // hover/选中/单位移动等交互变化不再触发全图重画 + GPU 纹理上传。
         if (_battlefieldSnapshot?.terrainSignature !== next.terrainSignature) {
             // 占领变色自带 1.5s 地块渐变：不再按 50ms 节拍整幅重画，改为
             // 渲染一次终态贴图并交给 GPU 交叉淡化（见 _syncBackendTerrainTexture）。
-            const fadeMs = _maxSurfaceTransitionRemainingMs(next.tiles, now);
+            const fadeMs = _maxSurfaceTransitionRemainingMs(next.terrainTiles, now);
             if (fadeMs > 0) _terrainPendingFade = { durationMs: fadeMs };
             else _terrainTextureDirty = true;
         }
-        _battlefieldSnapshot = next;
         // 地形走 Canvas 快照贴图（见 _syncBackendTerrainTexture），后端场景
         // 恒为叠加层：只承载交互提示，绝不自绘平面色块地形。
-        _battlefieldRenderer.syncScene(integration.createScene(next, {
-            showGrid: settings.showGrid !== false,
-            performanceProfile: _battlefieldRenderer.policy?.profile || 'balanced'
-        }));
+        if (sceneChanged) {
+            _battlefieldRenderer.syncScene(integration.createScene(next, {
+                showGrid: settings.showGrid !== false,
+                performanceProfile: _battlefieldRenderer.policy?.profile || 'balanced'
+            }));
+        }
+        _battlefieldSnapshot = next;
     } catch (error) {
         console.error('[渲染] 后端场景同步失败:', error);
     }
@@ -398,7 +400,7 @@ function _syncBackendTerrainTexture(now) {
             _terrainFrontIndex = backIndex;
         } else {
             const front = _ensureTerrainCanvas(_terrainFrontIndex, ratio);
-            renderTerrainSnapshot(front.getContext('2d'), now, ratio);
+            renderTerrainSnapshot(front.getContext('2d'), now, ratio, { finalizeFades: true });
             integration.syncTerrain(renderer, front, 1 / ratio);
         }
     } catch (error) {
@@ -472,12 +474,22 @@ function _resetBattlefieldPresentationCaches() {
 
 // ==== 游戏循环 ===================
 const gameWrapper = document.getElementById('gameWrapper');
+let _lastMeasuredFrameAt = null;
+if (perfEnabled()) {
+    document.addEventListener('visibilitychange', () => { _lastMeasuredFrameAt = null; });
+}
 function gameLoop() {
     try {
         const now = performance.now();
         const deltaMs = Math.min(50, Math.max(0, now - _battlefieldLastFrameAt));
         _battlefieldLastFrameAt = now;
         if (gameWrapper.style.display !== 'none') {
+            if (perfEnabled() && !document.hidden) {
+                if (_lastMeasuredFrameAt !== null) recordPerfSample('frameInterval', now - _lastMeasuredFrameAt);
+                _lastMeasuredFrameAt = now;
+            } else {
+                _lastMeasuredFrameAt = null;
+            }
             const renderer = _battlefieldRenderer;
             if (renderer) {
                 // 混合渲染：Canvas 保留辅助图层，已注册后端承担委托给它的图层。
@@ -491,11 +503,12 @@ function gameLoop() {
                 }
             }
             syncBoardActionBar();
-            drawCardCanvas(now);
+            if (perfEnabled()) measure('drawCardCanvas', () => drawCardCanvas(now));
+            else drawCardCanvas(now);
             if (_campFlagAnimationStarted) {
                 _renderCampFlagPreviews(now);
             }
-        }
+        } else _lastMeasuredFrameAt = null;
         renderResultFlagPreviews(now);
     } catch (error) {
         console.error('[gameLoop] 帧执行异常:', error);

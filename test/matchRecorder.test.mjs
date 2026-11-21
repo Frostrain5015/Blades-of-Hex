@@ -195,6 +195,9 @@ test('delayed effects keep their originating action and do not leak into the nex
         actorCampKey: 'player1',
         accepted: true
     });
+    assert.equal(airAction.actionId, 'deferred-cause-test:a1');
+    assert.equal(nextAction.actionId, 'deferred-cause-test:a2');
+    assert.ok(nextAction.sequence > airAction.sequence + 1);
     assert.equal(nextAction.outcome.changes.unitHp, undefined);
     assert.equal(nextAction.outcome.changes.resources[0].changes.gold.after, 96);
     clearMatchRecording();

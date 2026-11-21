@@ -59,7 +59,11 @@ function applyVirtualHealingAction(world, action, revertCallbacks) {
 
 // 移动后的追击复用战术评分，只刷新可见局面，不重新分配整支军队的任务。
 export function planFollowupAttack(gameState, helpers, myCamp, caps, unitId, plannedTargetId = null) {
-    const world = buildWorld(gameState, helpers, myCamp, caps);
+    return planFollowupAttackInWorld(buildWorld(gameState, helpers, myCamp, caps), unitId, plannedTargetId);
+}
+
+export function planFollowupAttackInWorld(world, unitId, plannedTargetId = null) {
+    const { gameState, helpers } = world;
     const unit = world.myUnits.find(candidate => candidate.id === unitId);
     if (!unit) return null;
     const memory = gameState._aiCoreMemory?.[world.myCampKey];
@@ -110,8 +114,12 @@ export function planOpenCityCaptures(gameState, helpers, myCamp, caps) {
 export function planTurn(gameState, helpers, myCamp, caps) {
     const world = buildWorld(gameState, helpers, myCamp, caps);
     if (world.myUnits.length === 0 && world.myCities.length === 0) return [];
+    return planTurnInWorld(world, decideStrategy(world));
+}
 
-    const strategy = decideStrategy(world);
+export function planTurnInWorld(world, strategy) {
+    if (world.myUnits.length === 0 && world.myCities.length === 0) return [];
+    const { gameState, helpers, myCamp } = world;
     const missionsCtx = assignMissions(world, strategy);
     const production = planProduction(world, strategy, missionsCtx);
     const setupReinforces = production.actions.filter(action => action.type === 'reinforce');

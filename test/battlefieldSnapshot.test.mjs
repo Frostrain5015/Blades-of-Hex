@@ -2,9 +2,11 @@ import assert from 'node:assert/strict';
 import {
     BATTLEFIELD_SNAPSHOT_KIND,
     BATTLEFIELD_SNAPSHOT_VERSION,
+    buildBattlefieldOverlaySnapshot,
     buildBattlefieldSnapshot,
     shouldSyncBattlefieldSnapshot
 } from '../js/rendering/battlefieldSnapshot.js';
+import { battlefieldSnapshotToPixi } from '../js/rendering/battlefieldToPixi.js';
 import {
     axialToBoardPixel,
     getPlayableBoardCoordinates,
@@ -132,6 +134,33 @@ const classicState = {
 };
 
 const classic = buildBattlefieldSnapshot(classicState, { viewingCamp: red });
+{
+    const state = { ...classicState, cardTargeting: null };
+    const options = { viewingCamp: red };
+    const scene = snapshot => {
+        const { revision, ...value } = battlefieldSnapshotToPixi(snapshot, { overlayOnly: true });
+        return value;
+    };
+    for (const hoveredTile of [village, enemy]) {
+        state.hoveredTile = hoveredTile;
+        assert.deepEqual(scene(buildBattlefieldOverlaySnapshot(state, options)), scene(buildBattlefieldSnapshot(state, options)));
+    }
+    state.selectedUnit = null;
+    const idle = buildBattlefieldOverlaySnapshot(state, options);
+    state.hoveredTile = city;
+    assert.equal(buildBattlefieldOverlaySnapshot(state, options).signature, idle.signature, 'Idle hover does not rebuild the Pixi scene');
+    const finalColor = city.targetColor;
+    const startTime = city.fadeStartTime;
+    const currentColor = city.currentColor;
+    city.fadeStartTime = null;
+    city.currentColor = finalColor;
+    assert.equal(buildBattlefieldOverlaySnapshot(state, options).terrainSignature, idle.terrainSignature, 'The final texture is already uploaded');
+    city.terrain = 'hill';
+    assert.notEqual(buildBattlefieldOverlaySnapshot(state, options).terrainSignature, idle.terrainSignature, 'Terrain edits invalidate the texture');
+    city.terrain = 'forest';
+    city.fadeStartTime = startTime;
+    city.currentColor = currentColor;
+}
 assert.equal(classic.kind, BATTLEFIELD_SNAPSHOT_KIND);
 assert.equal(classic.version, BATTLEFIELD_SNAPSHOT_VERSION);
 assert.match(classic.signature, /^battlefield-v1:[0-9a-f]{8}$/);

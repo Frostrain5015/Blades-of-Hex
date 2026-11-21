@@ -1616,7 +1616,8 @@ test('局部束搜索（Beam Search）识别先攻城破墙再跟进占城的 2 
         { id: 0, key: siegeKey, actionType: 'attack', isCitySiege: true, unitId: archer.id, targetId: null, q: 2, r: 0 },
         { id: 1, key: `move:${inf.id}:2,0`, actionType: 'move', unitId: inf.id, q: 2, r: 0 }
     ];
-    const bonuses = computeBeamTacticalBonuses(state, world, strategy, candidates);
+    assert.equal(computeBeamTacticalBonuses(state, world, strategy, candidates, { timeBudgetMs: 0 }).size, 0);
+    const bonuses = computeBeamTacticalBonuses(state, world, strategy, candidates, { timeBudgetMs: Infinity });
     assert.ok((bonuses.get(siegeKey) || 0) >= 15, `束搜索应识别弓手破墙后步兵可立刻占城的连招收益：bonus=${bonuses.get(siegeKey)}`);
 });
 
@@ -1683,7 +1684,10 @@ test('2-Ply 对抗式 MiniMax + Alpha-Beta 剪枝识别弃城走位风险并优�
     ];
     // 先把防守/乱逛分数排成乱序，验证回城救火（阻断 MIN 下回合偷 0HP 空城）拿到大额正奖励并触发 Alpha-Beta 剪枝
     const preScores = [30, 25, 20, 0];
-    const { bonuses, stats } = computeMinimaxAlphaBetaBonuses(state, world, strategy, candidates, { preScores });
+    const expired = computeMinimaxAlphaBetaBonuses(state, world, strategy, candidates, { preScores, timeBudgetMs: 0 });
+    assert.equal(expired.bonuses.size, 0);
+    assert.equal(expired.stats.evaluatedRoots, 0);
+    const { bonuses, stats } = computeMinimaxAlphaBetaBonuses(state, world, strategy, candidates, { preScores, timeBudgetMs: Infinity });
     assert.ok((bonuses.get(defendKey) || 0) >= 50,
         `MiniMax 应强烈奖励回防 0HP 受威胁空城：defend=${bonuses.get(defendKey)}`);
     assert.ok((bonuses.get(defendKey) || 0) > (bonuses.get(wanderKey) || 0) + 40,

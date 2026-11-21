@@ -284,7 +284,7 @@ export function drawSoftFlashes(ctx2d, now) {
 }
 
 // ===== 屏幕震动 =====================
-export const screenShake = { x: 0, y: 0, time: 0, duration: 0 };
+export const screenShake = { x: 0, y: 0, time: 0, duration: 0, endsAt: 0 };
 
 export function triggerScreenShake(intensity, duration) {
     if (!settings.screenShake) return;
@@ -292,6 +292,7 @@ export function triggerScreenShake(intensity, duration) {
     screenShake.y = intensity;
     screenShake.duration = duration;
     screenShake.time = duration;
+    screenShake.endsAt = performance.now() + duration;
 }
 
 // ===== 回合切换闪光 =====================
@@ -2662,6 +2663,7 @@ export function clearTransientEffects() {
     lightningBolts.length = 0;
     orbitalBeams.length = 0;
     screenShake.time = 0;
+    screenShake.endsAt = 0;
     cardUseEffects.length = 0;
     bloodDrains.length = 0;
     gongxinRipples.length = 0;

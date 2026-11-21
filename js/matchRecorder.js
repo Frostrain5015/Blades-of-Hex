@@ -518,6 +518,7 @@ export function startMatchRecording(state, metadata = {}) {
         startedAtMonotonic: performance.now(),
         broadcastEventCursor: 0,
         lastSnapshot: snapshot,
+        actionCount: 0,
         lastLogs: [...(state.logHistory || [])],
         log: {
             schema: MATCH_LOG_SCHEMA,
@@ -623,7 +624,7 @@ export function recordCommittedAction(state, {
     const floatTexts = freshFloats.length > 0 ? sanitize(freshFloats) : null;
     const item = {
         kind: 'action',
-        actionId: `${session.log.matchId}:a${session.log.timeline.filter(entry => entry.kind === 'action').length + 1}`,
+        actionId: `${session.log.matchId}:a${session.actionCount + 1}`,
         sequence: session.log.timeline.length + 1,
         elapsedMs: elapsedMs(),
         turnCounter: session.lastSnapshot.turnCounter,
@@ -644,6 +645,7 @@ export function recordCommittedAction(state, {
         }
     };
     session.log.timeline.push(item);
+    session.actionCount++;
     if (Array.isArray(remoteEvents) && remoteEvents.length > 0) {
         for (const ev of remoteEvents) {
             if (!ev?.eventType) continue;

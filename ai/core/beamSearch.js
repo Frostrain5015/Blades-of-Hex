@@ -268,8 +268,8 @@ export function computeBeamTacticalBonuses(state, world, strategy, candidates, {
     timeBudgetMs = 10
 } = {}) {
     const bonuses = new Map();
-    if (!world || !candidates || candidates.length === 0) return bonuses;
-    const tStart = nowMs();
+    if (!world || !candidates?.length || !(timeBudgetMs > 0)) return bonuses;
+    const deadline = nowMs() + timeBudgetMs;
 
     const tacticalPool = candidates.filter(c =>
         c.actionType === 'attack'
@@ -311,6 +311,7 @@ export function computeBeamTacticalBonuses(state, world, strategy, candidates, {
     const singleScores = new Map();
     const rootBeam = [];
     for (const cand of tacticalPool) {
+        if (nowMs() >= deadline) return bonuses;
         const res = scoreSimulatedAction(rootState, cand, world, strategy);
         if (!res) continue;
         singleScores.set(cand.key, res.delta);
@@ -332,11 +333,12 @@ export function computeBeamTacticalBonuses(state, world, strategy, candidates, {
 
     let expansions = 0;
     for (let depth = 2; depth <= maxDepth; depth++) {
-        if (expansions >= maxExpansions || nowMs() - tStart >= timeBudgetMs) break;
+        if (expansions >= maxExpansions || nowMs() >= deadline) break;
         const nextBeam = [];
         for (const node of beam) {
-            if (expansions >= maxExpansions || nowMs() - tStart >= timeBudgetMs) break;
+            if (expansions >= maxExpansions || nowMs() >= deadline) break;
             for (const cand of tacticalPool) {
+                if (expansions >= maxExpansions || nowMs() >= deadline) break;
                 if (node.usedKeys.has(cand.key)) continue;
                 expansions++;
                 const res = scoreSimulatedAction(node.state, cand, world, strategy);

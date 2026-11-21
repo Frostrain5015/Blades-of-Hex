@@ -404,6 +404,29 @@ export function collectBattlefieldFlags(gameState, now) {
     return flags;
 }
 
+function flagCompositeBounds(flags, surface) {
+    let left = LOGICAL_W;
+    let top = LOGICAL_H;
+    let right = 0;
+    let bottom = 0;
+    for (const { x, y, width, height } of flags) {
+        // The cloth bends and overhangs its anchor. Keep transparent padding
+        // around the mesh, including antialiasing and the strongest wind.
+        const pad = 0.4 * Math.max(width, height) + 2;
+        left = Math.min(left, x - pad);
+        top = Math.min(top, y - pad);
+        right = Math.max(right, x + width + pad);
+        bottom = Math.max(bottom, y + height + pad);
+    }
+    const scaleX = surface.width / LOGICAL_W;
+    const scaleY = surface.height / LOGICAL_H;
+    const x = Math.max(0, Math.floor(left * scaleX));
+    const y = Math.max(0, Math.floor(top * scaleY));
+    const width = Math.min(surface.width, Math.ceil(right * scaleX)) - x;
+    const height = Math.min(surface.height, Math.ceil(bottom * scaleY)) - y;
+    return { x, y, width, height, scaleX, scaleY };
+}
+
 export function drawBattlefieldFlags(ctx, gameState, now) {
     if (battlefieldFailed) return;
     try {
@@ -412,9 +435,12 @@ export function drawBattlefieldFlags(ctx, gameState, now) {
         if (!battlefieldRenderer) {
             battlefieldRenderer = new BatchedFlagRenderer(LOGICAL_W, LOGICAL_H, null, getCanvasPixelRatio());
         }
+        const surface = battlefieldRenderer.canvas;
+        const { x, y, width, height, scaleX, scaleY } = flagCompositeBounds(flags, surface);
+        if (width <= 0 || height <= 0) return;
         battlefieldRenderer.setInstances(flags);
         battlefieldRenderer.render(now / 1000, getFlagWindStrength(gameState.weather));
-        ctx.drawImage(battlefieldRenderer.canvas, 0, 0, LOGICAL_W, LOGICAL_H);
+        ctx.drawImage(surface, x, y, width, height, x / scaleX, y / scaleY, width / scaleX, height / scaleY);
     } catch (error) {
         battlefieldFailed = true;
         console.warn('[flagRenderer] WebGL2 旗帜渲染不可用:', error);

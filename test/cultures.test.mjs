@@ -582,6 +582,25 @@ test('中共苏区：游击纵队只在主动隐匿期间隐藏，邻格侦测�
     assert.equal(getCulturalReinforceCostScale(state, farTile, cpc), 1);
 });
 
+test('远距狙击按钮的快速目标判断与实际射线规划一致', async () => {
+    const { hasCultureStrikeTarget, listCultureStrikePlans } = await import('../rules/cultureStrike.js');
+    const state = setupCultureState('img/flags/chinese-communist-party-old.svg', 'img/flags/svg/tw.svg');
+    const { player1, player2 } = state.factions;
+    const origin = addTile(state, 0, 0, player1);
+    const between = addTile(state, 1, 0, player1);
+    const target = addTile(state, 2, 0, player2);
+    const guerrilla = spawnUnit('cpc_guerrilla', player1, origin);
+    const check = expected => {
+        assert.equal(hasCultureStrikeTarget(guerrilla, state), expected);
+        assert.equal(listCultureStrikePlans(guerrilla, state).length > 0, expected);
+    };
+    check(false);
+    spawnUnit('infantry', player2, target);
+    check(true);
+    spawnUnit('infantry', player1, between);
+    check(false);
+});
+
 test('德国文化：斯图卡无冷却、机场费用降低30%、火海附着单位并同步快照', () => {
     const state = setupCultureState('img/flags/germany-iron-cross.svg', 'img/flags/svg/us.svg');
     const de = state.factions.player1;
