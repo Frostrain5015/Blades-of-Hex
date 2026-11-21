@@ -247,7 +247,7 @@ function buildTianyan() {
         definition: {
             id: 'tianyan', name: '天眼', hpBonusPct: 0.30, atkBonusPct: 0.15, spdBonus: 1,
             skills: [
-                { name: '战场观测', desc: `遭遇战中自身视野+${balance.visionBonus}；常驻显示${balance.signalRange}格无人机信号范围`, type: 'passive' },
+                { name: '战场观测', desc: `遭遇战中自身视野+${balance.visionBonus}；天眼可见时，选中天眼或其哨机可查看${balance.signalRange}格信号范围`, type: 'passive' },
                 { name: '天眼哨机', desc: `$${balance.deployGoldCost} 在周围部署天眼哨机，每回合可部署${balance.deployLimitPerTurn}架，上限${balance.maxCount}架，哨机与天眼距离超过${balance.signalRange}格会失控`, type: 'active' },
                 { name: '自爆', desc: `立即撞向${balance.suicideRange}格内指定目标自毁并造成穿刺伤害`, type: 'active' }
             ],

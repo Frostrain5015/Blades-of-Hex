@@ -1,8 +1,17 @@
-import { HEX_NEIGHBORS } from '../../rules/hex.js';
+import { isPlayableBoardTile } from '../../rules/boardLayout.js';
+import { HEX_NEIGHBORS, hexDistance } from '../../rules/hex.js';
 
 // Pointy-top hex vertices, clockwise from the top. The integer lattice
 // identifies shared vertices without rounding their projected coordinates.
 const VERTICES = [[0, -2], [1, -1], [1, 1], [0, 2], [-1, 1], [-1, -1]];
+
+export function buildPlayableHexRange(boardTiles, origin, range, size) {
+    const tiles = boardTiles.filter(tile => isPlayableBoardTile(tile) && hexDistance(origin, tile) <= range);
+    return {
+        tiles,
+        contours: buildHexRegionContours(tiles.map(tile => ({ q: tile.q, r: tile.r, center: tile })), size)
+    };
+}
 
 export function buildHexRegionContours(cells, size) {
     const cellKeys = new Set(cells.map(({ q, r }) => `${q},${r}`));

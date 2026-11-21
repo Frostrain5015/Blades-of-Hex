@@ -2,10 +2,14 @@ import { HEX_SIZE, hexPath } from '../../js/config.js';
 import { gameState, getViewingCamp } from '../../js/state.js';
 import { isTileVisible } from '../../js/fogOfWar.js';
 import { registerFxLayer, registerFxListener, registerFxUpdate } from '../../js/fxRegistry.js';
-import { DRONE_SIGNAL_RANGE } from '../tianyan.js';
+import { buildPlayableHexRange } from '../../js/rendering/hexRegionContours.js';
+import { strokeHexRegionContours } from '../../js/targetingPreviewRenderer.js';
+import { isUnitVisibleToCamp } from '../../rules/visibility.js';
+import { DRONE_SIGNAL_RANGE, _findTianyanUnit } from '../tianyan.js';
 import { areCommanderMechanicsSuppressed } from '../../rules/movement.js';
 
 const deployEffects = [];
+let signalRangeCache = null;
 
 const clamp01 = v => Math.max(0, Math.min(1, v));
 const easeOutCubic = t => 1 - Math.pow(1 - clamp01(t), 3);
@@ -29,56 +33,37 @@ function _visibleTianyans() {
     return out;
 }
 
-function _strokeHexRegionBorder(ctx2d, tiles, insideFn, now, outer, inner) {
-    const NB = [[1, 0, 0], [0, 1, 1], [-1, 1, 2], [-1, 0, 3], [0, -1, 4], [1, -1, 5]];
-    ctx2d.save();
-    ctx2d.beginPath();
-    for (const ht of tiles) {
-        for (const [dq, dr, edge] of NB) {
-            const nq = ht.q + dq, nr = ht.r + dr;
-            if (!gameState.tileMap.has(`${nq},${nr}`)) continue;
-            if (insideFn(nq, nr)) continue;
-            const a0 = (Math.PI / 180) * (60 * edge - 30);
-            const a1 = (Math.PI / 180) * (60 * (edge + 1) - 30);
-            ctx2d.moveTo(ht.x + HEX_SIZE * Math.cos(a0), ht.y + HEX_SIZE * Math.sin(a0));
-            ctx2d.lineTo(ht.x + HEX_SIZE * Math.cos(a1), ht.y + HEX_SIZE * Math.sin(a1));
-        }
-    }
-    ctx2d.lineJoin = 'round';
-    ctx2d.lineCap = 'round';
-    ctx2d.setLineDash([14, 9]);
-    ctx2d.lineDashOffset = -(now / 22) % 23;
-    ctx2d.strokeStyle = outer.color;
-    ctx2d.lineWidth = outer.w;
-    ctx2d.shadowColor = outer.glow;
-    ctx2d.shadowBlur = outer.blur;
-    ctx2d.stroke();
-    if (inner) {
-        ctx2d.strokeStyle = inner.color;
-        ctx2d.lineWidth = inner.w;
-        ctx2d.shadowBlur = 0;
-        ctx2d.stroke();
-    }
-    ctx2d.setLineDash([]);
-    ctx2d.restore();
-}
+function _drawSelectedSignalRange(ctx2d, now) {
+    const inspected = gameState.selectedTile?.unit;
+    if (!inspected || (inspected.commander !== 'tianyan' && !inspected._isDrone)) return;
+    const target = gameState.inspectionTarget;
+    if (target && (target.kind !== 'unit' || target.unitId !== inspected.id)) return;
+    const viewer = getViewingCamp();
+    if (!isTileVisible(gameState.selectedTile, viewer, gameState)
+        || !isUnitVisibleToCamp(inspected, viewer, gameState)) return;
 
-function _drawSignalRanges(ctx2d, now) {
-    const pulse = (Math.sin(now / 300) + 1) / 2;
-    for (const { tile } of _visibleTianyans()) {
-        const cq = tile.q, cr = tile.r;
-        const rangeTiles = [];
-        for (let dq = -DRONE_SIGNAL_RANGE; dq <= DRONE_SIGNAL_RANGE; dq++) {
-            for (let dr = Math.max(-DRONE_SIGNAL_RANGE, -dq - DRONE_SIGNAL_RANGE); dr <= Math.min(DRONE_SIGNAL_RANGE, -dq + DRONE_SIGNAL_RANGE); dr++) {
-                const ht = gameState.tileMap.get(`${cq + dq},${cr + dr}`);
-                if (ht) rangeTiles.push(ht);
-            }
-        }
-        const inRangeFn = (q, r) => Math.max(Math.abs(q - cq), Math.abs(r - cr), Math.abs((q + r) - (cq + cr))) <= DRONE_SIGNAL_RANGE;
-        _strokeHexRegionBorder(ctx2d, rangeTiles, inRangeFn, now,
-            { color: `rgba(120,200,255,${0.62 + pulse * 0.13})`, w: 2.6, glow: 'rgba(90,180,255,0.55)', blur: 7 + pulse * 4 },
-            { color: `rgba(230,245,255,${0.4 + pulse * 0.2})`, w: 1 });
+    const tianyan = inspected.commander === 'tianyan' ? inspected : _findTianyanUnit(gameState, inspected.camp);
+    if (!tianyan?.tile || areCommanderMechanicsSuppressed(tianyan)
+        || !isTileVisible(tianyan.tile, viewer, gameState) || !isUnitVisibleToCamp(tianyan, viewer, gameState)) return;
+
+    const { tile } = tianyan;
+    const { tiles, tileMap } = gameState;
+    if (signalRangeCache?.tile !== tile || signalRangeCache.tiles !== tiles || signalRangeCache.tileMap !== tileMap) {
+        const { contours } = buildPlayableHexRange(tiles, tile, DRONE_SIGNAL_RANGE, HEX_SIZE);
+        signalRangeCache = { tile, tiles, tileMap, contours };
     }
+    const pulse = (Math.sin(now / 300) + 1) / 2;
+    strokeHexRegionContours(ctx2d, signalRangeCache.contours, {
+        stroke: `rgba(120,200,255,${0.62 + pulse * 0.13})`,
+        lineWidth: 2.6,
+        glow: 'rgba(90,180,255,0.55)',
+        glowBlur: 7 + pulse * 4,
+        inner: `rgba(230,245,255,${0.4 + pulse * 0.2})`,
+        innerWidth: 1,
+        lineCap: 'round',
+        dash: [14, 9],
+        dashOffset: -(now / 22) % 23
+    });
 }
 
 function _drawTianyanRadar(ctx2d, now) {
@@ -300,7 +285,8 @@ function _updateDeployEffects(dt, now) {
 }
 
 export function register() {
-    registerFxLayer('ground', _drawSignalRanges, 35);
+    signalRangeCache = null;
+    registerFxLayer('ground', _drawSelectedSignalRange, 35);
     registerFxLayer('aboveUnits', _drawTianyanRadar, 20);
     registerFxLayer('overSkillFx', _drawDeployEffects, 30);
     registerFxListener('tianyan:droneDeploy', data => {

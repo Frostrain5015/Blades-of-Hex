@@ -671,7 +671,9 @@ export function strokeHexRegionContours(ctx, contours, style) {
         appendPolygonPath(ctx, insetPx > 0 ? insetContour(contour, insetPx) : contour);
     }
     ctx.lineJoin = 'round';
-    ctx.setLineDash([]);
+    if (style.lineCap) ctx.lineCap = style.lineCap;
+    ctx.setLineDash(style.dash ?? []);
+    ctx.lineDashOffset = style.dashOffset ?? 0;
     ctx.strokeStyle = style.stroke;
     ctx.lineWidth = style.lineWidth;
     ctx.shadowColor = style.glow;

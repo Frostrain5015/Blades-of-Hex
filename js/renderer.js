@@ -96,7 +96,7 @@ import {
 import { findCultureStrikeCaster, planCultureStrike } from '../rules/cultureStrike.js';
 import { drawCultureStrikeEffects } from './cultureStrikeFx.js';
 import { resolveAirViewState } from '../rules/airView.js';
-import { buildHexRegionContours } from './rendering/hexRegionContours.js';
+import { buildHexRegionContours, buildPlayableHexRange } from './rendering/hexRegionContours.js';
 import { isPlayableBoardTile } from '../rules/boardLayout.js';
 import { resolveMovementTileReveal } from './movementRegionAnimation.js';
 import { CanvasBattlefieldLayers } from './canvasBattlefieldLayers.js';
@@ -1238,14 +1238,45 @@ function _renderGame() {
 // 通用防空炮火特效：从AA单位射向飞行器的曳光弹流
 // 覆盖源缓存：一次空袭动画(~2s)期间防空布局基本不变，200ms 内复用同一组覆盖源，
 // 避免每帧对整个 tileMap 跑规则引擎扫描 + Set/数组分配。过期条目随空袭结束自然淘汰。
-const _aaFlakCoverageCache = new Map(); // key -> { at, tiles }
+const _aaFlakCoverageCache = new Map();
+const _airstrikeFrameSources = new WeakMap();
+const _legacyAirstrikeDefense = new WeakMap();
+const _airstrikeSprites = new Map();
 const _AA_FLAK_CACHE_MS = 200;
+const _AA_TRACER_LAYERS = [[2.35, 0.09, '#ffc83c'], [1.65, 0.21, '#ffc83c'], [1, 1, '#ffe678']];
+
+function _airstrikeSprite(key, radius, draw) {
+    const ratio = getCanvasPixelRatio();
+    const cached = _airstrikeSprites.get(key);
+    if (cached?.ratio === ratio) return cached.canvas;
+    const canvas = document.createElement('canvas');
+    const size = Math.ceil(radius * 2 * ratio);
+    canvas.width = canvas.height = size;
+    const sprite = canvas.getContext('2d');
+    sprite.setTransform(size / (radius * 2), 0, 0, size / (radius * 2), size / 2, size / 2);
+    draw(sprite);
+    _airstrikeSprites.set(key, { canvas, ratio });
+    return canvas;
+}
+
+function _drawAirstrikeGlyph(glyph, size, glow, blur) {
+    const radius = size * 0.9 + blur;
+    const sprite = _airstrikeSprite(`air:${glyph}:${size}:${glow}`, radius, layer => {
+        layer.font = `${size}px sans-serif`;
+        layer.textAlign = 'center';
+        layer.textBaseline = 'middle';
+        layer.shadowColor = glow;
+        layer.shadowBlur = blur;
+        layer.fillText(glyph, 0, 0);
+    });
+    ctx.drawImage(sprite, -radius, -radius, radius * 2, radius * 2);
+}
 
 function _aaFlakSourceTiles(targetTile, friendlyCamp, airspace = false, isArea = false) {
     const key = `${targetTile.q},${targetTile.r}|${friendlyCamp?.id ?? friendlyCamp ?? ''}|${airspace ? 1 : 0}|${isArea ? 1 : 0}`;
     const now = performance.now();
     const hit = _aaFlakCoverageCache.get(key);
-    if (hit && now - hit.at < _AA_FLAK_CACHE_MS) return hit.tiles;
+    if (hit && hit.board === gameState.tileMap && now - hit.at < _AA_FLAK_CACHE_MS) return hit.tiles;
     const sampleTiles = isArea ? getTargetingAreaTiles(gameState, targetTile) : [targetTile];
     const sourceKeys = new Set();
     for (const sampleTile of sampleTiles) {
@@ -1261,59 +1292,75 @@ function _aaFlakSourceTiles(targetTile, friendlyCamp, airspace = false, isArea =
     }
     const tiles = [...sourceKeys].map(k => gameState.tileMap.get(k)).filter(Boolean);
     if (_aaFlakCoverageCache.size > 64) _aaFlakCoverageCache.clear();
-    _aaFlakCoverageCache.set(key, { at: now, tiles });
+    _aaFlakCoverageCache.set(key, { board: gameState.tileMap, at: now, tiles });
     return tiles;
 }
 
 function _renderAAFlak(planeX, planeY, targetQ, targetR, t, seed, friendlyCamp, airspace = false, fx = null) {
     let _sources = null;
     if (Array.isArray(fx?.aaSources)) {
-        _sources = fx.aaSources
-            .map(src => gameState.tileMap?.get(`${src.q},${src.r}`))
-            .filter(Boolean);
+        const cached = _airstrikeFrameSources.get(fx);
+        if (cached?.board === gameState.tileMap && cached?.sources === fx.aaSources) {
+            _sources = cached.tiles;
+        } else {
+            _sources = fx.aaSources.map(src => gameState.tileMap?.get(`${src.q},${src.r}`)).filter(Boolean);
+            _airstrikeFrameSources.set(fx, { board: gameState.tileMap, sources: fx.aaSources, tiles: _sources });
+        }
     } else {
         const targetTile = gameState.tileMap?.get(`${targetQ},${targetR}`);
         if (!targetTile) return;
         _sources = _aaFlakSourceTiles(targetTile, friendlyCamp, airspace, fx?.type === 'carpetBomb');
     }
-    for (const _t of _sources) {
-        ctx.save();
-        const sx2 = _t.x, sy2 = _t.y;
-        const dx = planeX - sx2, dy = planeY - sy2;
-        for (let tr = 0; tr < 3; tr++) {
-            const phase = (t * 6 + tr * 0.5 + (seed || 0) * 0.02) % 1;
-            const tp = phase < 0.7 ? phase / 0.7 : (1 - phase) / 0.3;
-            const tx = sx2 + dx * tp;
-            const ty = sy2 + dy * tp;
-            const ta = 0.8 * (1 - tp);
-            ctx.shadowColor = 'rgba(255,200,60,0.7)';
-            ctx.shadowBlur = 5;
-            ctx.fillStyle = `rgba(255,230,120,${ta})`;
+    if (!_sources.length) return;
+    ctx.save();
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+    const alpha = ctx.globalAlpha;
+    // Share each tracer phase's halo, core and tail across all batteries.
+    for (let tr = 0; tr < 3; tr++) {
+        const phase = (t * 6 + tr * 0.5 + (seed || 0) * 0.02) % 1;
+        const tp = phase < 0.7 ? phase / 0.7 : (1 - phase) / 0.3;
+        const ta = 0.8 * (1 - tp);
+        const radius = 1.8 + (1 - tp) * 1.5;
+        for (const [size, opacity, color] of _AA_TRACER_LAYERS) {
+            const r = radius * size;
             ctx.beginPath();
-            ctx.arc(tx, ty, 1.8 + (1 - tp) * 1.5, 0, Math.PI * 2);
+            for (const { x, y } of _sources) {
+                const tx = x + (planeX - x) * tp, ty = y + (planeY - y) * tp;
+                ctx.moveTo(tx + r, ty);
+                ctx.arc(tx, ty, r, 0, Math.PI * 2);
+            }
+            ctx.globalAlpha = alpha * ta * opacity;
+            ctx.fillStyle = color;
             ctx.fill();
-            if (tp < 0.6) {
-                ctx.shadowBlur = 2;
-                ctx.strokeStyle = `rgba(255,220,80,${ta * 0.5})`;
-                ctx.lineWidth = 1.2;
-                ctx.beginPath();
+        }
+        if (tp < 0.6) {
+            ctx.beginPath();
+            for (const { x, y } of _sources) {
+                const dx = planeX - x, dy = planeY - y;
+                const tx = x + dx * tp, ty = y + dy * tp;
                 ctx.moveTo(tx, ty);
                 ctx.lineTo(tx - dx * 0.04, ty - dy * 0.04);
-                ctx.stroke();
             }
+            ctx.strokeStyle = 'rgba(255,200,60,0.16)';
+            ctx.lineWidth = 3.4;
+            ctx.stroke();
+            ctx.strokeStyle = 'rgba(255,220,80,0.5)';
+            ctx.lineWidth = 1.2;
+            ctx.stroke();
         }
-        // 炮口闪光
-        if (Math.sin(t * 14 + (seed || 0) * 0.5) > 0.4) {
-            ctx.shadowBlur = 0;
+    }
+    if (Math.sin(t * 14 + (seed || 0) * 0.5) > 0.4) {
+        ctx.globalAlpha = alpha;
+        for (const { x, y } of _sources) {
             const flA = 0.3 + Math.random() * 0.2;
             ctx.fillStyle = `rgba(255,200,80,${flA})`;
             ctx.beginPath();
-            ctx.arc(sx2 + (Math.random() - 0.5) * 10, sy2, 2.5 + Math.random() * 3, 0, Math.PI * 2);
+            ctx.arc(x + (Math.random() - 0.5) * 10, y, 2.5 + Math.random() * 3, 0, Math.PI * 2);
             ctx.fill();
         }
-        ctx.shadowBlur = 0;
-        ctx.restore();
     }
+    ctx.restore();
 }
 
 function _resolveFxAirstrikeAntiAir(fx, friendlyCamp) {
@@ -1321,6 +1368,8 @@ function _resolveFxAirstrikeAntiAir(fx, friendlyCamp) {
         return Number(fx.antiAir);
     }
     if (!gameState.tileMap) return 0;
+    const cached = _legacyAirstrikeDefense.get(fx);
+    if (cached?.board === gameState.tileMap && cached?.camp === friendlyCamp) return cached.value;
     let rawMax = 0;
     if (fx?.q != null && fx?.r != null) {
         const centerTile = gameState.tileMap.get(`${fx.q},${fx.r}`);
@@ -1333,7 +1382,9 @@ function _resolveFxAirstrikeAntiAir(fx, friendlyCamp) {
             if (tile) rawMax = Math.max(rawMax, getAntiAirReduction(tile, friendlyCamp, gameState.tileMap, { state: gameState }));
         }
     }
-    return capAntiAirReduction(rawMax);
+    const value = capAntiAirReduction(rawMax);
+    _legacyAirstrikeDefense.set(fx, { board: gameState.tileMap, camp: friendlyCamp, value });
+    return value;
 }
 
 function _renderAirstrikeBlackSmokeTrail(fx, posAtProgress, t, alpha, scale = 1, engineOffset = 6, now = performance.now()) {
@@ -1398,28 +1449,32 @@ function _renderAirstrikeEngineFire(planeX, planeY, angle, t, alpha, scale = 1, 
     ctx.translate(ex, ey);
     ctx.rotate((angle || 0) + Math.PI); // 火焰朝机尾方向喷吐
 
-    // 外焰
-    ctx.globalAlpha = fireAlpha * 0.88;
-    ctx.shadowColor = '#ff5511';
-    ctx.shadowBlur = 10 * scale;
-    ctx.fillStyle = '#ff4d0a';
-    ctx.beginPath();
-    ctx.moveTo(0, -5.2 * scale);
-    ctx.quadraticCurveTo(11 * scale * flicker, -3.4 * scale, 22 * scale * flicker, 0);
-    ctx.quadraticCurveTo(11 * scale * flicker, 3.4 * scale, 0, 5.2 * scale);
-    ctx.closePath();
-    ctx.fill();
-
-    // 亮橙黄内焰
-    ctx.shadowBlur = 4 * scale;
-    ctx.fillStyle = '#ffd452';
-    ctx.globalAlpha = fireAlpha * 0.95;
-    ctx.beginPath();
-    ctx.moveTo(0, -2.8 * scale);
-    ctx.quadraticCurveTo(6 * scale * flicker, -1.8 * scale, 12.5 * scale * flicker, 0);
-    ctx.quadraticCurveTo(6 * scale * flicker, 1.8 * scale, 0, 2.8 * scale);
-    ctx.closePath();
-    ctx.fill();
+    const flameRadius = 40;
+    const flame = _airstrikeSprite('air:engineFire', flameRadius, layer => {
+        layer.shadowColor = '#ff5511';
+        layer.shadowBlur = 10;
+        layer.globalAlpha = 0.88;
+        layer.fillStyle = '#ff4d0a';
+        layer.beginPath();
+        layer.moveTo(0, -5.2);
+        layer.quadraticCurveTo(11, -3.4, 22, 0);
+        layer.quadraticCurveTo(11, 3.4, 0, 5.2);
+        layer.closePath();
+        layer.fill();
+        layer.shadowBlur = 4;
+        layer.globalAlpha = 0.95;
+        layer.fillStyle = '#ffd452';
+        layer.beginPath();
+        layer.moveTo(0, -2.8);
+        layer.quadraticCurveTo(6, -1.8, 12.5, 0);
+        layer.quadraticCurveTo(6, 1.8, 0, 2.8);
+        layer.closePath();
+        layer.fill();
+    });
+    ctx.globalAlpha = fireAlpha;
+    const width = flameRadius * scale * flicker;
+    const height = flameRadius * scale;
+    ctx.drawImage(flame, -width, -height, width * 2, height * 2);
 
     // 发动机飞溅火星
     if (!settings.reducedMotion) {
@@ -1448,8 +1503,8 @@ function drawAirstrikeEffects(now) {
 
         const t = elapsed / fx.duration;
         const cx = fx.x, cy = fx.y;
-        const fxAntiAir = _resolveFxAirstrikeAntiAir(fx, _ac);
-        const engineFire = shouldRenderAirstrikeEngineFire(fx, t, fxAntiAir);
+        const engineFire = t >= AIRSTRIKE_DAMAGED_START_PROGRESS && fx.type !== 'airdrop'
+            && shouldRenderAirstrikeEngineFire(fx, t, _resolveFxAirstrikeAntiAir(fx, _ac));
         const fxSeed = (fx.x | 0) * 7 + (fx.y | 0) * 13;
 
         // 德国专属空军指令：斯图卡俯冲射击
@@ -1460,8 +1515,8 @@ function drawAirstrikeEffects(now) {
                 ctx.save();
                 ctx.lineCap = 'round';
                 const trailStart = Math.max(0, t - 0.24);
+                let a = posAt(trailStart);
                 for (let segment = 0; segment < 14; segment++) {
-                    const a = posAt(trailStart + (t - trailStart) * segment / 14);
                     const b = posAt(trailStart + (t - trailStart) * (segment + 1) / 14);
                     ctx.beginPath();
                     ctx.moveTo(a.x, a.y);
@@ -1469,6 +1524,7 @@ function drawAirstrikeEffects(now) {
                     ctx.lineWidth = 5.5 - segment * 0.24;
                     ctx.strokeStyle = `rgba(223,227,211,${0.42 * (segment + 1) / 14})`;
                     ctx.stroke();
+                    a = b;
                 }
                 ctx.restore();
             }
@@ -1540,13 +1596,9 @@ function drawAirstrikeEffects(now) {
             // 战机
             ctx.save();
             ctx.globalAlpha = planeAlpha;
-            ctx.fillStyle = '#000';
             ctx.translate(px, py);
             ctx.rotate(ang + Math.PI / 4);
-            ctx.font = '46px sans-serif';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText('🛩️', 0, 0);
+            _drawAirstrikeGlyph('🛩️', 46, 'transparent', 0);
             ctx.restore();
 
             if (engineFire) {
@@ -1595,16 +1647,9 @@ function drawAirstrikeEffects(now) {
         }
         // 航线不再必然飞出屏幕，收尾淡出避免战机凭空消失
         ctx.globalAlpha = planeAlpha;
-        ctx.fillStyle = '#000';
         ctx.translate(planeX, planeY);
         ctx.rotate(Math.PI / 4);
-        ctx.font = '54px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.shadowColor = engineFire ? '#ff3300' : (isRecon ? '#38bdf8' : '#ff8844');
-        ctx.shadowBlur = engineFire ? 12 : 8;
-        ctx.fillText('✈️', 0, 0);
-        ctx.shadowBlur = 0;
+        _drawAirstrikeGlyph('✈️', 54, engineFire ? '#ff3300' : (isRecon ? '#38bdf8' : '#ff8844'), engineFire ? 12 : 8);
         ctx.restore();
 
         if (engineFire) {
@@ -2597,20 +2642,16 @@ function _getAirViewSession(viewerCamp) {
     const hostileContours = buildHexRegionContours(hostileCells, HEX_SIZE);
     const friendlyContours = buildHexRegionContours(friendlyCells, HEX_SIZE);
 
-    const playableTiles = (gameState.tiles || []).filter(isPlayableBoardTile);
     const platforms = [
         ...data.airfields.map(airfield => ({ ...airfield, isCarrier: false })),
         ...data.carriers.map(carrier => ({ ...carrier, isCarrier: true }))
     ];
     const platformRanges = new Map();
     for (const platform of platforms) {
-        const rangeTiles = playableTiles.filter(tile => hexDistance(platform.tile, tile) <= platform.range);
-        const cells = rangeTiles.map(tile => ({ q: tile.q, r: tile.r, center: tile }));
         const rangeKey = platform.isCarrier ? `carrier:${platform.key}` : platform.key;
         platformRanges.set(rangeKey, {
             platform,
-            tiles: rangeTiles,
-            contours: buildHexRegionContours(cells, HEX_SIZE)
+            ...buildPlayableHexRange(gameState.tiles, platform.tile, platform.range, HEX_SIZE)
         });
     }
 
