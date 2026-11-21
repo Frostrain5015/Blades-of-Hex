@@ -184,10 +184,14 @@ export class BatchedFlagRenderer {
         this.textureSlots = new Map();
         this.readyTextures = new Set();
         this.failedTextures = new Set();
-        this.atlasCanvas = document.createElement('canvas');
-        this.atlasCanvas.width = ATLAS_COLUMNS * ATLAS_CELL_W;
-        this.atlasCanvas.height = ATLAS_ROWS * ATLAS_CELL_H;
-        this.atlasContext = this.atlasCanvas.getContext('2d');
+        this.textureRevision = 0;
+        this.uploadedTextureRevision = 0;
+        this.uploadedInstances = [];
+        this.instanceData = new Float32Array(0);
+        this.textureCell = document.createElement('canvas');
+        this.textureCell.width = ATLAS_CELL_W;
+        this.textureCell.height = ATLAS_CELL_H;
+        this.textureCellContext = this.textureCell.getContext('2d');
         this._initProgram();
         this._initMesh();
         this._initTexture();
@@ -264,7 +268,8 @@ export class BatchedFlagRenderer {
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.atlasCanvas);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA,
+            ATLAS_COLUMNS * ATLAS_CELL_W, ATLAS_ROWS * ATLAS_CELL_H, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
     }
 
     _configure() {
@@ -287,13 +292,16 @@ export class BatchedFlagRenderer {
         image.onload = () => {
             const column = index % ATLAS_COLUMNS;
             const row = Math.floor(index / ATLAS_COLUMNS);
-            this.atlasContext.clearRect(column * ATLAS_CELL_W, row * ATLAS_CELL_H, ATLAS_CELL_W, ATLAS_CELL_H);
-            this.atlasContext.drawImage(image, column * ATLAS_CELL_W, row * ATLAS_CELL_H, ATLAS_CELL_W, ATLAS_CELL_H);
+            this.textureCellContext.clearRect(0, 0, ATLAS_CELL_W, ATLAS_CELL_H);
+            this.textureCellContext.drawImage(image, 0, 0, ATLAS_CELL_W, ATLAS_CELL_H);
             const gl = this.gl;
             gl.bindTexture(gl.TEXTURE_2D, this.texture);
             gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
-            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.atlasCanvas);
+            // Atlas rows are counted from the top, WebGL texture offsets from the bottom.
+            gl.texSubImage2D(gl.TEXTURE_2D, 0, column * ATLAS_CELL_W, (ATLAS_ROWS - row - 1) * ATLAS_CELL_H,
+                gl.RGBA, gl.UNSIGNED_BYTE, this.textureCell);
             this.readyTextures.add(url);
+            this.textureRevision++;
         };
         image.onerror = () => this.failedTextures.add(url);
         image.src = url;
@@ -301,22 +309,37 @@ export class BatchedFlagRenderer {
     }
 
     setInstances(instances) {
-        const data = new Float32Array(instances.length * INSTANCE_FLOATS);
+        this.instanceCount = instances.length;
+        if (!this.instanceCount) return;
+        if (this.uploadedTextureRevision === this.textureRevision
+            && this.uploadedInstances.length === instances.length
+            && instances.every((item, index) => {
+                const prev = this.uploadedInstances[index];
+                const colors = item.colors || getFlagColors(item.color);
+                return item.x === prev.x && item.y === prev.y && item.width === prev.width && item.height === prev.height
+                    && item.phase === prev.phase && item.flagUrl === prev.flagUrl && item.commander === prev.commander
+                    && colors.main === prev.colors.main && colors.dark === prev.colors.dark;
+            })) return;
+
+        const length = instances.length * INSTANCE_FLOATS;
+        if (this.instanceData.length !== length) this.instanceData = new Float32Array(length);
         instances.forEach((item, index) => {
             const offset = index * INSTANCE_FLOATS;
             const colors = item.colors || getFlagColors(item.color);
             const main = rgb(colors.main);
             const dark = rgb(colors.dark);
-            data.set([
+            this.instanceData.set([
                 item.x, item.y, item.width, item.height, item.phase || 0,
                 this.registerTexture(item.flagUrl),
                 ...main, ...dark, item.commander ? 1 : 0
             ], offset);
+            this.uploadedInstances[index] = { ...item, colors: { main: colors.main, dark: colors.dark } };
         });
+        this.uploadedInstances.length = instances.length;
         const gl = this.gl;
         gl.bindBuffer(gl.ARRAY_BUFFER, this.instanceBuffer);
-        gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
-        this.instanceCount = instances.length;
+        gl.bufferData(gl.ARRAY_BUFFER, this.instanceData, gl.DYNAMIC_DRAW);
+        this.uploadedTextureRevision = this.textureRevision;
     }
 
     setGravitySag(value) {
@@ -384,10 +407,12 @@ export function collectBattlefieldFlags(gameState, now) {
 export function drawBattlefieldFlags(ctx, gameState, now) {
     if (battlefieldFailed) return;
     try {
+        const flags = collectBattlefieldFlags(gameState, now);
+        if (!flags.length) return;
         if (!battlefieldRenderer) {
             battlefieldRenderer = new BatchedFlagRenderer(LOGICAL_W, LOGICAL_H, null, getCanvasPixelRatio());
         }
-        battlefieldRenderer.setInstances(collectBattlefieldFlags(gameState, now));
+        battlefieldRenderer.setInstances(flags);
         battlefieldRenderer.render(now / 1000, getFlagWindStrength(gameState.weather));
         ctx.drawImage(battlefieldRenderer.canvas, 0, 0, LOGICAL_W, LOGICAL_H);
     } catch (error) {
@@ -413,6 +438,8 @@ export function createFlagPreview(canvas) {
         ctx2d = canvas.getContext('2d');
     }
     let previewInstance = null;
+    let previewInstances = [];
+    let fallbackDirty = false;
     return {
         setFaction(faction) {
             if (useWebGL) {
@@ -428,24 +455,29 @@ export function createFlagPreview(canvas) {
                     width, height,
                     phase: 1.7, colors, flagUrl: faction?.flagUrl || null
                 };
-                renderer.setInstances([previewInstance]);
+                previewInstances = [previewInstance];
             } else if (ctx2d) {
                 // Canvas2D 回退：仅显示主色块
                 const colors = getFlagColors(faction?.colorId || faction?.color);
                 previewInstance = colors;
+                fallbackDirty = true;
             }
         },
         render(now) {
             if (useWebGL) {
-                if (previewInstance) renderer.setInstances([previewInstance]);
+                renderer.setInstances(previewInstances);
                 renderer.render(now / 1000, FLAG_WIND_STRENGTH.normal);
-            } else if (ctx2d && previewInstance) {
+                return !previewInstance?.flagUrl || renderer.readyTextures.has(previewInstance.flagUrl);
+            }
+            if (ctx2d && fallbackDirty) {
+                fallbackDirty = false;
                 const c = previewInstance;
                 ctx2d.setTransform(ratio, 0, 0, ratio, 0, 0);
                 ctx2d.clearRect(0, 0, logicalWidth, logicalHeight);
                 ctx2d.fillStyle = c.main || '#888';
                 ctx2d.fillRect(0, 0, logicalWidth, logicalHeight);
             }
+            return false;
         }
     };
 }

@@ -28,6 +28,7 @@ export function createPreparationController({
     beginCommanderPhase,
     beginPVECommanderPhase,
     beginTrainingCommanderPhase,
+    prewarmCommanderFlag,
     showMultiplayerLobby,
     setStatus,
     switchLobbyView
@@ -138,6 +139,7 @@ export function createPreparationController({
             : null;
         switchLobbyView('prepContent');
         document.getElementById('prepConfirm').onclick = executeChoice;
+        if (action !== 'createRoom') prewarmCommanderFlag();
     }
 
     function executeChoice() {

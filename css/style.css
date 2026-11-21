@@ -3551,6 +3551,7 @@ body {
 .commander-logo:focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
 .commander-logo:disabled { cursor: default; filter: saturate(.55); }
 .commander-logo canvas { position: absolute; inset: 0; width: 112px; height: 80px; }
+.commander-logo img { position: absolute; left: 4px; top: 6px; width: 104px; height: 69px; pointer-events: none; }
 .commander-color-picker {
     position: absolute;
     z-index: 4;

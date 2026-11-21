@@ -470,32 +470,31 @@ function _resetBattlefieldPresentationCaches() {
     _terrainPendingFade = null;
 }
 
-// ==== 游戏循环（始终运行，画布隐藏时无开销） ===================
+// ==== 游戏循环 ===================
+const gameWrapper = document.getElementById('gameWrapper');
 function gameLoop() {
     try {
         const now = performance.now();
         const deltaMs = Math.min(50, Math.max(0, now - _battlefieldLastFrameAt));
         _battlefieldLastFrameAt = now;
-        const renderer = _battlefieldRenderer;
-        if (renderer) {
-            // 混合渲染：Canvas 保留辅助图层，已注册后端承担委托给它的图层。
-            renderGame();
-            _syncBattlefieldScene(now);
-            _syncBackendTerrainTexture(now);
-            try {
-                renderer.render({ nowMs: now, deltaMs, frameId: ++_battlefieldFrameId });
-            } catch (error) {
-                console.error('[渲染] 后端帧渲染失败:', error);
+        if (gameWrapper.style.display !== 'none') {
+            const renderer = _battlefieldRenderer;
+            if (renderer) {
+                // 混合渲染：Canvas 保留辅助图层，已注册后端承担委托给它的图层。
+                renderGame();
+                _syncBattlefieldScene(now);
+                _syncBackendTerrainTexture(now);
+                try {
+                    renderer.render({ nowMs: now, deltaMs, frameId: ++_battlefieldFrameId });
+                } catch (error) {
+                    console.error('[渲染] 后端帧渲染失败:', error);
+                }
             }
-        }
-        syncBoardActionBar();
-
-        // 对策卡手牌独立画布
-        drawCardCanvas(now);
-
-        // 顶部阵营信息卡旗帜预览渲染
-        if (_campFlagAnimationStarted) {
-            _renderCampFlagPreviews(now);
+            syncBoardActionBar();
+            drawCardCanvas(now);
+            if (_campFlagAnimationStarted) {
+                _renderCampFlagPreviews(now);
+            }
         }
         renderResultFlagPreviews(now);
     } catch (error) {
@@ -1083,6 +1082,7 @@ const _preparationController = createPreparationController({
     beginCommanderPhase,
     beginPVECommanderPhase,
     beginTrainingCommanderPhase,
+    prewarmCommanderFlag: _prewarmCommanderFlagPreview,
     showMultiplayerLobby,
     setStatus,
     switchLobbyView: _switchLobbyView
@@ -1560,7 +1560,23 @@ function _forPlayerCampName(forPlayer) {
 
 let _commanderFlagPreview = null;
 let _commanderFlagAnimationStarted = false;
+let _commanderFlagPreviewPending = false;
 let _commanderHeaderFactionKey = 'player1';
+
+function _prewarmCommanderFlagPreview() {
+    if (_commanderFlagPreview) return;
+    let attempts = 0;
+    const warmWhenIdle = deadline => {
+        if (_commanderFlagPreview || _commanderFlagPreviewPending || _activeLobbyView !== 'prepContent'
+            || lobbyOverlay.style.display === 'none') return;
+        if (deadline.timeRemaining() >= 8) {
+            _ensureCommanderFlagPreview();
+        } else if (++attempts < 3) {
+            requestAnimationFrame(() => window.requestIdleCallback(warmWhenIdle));
+        }
+    };
+    window.requestIdleCallback?.(warmWhenIdle);
+}
 
 function _ensureCommanderFlagPreview() {
     if (_commanderFlagPreview) return _commanderFlagPreview;
@@ -1569,9 +1585,13 @@ function _ensureCommanderFlagPreview() {
         _commanderFlagPreview = createFlagPreview(canvas);
         if (!_commanderFlagAnimationStarted) {
             _commanderFlagAnimationStarted = true;
+            const overlay = document.getElementById('commanderOverlay');
+            const still = document.getElementById('commanderFlagStill');
             const animate = now => {
-                if (document.getElementById('commanderOverlay')?.classList.contains('show')) {
-                    _commanderFlagPreview?.render(now);
+                if (overlay.classList.contains('show')) {
+                    const ready = _commanderFlagPreview.render(now);
+                    const hideStill = ready || !still.hasAttribute('src');
+                    if (still.hidden !== hideStill) still.hidden = hideStill;
                 }
                 requestAnimationFrame(animate);
             };
@@ -1581,6 +1601,29 @@ function _ensureCommanderFlagPreview() {
         console.warn('[commander] WebGL2 旗帜预览不可用:', error);
     }
     return _commanderFlagPreview;
+}
+
+function _setCommanderFlag(faction) {
+    const still = document.getElementById('commanderFlagStill');
+    const url = faction?.flagUrl;
+    if (still.getAttribute('src') !== (url || null)) {
+        if (url) still.src = url;
+        else still.removeAttribute('src');
+        still.hidden = !url;
+    }
+    if (_commanderFlagPreview) {
+        _commanderFlagPreview.setFaction(faction);
+        return;
+    }
+    if (_commanderFlagPreviewPending) return;
+    _commanderFlagPreviewPending = true;
+    // Allow the selection overlay to paint before a cold WebGL context is created.
+    requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => {
+        _commanderFlagPreviewPending = false;
+        if (document.getElementById('commanderOverlay').classList.contains('show')) {
+            _ensureCommanderFlagPreview()?.setFaction(gameState.factions?.[_commanderHeaderFactionKey]);
+        }
+    }, 0)));
 }
 
 // ── 顶部阵营信息卡旗帜预览 ──────────────────────────────
@@ -1799,7 +1842,7 @@ function _configureCommanderFactionHeader(forPlayer, { locked = false, nameOverr
     campName.translate = !!nameOverride || !ci.faction?.customName;
     campName.style.color = ci.color;
     logo.style.setProperty('--camp-color', ci.color);
-    _ensureCommanderFlagPreview()?.setFaction(ci.faction);
+    _setCommanderFlag(ci.faction);
     picker.classList.toggle('open', keepPickerOpen);
     logo.setAttribute('aria-expanded', String(keepPickerOpen));
     nameInput.disabled = isCultureSystemEnabled(gameState) || !_canChooseFactionColor(forPlayer, locked);
