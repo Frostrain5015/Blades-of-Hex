@@ -29,6 +29,7 @@
     grid: true,
     samuraiMode: 'parabola',
     samuraiOutcome: 'kill',
+    samuraiBlocked: false,
     samuraiTargetKey: '0,0',
     samuraiGuides: true,
     samuraiSlow: false,
@@ -37,8 +38,6 @@
     samuraiFrozenElapsed: 0,
     samuraiCastNonce: 1,
     samuraiCastStart: performance.now(),
-    sniperRay: 'hexAxis',
-    sniperScaling: 'pierce',
     sniperSlow: false,
     sniperPaused: false,
     sniperFrozenElapsed: 0,
@@ -48,6 +47,7 @@
   };
 
   const samuraiCanvas = document.getElementById('samuraiJumpPreview');
+  const chainCanvas = document.getElementById('samuraiChainPreview');
   const sniperCanvas = document.getElementById('guerrillaSniperPreview');
 
   function tileKey(q, r) { return `${q},${r}`; }
@@ -463,7 +463,7 @@
     ctx.restore();
   }
 
-  function drawTargetingBrackets(ctx, tile, size, color, time, active, badgeText = null) {
+  function drawTargetingBrackets(ctx, tile, size, color, time, active) {
     const center = unitVisualCenter(tile.x, tile.y, size);
     const wave = (Math.sin(time * 2.8 + tile.q * 0.5 + tile.r * 0.35) + 1) / 2;
     const half = size * ((active ? 0.74 : 0.66) + wave * (active ? 0.036 : 0.016));
@@ -482,23 +482,7 @@
       ctx.lineTo(center.x + sx * half, center.y + sy * (half - arm));
       ctx.stroke();
     }
-    if (badgeText) {
-      ctx.shadowBlur = 0;
-      const bx = tile.x + size * 0.52;
-      const by = tile.y - size * 0.54;
-      ctx.font = `800 ${Math.max(10, Math.round(size * 0.27))}px ui-monospace, "Cascadia Mono", monospace`;
-      const tw = ctx.measureText(badgeText).width + 10;
-      const th = Math.max(16, size * 0.38);
-      ctx.fillStyle = 'rgba(18, 10, 10, 0.92)';
-      ctx.strokeStyle = '#ff6b5b';
-      ctx.lineWidth = 1.2;
-      ctx.fillRect(bx - tw / 2, by - th / 2, tw, th);
-      ctx.strokeRect(bx - tw / 2, by - th / 2, tw, th);
-      ctx.fillStyle = '#ffd7c2';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(badgeText, bx, by + 0.5);
-    }
+
     ctx.restore();
   }
 
@@ -556,18 +540,21 @@
   ];
   const SAMURAI_ORIGIN_KEY = '-2,0';
   const SAMURAI_PHASE1_MS = 250;
-  const SAMURAI_PHASE2_MS = 450;
-  const SAMURAI_PHASE3_MS = 540;
+  const SAMURAI_PHASE2_MS = 520;
+  const SAMURAI_PHASE3_MS = 610;
   const SAMURAI_HITSTOP_MS = 80;
-  const DEBRIS_COLORS = ['#8c7b65', '#5c5042', '#c2a878', '#3a3228'];
+  const SAMURAI_LAUNCH_TRAVEL = 0.16;
+  const SAMURAI_GLIDE_TRAVEL = 0.24;
 
   let samuraiHitRegions = [];
 
-  function evalSamuraiThreePhase(fromX, fromY, destX, destY, elapsedMs) {
+  function evalSamuraiThreePhase(fromX, fromY, destX, destY, elapsedMs, contactProgress = 1) {
     const dx = destX - fromX;
     const dy = destY - fromY;
     const dist = Math.hypot(dx, dy);
-    const H = Math.max(66, 42 + 0.19 * dist);
+    const H = Math.min(62, dist * contactProgress * 0.52);
+    const launchEnd = SAMURAI_LAUNCH_TRAVEL * contactProgress;
+    const glideEnd = SAMURAI_GLIDE_TRAVEL * contactProgress;
     const t = clamp(elapsedMs, 0, SAMURAI_PHASE3_MS);
     let h = 0;
     let z = 0;
@@ -578,20 +565,20 @@
       phase = 1;
       const u1 = t / SAMURAI_PHASE1_MS;
       z = H * (1 - (1 - u1) * (1 - u1));
-      h = 0.47 * u1 - 0.11 * u1 * u1; // 0 -> 0.36
+      h = launchEnd * (1.375 * u1 - 0.375 * u1 * u1);
     } else if (t <= SAMURAI_PHASE2_MS) {
-      // Phase 2 (250 ~ 450ms): zero gravity, non-zero horizontal glide at apex
+      // Hold at the apex while drifting forward.
       phase = 2;
       const u2 = (t - SAMURAI_PHASE1_MS) / (SAMURAI_PHASE2_MS - SAMURAI_PHASE1_MS);
       z = H;
-      h = 0.36 + 0.20 * u2; // 0.36 -> 0.56
+      h = lerp(launchEnd, glideEnd, u2);
     } else {
-      // Phase 3 (450 ~ 540ms): L-style straight-line flash cut from apex to target, cubic ease-out (instant burst)
+      // Use the same interpolation for lift and travel to keep the cut straight.
       phase = 3;
       const u3 = (t - SAMURAI_PHASE2_MS) / (SAMURAI_PHASE3_MS - SAMURAI_PHASE2_MS);
-      const e = 1 - Math.pow(1 - u3, 3);
+      const e = 1 - Math.pow(1 - u3, 1.5);
+      h = lerp(glideEnd, 1, e);
       z = H * (1 - e);
-      h = 0.56 + 0.44 * e; // straight segment in screen space
     }
 
     const groundX = lerp(fromX, destX, h);
@@ -599,7 +586,7 @@
     return { x: groundX, y: groundY - z, groundX, groundY, lift: z, H, phase };
   }
 
-  function evalLegacyLShape(fromX, fromY, destX, destY, elapsedMs, travelMs) {
+  function evalLegacyLShape(fromX, fromY, destX, destY, elapsedMs, travelMs, contactProgress) {
     const leapMs = 110;
     const hangMs = 55;
     const dashMs = Math.max(80, travelMs - leapMs - hangMs);
@@ -613,7 +600,7 @@
     }
     const p = clamp((elapsedMs - leapMs - hangMs) / dashMs, 0, 1);
     const dashEase = 1 - Math.pow(1 - p, 3);
-    const airArc = -28 * (1 - p * p);
+    const airArc = -28 * (1 - dashEase);
     const gx = lerp(fromX, destX, dashEase);
     const gy = lerp(fromY, destY, dashEase);
     return { x: gx, y: gy + airArc, groundX: gx, groundY: gy, lift: Math.max(0, -airArc), H: 28, phase: 3 };
@@ -639,46 +626,44 @@
     return out;
   }
 
-  function sampleDebrisShards(originX, originY, progressMs, durationMs = 660, count = 18) {
-    if (progressMs < 0 || progressMs >= durationMs) return [];
-    const t = progressMs / 1000;
-    const lifeNorm = progressMs / durationMs;
-    const g = 520;
-    const shards = [];
-    for (let i = 0; i < count; i++) {
-      const angle = (i / count) * Math.PI * 2 + (hashNumber(701, i, 3) - 0.5) * 0.38;
-      const vx = Math.cos(angle) * (46 + hashNumber(701, i, 7) * 95);
-      const vy = Math.sin(angle) * (24 + hashNumber(701, i, 13) * 48);
-      const vz0 = 115 + hashNumber(701, i, 19) * 115;
-      const bounceT = (2 * vz0) / g;
-      let z = 0;
-      if (t < bounceT) {
-        z = Math.max(0, vz0 * t - 0.5 * g * t * t);
-      } else {
-        const dt2 = t - bounceT;
-        const vz1 = vz0 * 0.38;
-        z = Math.max(0, vz1 * dt2 - 0.5 * g * dt2 * dt2);
-      }
-      const size = 2.6 + hashNumber(701, i, 29) * 3.8;
-      shards.push({
-        x: originX + vx * t,
-        y: originY + vy * t - z,
-        groundY: originY + vy * t,
-        z,
-        size,
-        rot: hashNumber(701, i, 41) * Math.PI * 2 + t * (hashNumber(701, i, 43) - 0.5) * 14,
-        aspect: 0.58 + hashNumber(701, i, 53) * 0.45,
-        color: DEBRIS_COLORS[i % DEBRIS_COLORS.length],
-        alpha: lifeNorm < 0.65 ? 1 : clamp(1 - (lifeNorm - 0.65) / 0.35, 0, 1)
-      });
-    }
-    return shards;
+  function drawSamuraiChargeGlint(ctx, x, y, angle, size, progress) {
+    const glintPulse = progress * progress;
+    const rayLen = size * (0.34 + 0.92 * glintPulse);
+    ctx.save();
+    ctx.globalAlpha = 0.4 + 0.6 * glintPulse;
+    ctx.translate(x, y);
+    ctx.rotate(angle);
+    ctx.globalCompositeOperation = 'lighter';
+    const halo = ctx.createRadialGradient(0, 0, 0, 0, 0, rayLen);
+    halo.addColorStop(0, '#fff8b1');
+    halo.addColorStop(0.21, 'rgba(255,185,48,.8)');
+    halo.addColorStop(1, 'rgba(255,161,25,0)');
+    ctx.fillStyle = halo;
+    ctx.fillRect(-rayLen, -rayLen, rayLen * 2, rayLen * 2);
+    ctx.strokeStyle = '#fff8dc';
+    ctx.shadowColor = '#ffd166';
+    ctx.shadowBlur = 16;
+    ctx.lineWidth = 2.6;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(-rayLen, 0);
+    ctx.lineTo(rayLen, 0);
+    ctx.moveTo(0, -rayLen * 0.72);
+    ctx.lineTo(0, rayLen * 0.72);
+    ctx.stroke();
+
+    ctx.strokeStyle = '#ffcf60';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, size * (0.48 - 0.22 * progress), 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
   }
 
   function renderSamuraiPreview(now) {
     if (!samuraiCanvas) return;
     const { ctx, width, height } = prepareCanvas(samuraiCanvas);
-    const grid = buildRectHexGrid(width, height, 9, 5, 0.50, 0.55, 13.0, 7.6);
+    const grid = buildRectHexGrid(width, height, 9, 9, 0.50, 0.54, 13.0, 13.2);
     const friendlyPalette = PALETTES[state.palette];
 
     ctx.clearRect(0, 0, width, height);
@@ -691,15 +676,23 @@
     const fromTile = grid.tileMap.get(SAMURAI_ORIGIN_KEY);
     const targetTile = grid.tileMap.get(state.samuraiTargetKey) || grid.tileMap.get('0,0');
     const isKill = state.samuraiOutcome === 'kill';
-    let destTile = targetTile;
-    if (!isKill && fromTile && targetTile && hexDistance(fromTile, targetTile) === 2) {
-      const midKey = tileKey(fromTile.q + Math.round((targetTile.q - fromTile.q) / 2), fromTile.r + Math.round((targetTile.r - fromTile.r) / 2));
-      destTile = grid.tileMap.get(midKey) || grid.tileMap.get('-1,0') || fromTile;
-    }
+    const distance = hexDistance(fromTile, targetTile);
+    const stepQ = (targetTile.q - fromTile.q) / distance;
+    const stepR = (targetTile.r - fromTile.r) / distance;
+    const behind = steps => grid.tileMap.get(tileKey(targetTile.q + stepQ * steps, targetTile.r + stepR * steps));
+    const obstacle = state.samuraiBlocked ? behind(1) : null;
+    const destTile = obstacle ? null : behind(1);
+    const contactProgress = fromTile && destTile
+      ? hexDistance(fromTile, targetTile) / hexDistance(fromTile, destTile)
+      : 1;
 
     const isLegacy = state.samuraiMode === 'legacy';
     const flightMs = isLegacy ? 280 : SAMURAI_PHASE3_MS;
-    const hitstopMs = isLegacy ? 0 : SAMURAI_HITSTOP_MS;
+    const hitstopMs = isLegacy || !isKill ? 0 : SAMURAI_HITSTOP_MS;
+    const dashStart = isLegacy ? 165 : SAMURAI_PHASE2_MS;
+    const glideEnd = isLegacy ? 0 : SAMURAI_GLIDE_TRAVEL * contactProgress;
+    const contactEase = (contactProgress - glideEnd) / (1 - glideEnd);
+    const impactAt = lerp(dashStart, flightMs, 1 - (1 - contactEase) ** (isLegacy ? 1 / 3 : 2 / 3));
     const settleMs = 120;
     const afterMs = 980;
     const pauseMs = 360;
@@ -709,7 +702,9 @@
     let rawElapsed = state.samuraiPaused
       ? state.samuraiFrozenElapsed
       : (now - state.samuraiCastStart) * speedScale;
-    if (state.samuraiAutoLoop) {
+    if (obstacle) {
+      rawElapsed = 0;
+    } else if (state.samuraiAutoLoop) {
       rawElapsed = rawElapsed % totalCycleMs;
     } else {
       rawElapsed = Math.min(rawElapsed, flightMs + hitstopMs + settleMs + afterMs - 1);
@@ -718,27 +713,13 @@
       state.samuraiFrozenElapsed = rawElapsed;
     }
 
-    const impactAt = flightMs;
     const hitElapsed = rawElapsed - impactAt;
     const hasImpacted = hitElapsed >= 0;
-    const inHitstop = hasImpacted && hitElapsed < hitstopMs;
-    const releaseElapsed = Math.max(0, hitElapsed - hitstopMs);
-    const released = hasImpacted && !inHitstop;
-
-    // Strong exponentially-decayed screen shake upon Hitstop release (and micro tremor during Hitstop)
-    let shakeX = 0;
-    let shakeY = 0;
-    if (inHitstop) {
-      shakeX = Math.sin(hitElapsed * 1.45) * 2.2;
-      shakeY = Math.cos(hitElapsed * 1.75) * 1.8;
-    } else if (released && releaseElapsed < 320) {
-      const amp = (isKill ? 11.5 : 8.2) * Math.exp(-releaseElapsed / 115);
-      shakeX = Math.sin(releaseElapsed * 0.34) * amp;
-      shakeY = Math.cos(releaseElapsed * 0.43) * amp * 0.78;
-    }
+    const inHitstop = rawElapsed >= flightMs && rawElapsed < flightMs + hitstopMs;
+    const releaseElapsed = Math.max(0, hitElapsed);
+    const released = hasImpacted;
 
     ctx.save();
-    ctx.translate(shakeX, shakeY);
 
     for (const tile of grid.tiles) {
       drawTileBase(ctx, tile, grid.size, friendlyPalette);
@@ -788,7 +769,7 @@
           ctx.setLineDash(dash);
           ctx.beginPath();
           for (let i = 0; i <= 20; i++) {
-            const p = evalSamuraiThreePhase(fromTile.x, fromTile.y, destTile.x, destTile.y, lerp(t0, t1, i / 20));
+            const p = evalSamuraiThreePhase(fromTile.x, fromTile.y, destTile.x, destTile.y, lerp(t0, t1, i / 20), contactProgress);
             if (i === 0) ctx.moveTo(p.x, p.y);
             else ctx.lineTo(p.x, p.y);
           }
@@ -802,8 +783,8 @@
         drawSeg(SAMURAI_PHASE2_MS, SAMURAI_PHASE3_MS, 'rgba(255, 77, 64, 0.85)', 2.4, [7, 4]);
         ctx.setLineDash([]);
 
-        const pStart2 = evalSamuraiThreePhase(fromTile.x, fromTile.y, destTile.x, destTile.y, SAMURAI_PHASE1_MS);
-        const pEnd2 = evalSamuraiThreePhase(fromTile.x, fromTile.y, destTile.x, destTile.y, SAMURAI_PHASE2_MS);
+        const pStart2 = evalSamuraiThreePhase(fromTile.x, fromTile.y, destTile.x, destTile.y, SAMURAI_PHASE1_MS, contactProgress);
+        const pEnd2 = evalSamuraiThreePhase(fromTile.x, fromTile.y, destTile.x, destTile.y, SAMURAI_PHASE2_MS, contactProgress);
         for (const anchor of [pStart2, pEnd2]) {
           ctx.fillStyle = '#9bf6ff';
           ctx.beginPath();
@@ -815,54 +796,6 @@
         drawOutlinedText(ctx, `零重力滞空 H=${Math.round(pStart2.H)}px`, (pStart2.x + pEnd2.x) * 0.5, pStart2.y - 20, '#b8f4ff', 3.4);
       }
       ctx.restore();
-    }
-
-    // Ground cracks & perspective double shockwave after hitstop release
-    if (released && fromTile && destTile) {
-      if (releaseElapsed < 680) {
-        const crackAlpha = clamp(1 - releaseElapsed / 680, 0, 1) * 0.85;
-        ctx.save();
-        ctx.translate(destTile.x, destTile.y + grid.size * 0.06);
-        ctx.scale(1, 0.58);
-        ctx.globalAlpha = crackAlpha;
-        ctx.strokeStyle = '#241a12';
-        ctx.lineWidth = 2.4;
-        ctx.lineCap = 'round';
-        for (let ci = 0; ci < 7; ci++) {
-          const a = (ci / 7) * Math.PI * 2 + hashNumber(33, ci, 5) * 0.35;
-          const r1 = grid.size * (0.28 + hashNumber(33, ci, 9) * 0.18);
-          const r2 = grid.size * (0.68 + hashNumber(33, ci, 13) * 0.34) * clamp(releaseElapsed / 90, 0.25, 1);
-          const midA = a + (hashNumber(33, ci, 17) - 0.5) * 0.25;
-          ctx.beginPath();
-          ctx.moveTo(Math.cos(a) * grid.size * 0.12, Math.sin(a) * grid.size * 0.12);
-          ctx.lineTo(Math.cos(midA) * r1, Math.sin(midA) * r1);
-          ctx.lineTo(Math.cos(a) * r2, Math.sin(a) * r2);
-          ctx.stroke();
-        }
-        ctx.restore();
-      }
-      if (releaseElapsed < 420) {
-        const rp = releaseElapsed / 420;
-        const ease = 1 - Math.pow(1 - rp, 3);
-        ctx.save();
-        ctx.translate(destTile.x, destTile.y + grid.size * 0.08);
-        ctx.scale(1, 0.54);
-        ctx.globalAlpha = (1 - rp) * 0.92;
-        ctx.strokeStyle = '#ff4d40';
-        ctx.shadowColor = '#ef4444';
-        ctx.shadowBlur = 16;
-        ctx.lineWidth = 5.2 * (1 - rp * 0.6);
-        ctx.beginPath();
-        ctx.arc(0, 0, grid.size * (0.28 + ease * 1.45), 0, Math.PI * 2);
-        ctx.stroke();
-
-        ctx.strokeStyle = '#fff3d6';
-        ctx.lineWidth = 2.4 * (1 - rp * 0.5);
-        ctx.beginPath();
-        ctx.arc(0, 0, grid.size * (0.20 + ease * 1.05), 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.restore();
-      }
     }
 
     // Draw enemy targets (with hitstop bright flash & post-release kick)
@@ -879,7 +812,7 @@
       let ex = tile.x;
       let ey = tile.y;
       if (isSelected && hasImpacted) {
-        if (inHitstop) {
+        if (hitElapsed < 32) {
           ex += Math.sin(hitElapsed * 1.9) * 2.5;
           ey += Math.cos(hitElapsed * 2.3) * 1.8;
           enemyFlash = 1.0;
@@ -910,6 +843,16 @@
 
     // Samurai kinematics & blade choreography
     let currentPhaseLabel = '阶段 4/4 · 落地爆发与收招';
+    if (obstacle) {
+      currentPhaseLabel = '落点已有部队，无法施放';
+      drawUnitAt(ctx, obstacle.x, obstacle.y, grid.size, ENEMY_PALETTE, {
+        archetype: 'infantry', relation: 'enemy'
+      });
+      drawTargetingBrackets(ctx, obstacle, grid.size, '#eea571', timeSec, true);
+      drawUnitAt(ctx, fromTile.x, fromTile.y, grid.size, friendlyPalette, {
+        archetype: 'samurai', health: 0.56, relation: 'self'
+      });
+    }
     if (fromTile && destTile) {
       let sx = fromTile.x;
       let sy = fromTile.y;
@@ -926,10 +869,10 @@
       }
 
       const evalPos = (ms) => (isLegacy
-        ? evalLegacyLShape(fromTile.x, fromTile.y, destTile.x, destTile.y, ms, flightMs)
-        : evalSamuraiThreePhase(fromTile.x, fromTile.y, destTile.x, destTile.y, ms));
+        ? evalLegacyLShape(fromTile.x, fromTile.y, destTile.x, destTile.y, ms, flightMs, contactProgress)
+        : evalSamuraiThreePhase(fromTile.x, fromTile.y, destTile.x, destTile.y, ms, contactProgress));
 
-      if (rawElapsed < impactAt) {
+      if (rawElapsed < flightMs) {
         const pos = evalPos(rawElapsed);
         sx = pos.x;
         sy = pos.y;
@@ -959,33 +902,17 @@
               ctx.restore();
             }
           } else if (rawElapsed <= SAMURAI_PHASE2_MS) {
-            currentPhaseLabel = '阶段 2/4 · 零重力最高点滑行滞空 (0.25~0.45s)';
+            currentPhaseLabel = '阶段 2/4 · 滞空蓄刃';
             const u2 = (rawElapsed - SAMURAI_PHASE1_MS) / (SAMURAI_PHASE2_MS - SAMURAI_PHASE1_MS);
             scaleX = 1.02;
             scaleY = 0.98;
             rotation = moveDirX * (-0.08 + u2 * 0.20);
           } else {
-            currentPhaseLabel = '阶段 3/4 · 3倍重力+冲量极速闪现斩击 (0.45s+)';
+            currentPhaseLabel = '阶段 3/4 · 穿身闪斩';
             rotation = moveDirX * 0.30;
-            scaleX = 0.88;
-            scaleY = 1.15;
+            scaleX = 1.10;
+            scaleY = 0.94;
           }
-        }
-
-        // Phase 2 -> 3 critical burst ring at t = 450ms
-        if (!isLegacy && rawElapsed >= SAMURAI_PHASE2_MS) {
-          const fp = clamp((rawElapsed - SAMURAI_PHASE2_MS) / 140, 0, 1);
-          const burstPos = evalPos(SAMURAI_PHASE2_MS);
-          ctx.save();
-          ctx.globalAlpha = 1 - fp;
-          ctx.strokeStyle = '#fff1d6';
-          ctx.shadowColor = '#ff4d40';
-          ctx.shadowBlur = 14;
-          ctx.lineWidth = 3.2 * (1 - fp * 0.6);
-          ctx.beginPath();
-          ctx.arc(burstPos.x, burstPos.y, 12 + fp * 36, 0, Math.PI * 2);
-          ctx.stroke();
-          ctx.restore();
         }
 
         // Curved blade trail ribbon (extra bold & tapered in Phase 3 flash dive)
@@ -1004,8 +931,8 @@
             const frac = k / (pts.length - 1);
             const p0 = pts[k - 1];
             const p1 = pts[k];
-            ctx.strokeStyle = pos.phase === 3 ? `rgba(255, 52, 42, ${0.3 + 0.65 * frac})` : `rgba(232, 72, 56, ${0.2 + 0.55 * frac})`;
-            ctx.shadowColor = '#ff3b30';
+            ctx.strokeStyle = pos.phase === 3 ? `rgba(255, 188, 53, ${0.3 + 0.65 * frac})` : `rgba(232, 72, 56, ${0.2 + 0.55 * frac})`;
+            ctx.shadowColor = pos.phase === 3 ? '#ffb91f' : '#ff3b30';
             ctx.shadowBlur = pos.phase === 3 ? 18 : 10;
             ctx.lineWidth = (pos.phase === 3 ? 13.5 : 8) * (0.2 + 0.8 * frac);
             ctx.beginPath();
@@ -1048,19 +975,12 @@
         gy = destTile.y;
         if (inHitstop) {
           currentPhaseLabel = '阶段 4/4 · 0.08s 命中顿帧 (Hitstop)';
-          scaleX = 1.12;
-          scaleY = 0.88;
-          rotation = moveDirX * 0.24;
-          sy += 2;
-        } else if (releaseElapsed < settleMs) {
-          currentPhaseLabel = '阶段 4/4 · 强震 + 地面冲击波 + 碎石飞溅';
-          const sp = releaseElapsed / settleMs;
-          const squash = Math.sin(sp * Math.PI);
-          scaleX = 1 + 0.14 * squash;
-          scaleY = 1 - 0.12 * squash;
-          sy += 3 * squash;
+          rotation = moveDirX * 0.18;
+        } else if (rawElapsed - flightMs - hitstopMs < settleMs) {
+          currentPhaseLabel = isKill ? '阶段 4/4 · 落地收刀' : '阶段 4/4 · 于目标背后收刀';
+          rotation = moveDirX * 0.18 * (1 - (rawElapsed - flightMs - hitstopMs) / settleMs);
         } else {
-          currentPhaseLabel = '阶段 4/4 · 强震 + 地面冲击波 + 碎石飞溅';
+          currentPhaseLabel = '阶段 4/4 · 收刀';
         }
       }
 
@@ -1079,36 +999,13 @@
       });
 
       // Phase 2 Apex Cold Blade Glint (visual anchor during zero-gravity hover)
-      if (!isLegacy && rawElapsed >= SAMURAI_PHASE1_MS && rawElapsed <= SAMURAI_PHASE2_MS + 35) {
+      if (!isLegacy && rawElapsed >= SAMURAI_PHASE1_MS && rawElapsed <= SAMURAI_PHASE2_MS) {
         const u2 = clamp((rawElapsed - SAMURAI_PHASE1_MS) / (SAMURAI_PHASE2_MS - SAMURAI_PHASE1_MS), 0, 1);
-        const glintPulse = Math.sin(Math.min(1, u2) * Math.PI);
-        const bx = sx + moveDirX * grid.size * 0.28;
-        const by = sy - grid.size * 0.18;
-        const rayLen = grid.size * (0.48 + 0.34 * glintPulse);
-        ctx.save();
-        ctx.globalAlpha = 0.4 + 0.6 * glintPulse;
-        ctx.translate(bx, by);
-        ctx.strokeStyle = '#fff8dc';
-        ctx.shadowColor = '#ffd166';
-        ctx.shadowBlur = 16;
-        ctx.lineWidth = 2.6;
-        ctx.lineCap = 'round';
-        ctx.beginPath();
-        ctx.moveTo(-rayLen, 0);
-        ctx.lineTo(rayLen, 0);
-        ctx.moveTo(0, -rayLen * 0.72);
-        ctx.lineTo(0, rayLen * 0.72);
-        ctx.stroke();
-
-        ctx.strokeStyle = 'rgba(255, 118, 92, 0.85)';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(0, 0, grid.size * (0.48 - 0.22 * u2), 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.restore();
+        drawSamuraiChargeGlint(ctx, sx + moveDirX * grid.size * 0.28, sy - grid.size * 0.18,
+          -moveDirX * 0.28, grid.size, u2);
       }
 
-      // L-style straight katana streak: grows with the dash, overshoots through target on impact, holds during hitstop
+      // The trail follows the blade through contact to the landing tile.
       if (!isLegacy && rawElapsed >= SAMURAI_PHASE2_MS) {
         const a = evalPos(SAMURAI_PHASE2_MS);
         const ddx = destTile.x - a.x;
@@ -1119,16 +1016,15 @@
         let headX;
         let headY;
         let streakAlpha = 1;
-        if (rawElapsed < impactAt) {
+        if (rawElapsed < flightMs) {
           const p = evalPos(rawElapsed);
           headX = p.x;
           headY = p.y;
         } else {
           const fadeT = inHitstop ? 0 : clamp(releaseElapsed / 240, 0, 1);
           streakAlpha = 1 - fadeT;
-          const overshoot = grid.size * (0.95 + 0.35 * fadeT);
-          headX = destTile.x + ux * overshoot;
-          headY = destTile.y + uy * overshoot;
+          headX = destTile.x;
+          headY = destTile.y;
         }
         if (streakAlpha > 0.01) {
           const tailX = a.x - ux * grid.size * 0.3;
@@ -1136,8 +1032,8 @@
           ctx.save();
           ctx.globalAlpha = streakAlpha;
           ctx.lineCap = 'butt';
-          ctx.strokeStyle = 'rgba(255, 36, 36, 0.6)';
-          ctx.shadowColor = '#ff2a2a';
+          ctx.strokeStyle = 'rgba(255, 194, 52, 0.75)';
+          ctx.shadowColor = '#ffb91f';
           ctx.shadowBlur = 20;
           ctx.lineWidth = inHitstop ? 9 : 7;
           ctx.beginPath();
@@ -1148,7 +1044,10 @@
           ctx.strokeStyle = '#fffaf2';
           ctx.lineWidth = inHitstop ? 3 : 2.2;
           ctx.beginPath();
-          ctx.moveTo(lerp(tailX, headX, 0.15), lerp(tailY, headY, 0.15));
+          ctx.moveTo(
+            lerp(tailX, headX, 0.15),
+            lerp(tailY, headY, 0.15)
+          );
           ctx.lineTo(headX, headY);
           ctx.stroke();
           // Sharp blade tip glint
@@ -1163,68 +1062,8 @@
         }
       }
 
-      // Impact slash arc (held bright during 80ms hitstop!), flying rock shards, sparks & combat text
       if (hasImpacted) {
-        const ang = Math.atan2(targetTile.y - fromTile.y, targetTile.x - fromTile.x);
-        const slashProg = inHitstop ? 0 : releaseElapsed / 280;
-        if (slashProg < 1) {
-          const r = grid.size * (0.98 + slashProg * 0.48);
-          ctx.save();
-          ctx.globalAlpha = inHitstop ? 1.0 : 1 - slashProg;
-          ctx.lineCap = 'round';
-          ctx.shadowColor = '#ff2a2a';
-          ctx.shadowBlur = inHitstop ? 26 : 18;
-          ctx.strokeStyle = '#fff9f0';
-          ctx.lineWidth = (inHitstop ? 9 : 7) * (1 - slashProg * 0.65);
-          ctx.beginPath();
-          ctx.arc(targetTile.x, targetTile.y, r, ang - 1.22, ang + 1.22);
-          ctx.stroke();
-          ctx.strokeStyle = '#ff6b5b';
-          ctx.lineWidth = (inHitstop ? 3.8 : 2.8) * (1 - slashProg * 0.5);
-          ctx.beginPath();
-          ctx.arc(targetTile.x, targetTile.y, r * 0.8, ang - 0.96, ang + 0.96);
-          ctx.stroke();
-          ctx.restore();
-        }
-
         if (released) {
-          // Physical debris shards bouncing on ground
-          for (const shard of sampleDebrisShards(destTile.x, destTile.y + grid.size * 0.08, releaseElapsed, 660, 18)) {
-            ctx.save();
-            ctx.globalAlpha = shard.alpha * 0.45;
-            ctx.fillStyle = '#0e0c09';
-            ctx.beginPath();
-            ctx.ellipse(shard.x, shard.groundY, shard.size * 0.9, shard.size * 0.45, 0, 0, Math.PI * 2);
-            ctx.fill();
-
-            ctx.globalAlpha = shard.alpha;
-            ctx.translate(shard.x, shard.y);
-            ctx.rotate(shard.rot);
-            ctx.fillStyle = shard.color;
-            ctx.strokeStyle = '#1e1912';
-            ctx.lineWidth = 0.8;
-            ctx.beginPath();
-            ctx.moveTo(-shard.size, -shard.size * shard.aspect * 0.6);
-            ctx.lineTo(shard.size * 0.7, -shard.size * shard.aspect);
-            ctx.lineTo(shard.size, shard.size * shard.aspect * 0.7);
-            ctx.lineTo(-shard.size * 0.5, shard.size * shard.aspect);
-            ctx.closePath();
-            ctx.fill();
-            ctx.stroke();
-            ctx.restore();
-          }
-
-          // Directional crimson sparks
-          for (const pt of sampleArcParticles(19, targetTile.x, targetTile.y, Math.cos(ang), Math.sin(ang), releaseElapsed, 360, 18, '#fb7185')) {
-            ctx.save();
-            ctx.globalAlpha = pt.alpha;
-            ctx.fillStyle = pt.color;
-            ctx.beginPath();
-            ctx.arc(pt.x, pt.y, pt.r, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.restore();
-          }
-
           // Outlined floating combat text (zero anti-heal indicator)
           if (releaseElapsed < 880) {
             const fp = releaseElapsed / 880;
@@ -1253,7 +1092,7 @@
     drawModePlate(
       ctx, width, height,
       modeTitle,
-      `0.25s↗ 0.45s(0g)→ 0.54s 直线闪斩⚡ +0.08s hitstop · ${state.samuraiSlow ? '0.35x' : '1.0x'}`,
+      `${isLegacy ? '旧轨迹' : '滞空 270 ms · 闪斩 90 ms'} · ${state.samuraiSlow ? '0.35x' : '1.0x'}`,
       currentPhaseLabel,
       '#ff705c'
     );
@@ -1264,8 +1103,8 @@
   // =========================================================
 
   const SNIPER_ORIGIN_KEY = '-4,0';
-  const SNIPER_RANGE = 7;
-  const SNIPER_BASE_DMG = 48;
+  const SNIPER_BASE_DMG = 34 * 3.2;
+  const SNIPER_RETENTION = 0.75;
 
   function createSniperInitialTargets() {
     return [
@@ -1282,23 +1121,6 @@
 
   let sniperTargets = createSniperInitialTargets();
 
-  function computeDmgBreakdown(targetTile, originTile, pierceIdx) {
-    const dist = hexDistance(originTile, targetTile);
-    if (state.sniperScaling === 'pierce') {
-      const bonusPct = pierceIdx * 15;
-      const dmg = Math.round(SNIPER_BASE_DMG * (1 + bonusPct / 100));
-      return { dmg, tag: bonusPct > 0 ? `+${bonusPct}%穿透` : '首穿' };
-    }
-    if (state.sniperScaling === 'distance') {
-      const bonusPct = Math.max(0, (dist - 1) * 8);
-      const dmg = Math.round(SNIPER_BASE_DMG * (1 + bonusPct / 100));
-      return { dmg, tag: `${dist}格 +${bonusPct}%` };
-    }
-    const bonusPct = pierceIdx * 12 + Math.max(0, (dist - 1) * 6);
-    const dmg = Math.round(SNIPER_BASE_DMG * (1 + bonusPct / 100));
-    return { dmg, tag: `+${bonusPct}%综合` };
-  }
-
   function computeSniperRay(grid, originTile, aimX, aimY) {
     const targetByKey = new Map(sniperTargets.filter(t => t.hp > 0).map(t => [t.key, t]));
     const dx = aimX - originTile.x;
@@ -1309,51 +1131,29 @@
     let ux = 1;
     let uy = 0;
 
-    if (state.sniperRay === 'hexAxis') {
-      let bestDir = HEX_DIRECTIONS[1]; // East default
-      let bestDot = -Infinity;
-      if (dirLen > grid.size * 0.25) {
-        const ndx = dx / dirLen;
-        const ndy = dy / dirLen;
-        for (const dir of HEX_DIRECTIONS) {
-          const p = axialToPixel(dir.q, dir.r, 1, 0, 0);
-          const plen = Math.hypot(p.x, p.y);
-          const dot = (p.x / plen) * ndx + (p.y / plen) * ndy;
-          if (dot > bestDot) {
-            bestDot = dot;
-            bestDir = dir;
-          }
+    let bestDir = HEX_DIRECTIONS[1]; // East default
+    let bestDot = -Infinity;
+    if (dirLen > grid.size * 0.25) {
+      const ndx = dx / dirLen;
+      const ndy = dy / dirLen;
+      for (const dir of HEX_DIRECTIONS) {
+        const p = axialToPixel(dir.q, dir.r, 1, 0, 0);
+        const plen = Math.hypot(p.x, p.y);
+        const dot = (p.x / plen) * ndx + (p.y / plen) * ndy;
+        if (dot > bestDot) {
+          bestDot = dot;
+          bestDir = dir;
         }
       }
-      const stepVec = axialToPixel(bestDir.q, bestDir.r, 1, 0, 0);
-      const slen = Math.hypot(stepVec.x, stepVec.y);
-      ux = stepVec.x / slen;
-      uy = stepVec.y / slen;
-      for (let k = 1; k <= SNIPER_RANGE; k++) {
-        const t = grid.tileMap.get(tileKey(originTile.q + bestDir.q * k, originTile.r + bestDir.r * k));
-        if (t) rayTiles.push(t);
-      }
-    } else {
-      if (dirLen > grid.size * 0.25) {
-        ux = dx / dirLen;
-        uy = dy / dirLen;
-      }
-      const maxReach = (SNIPER_RANGE + 0.35) * SQRT3 * grid.size;
-      const corridorHalfWidth = grid.size * 0.72;
-      const candidates = [];
-      for (const t of grid.tiles) {
-        if (t.key === originTile.key) continue;
-        const vx = t.x - originTile.x;
-        const vy = t.y - originTile.y;
-        const proj = vx * ux + vy * uy;
-        if (proj <= grid.size * 0.45 || proj > maxReach) continue;
-        const lat = Math.abs(vx * (-uy) + vy * ux);
-        if (lat <= corridorHalfWidth) {
-          candidates.push({ tile: t, proj });
-        }
-      }
-      candidates.sort((a, b) => a.proj - b.proj);
-      rayTiles = candidates.map(c => c.tile);
+    }
+    const stepVec = axialToPixel(bestDir.q, bestDir.r, 1, 0, 0);
+    const slen = Math.hypot(stepVec.x, stepVec.y);
+    ux = stepVec.x / slen;
+    uy = stepVec.y / slen;
+    for (let k = 1; ; k++) {
+      const t = grid.tileMap.get(tileKey(originTile.q + bestDir.q * k, originTile.r + bestDir.r * k));
+      if (!t) break;
+      rayTiles.push(t);
     }
 
     const hitList = [];
@@ -1362,13 +1162,13 @@
       const target = targetByKey.get(tileKey(tile.q, tile.r));
       if (!target) continue;
       const proj = (tile.x - originTile.x) * ux + (tile.y - originTile.y) * uy;
-      const breakdown = computeDmgBreakdown(tile, originTile, pierceIdx);
+      const dmg = Math.round(SNIPER_BASE_DMG * SNIPER_RETENTION ** pierceIdx);
       hitList.push({
         target,
         tile,
-        order: pierceIdx + 1,
+
         proj,
-        ...breakdown
+        dmg
       });
       pierceIdx++;
     }
@@ -1539,9 +1339,9 @@
         x: h.tile.x,
         y: h.tile.y,
         proj: h.proj,
-        order: h.order,
+
         dmg: h.dmg,
-        tag: h.tag,
+
         hpBefore: h.target.hp,
         hpAfter: Math.max(0, h.target.hp - h.dmg / h.target.maxHpVal),
         applied: false
@@ -1718,27 +1518,9 @@
       const hoverHit = hoverHitByKey.get(target.key);
       if (!cast && hoverHit) {
         const isFarthest = rayInfo.lockHit && rayInfo.lockHit === hoverHit;
-        drawTargetingBrackets(ctx, tile, grid.size, isFarthest ? '#ff3b30' : '#ff7b54', timeSec, true, `#${hoverHit.order}`);
-        // High-contrast compact dark capsule at bottom of tile, completely clear of top flag and #order badge
-        ctx.save();
-        ctx.font = `700 ${Math.max(10, Math.round(grid.size * 0.25))}px "Microsoft YaHei", sans-serif`;
-        const txt = `-${hoverHit.dmg} · ${hoverHit.tag}`;
-        const pw = ctx.measureText(txt).width + 12;
-        const ph = Math.max(16, Math.round(grid.size * 0.36));
-        const px = tile.x;
-        const py = tile.y + grid.size * 0.72;
-        ctx.fillStyle = 'rgba(13, 10, 9, 0.92)';
-        ctx.strokeStyle = isFarthest ? '#ff443a' : '#ff8a4c';
-        ctx.lineWidth = 1.1;
-        ctx.fillRect(px - pw / 2, py - ph / 2, pw, ph);
-        ctx.strokeRect(px - pw / 2, py - ph / 2, pw, ph);
-        ctx.fillStyle = isFarthest ? '#ffada6' : '#ffe0b2';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(txt, px, py + 0.5);
-        ctx.restore();
+        drawTargetingBrackets(ctx, tile, grid.size, isFarthest ? '#ff3b30' : '#ff7b54', timeSec, true);
       } else if (cast && hEv) {
-        drawTargetingBrackets(ctx, tile, grid.size, '#ff4d40', timeSec, true, `#${hEv.order}`);
+        drawTargetingBrackets(ctx, tile, grid.size, '#ff4d40', timeSec, true);
       }
     }
 
@@ -1914,8 +1696,7 @@
           ctx.textAlign = 'center';
           ctx.font = `800 ${Math.round(grid.size * 0.42)}px "Palatino Linotype", serif`;
           drawOutlinedText(ctx, `-${h.dmg}`, h.x, h.y - grid.size * 0.68 - rise, hi === cast.hits.length - 1 ? '#ff5c4d' : '#ffd166', 4.6);
-          ctx.font = `700 ${Math.round(grid.size * 0.27)}px "Microsoft YaHei", sans-serif`;
-          drawOutlinedText(ctx, h.tag, h.x, h.y - grid.size * 1.08 - rise, '#ffe3bd', 3.8);
+
           ctx.restore();
         }
       }
@@ -1923,25 +1704,388 @@
 
     ctx.restore();
 
-    const phaseNote = !cast
-      ? `瞄准中 · ${rayInfo.hitList.length} 名贯通目标（点击画布立即击发）`
-      : (castElapsed < fadeInMs
-        ? '阶段 1/3 · 最远目标红色准星淡入锁定...'
-        : (castElapsed < fireAt
-          ? '阶段 2/3 · 屏息锁定 · 即将击发'
-          : '阶段 3/3 · 穿甲狙击弹沿线贯穿击伤！'));
-    drawModePlate(
-      ctx, width, height,
-      '中共游击纵队 · 超远距离穿透狙击',
-      `${state.sniperRay === 'hexAxis' ? 'hexAxis-7' : 'freeRay-7'} · ${state.sniperScaling} · ${state.sniperSlow ? '0.4x' : '1.0x'}`,
-      phaseNote,
-      '#ff5c4d'
-    );
+
   }
 
   // =========================================================
   // CONTROLS & EVENT WIRING
   // =========================================================
+
+  const CHAIN_ORIGIN = '-4,1';
+  const CHAIN_WINDUP_MS = 210;
+  const CHAIN_CUT_MS = 78;
+  const CHAIN_EXIT_MS = 70;
+  const CHAIN_RESOLVE_HOLD_MS = 500;
+  const CHAIN_TRACE_FADE_MS = 310;
+  const CHAIN_TARGETS = [
+    { key: '-3,1', archetype: 'infantry', health: 0.73, damage: 72 },
+    { key: '-2,0', archetype: 'cavalry', health: 0.61, damage: 68 },
+    { key: '-1,0', archetype: 'infantry', health: 0.36, damage: 62 },
+    { key: '0,-1', archetype: 'cannon', health: 0.84, damage: 64 },
+    { key: '0,-2', archetype: 'infantry', health: 0.79, damage: 60 },
+    { key: '-4,-1', archetype: 'infantry', health: 0.81, damage: 72 }
+  ];
+  const chainFirstTarget = document.getElementById('chainFirstTarget');
+  const chainStrikeLimit = document.getElementById('chainStrikeLimit');
+  const chainPauseBtn = document.getElementById('chainPauseBtn');
+  const chainState = { startedAt: null, elapsed: 0, rate: 1, paused: false, visible: true };
+  let chainBoard;
+
+  function getChainBoard(width, height, dpr) {
+    const cacheKey = [width, height, dpr, state.style, state.palette, state.texture, state.grid].join('/');
+    if (chainBoard?.cacheKey === cacheKey) return chainBoard;
+
+    const grid = buildRectHexGrid(width, height, 15, 7, 0.54, 0.53, 17.4, 12.4);
+    const surface = document.createElement('canvas');
+    surface.width = Math.round(width * dpr);
+    surface.height = Math.round(height * dpr);
+    const ctx = surface.getContext('2d');
+    ctx.scale(dpr, dpr);
+    ctx.fillStyle = '#111719';
+    ctx.fillRect(0, 0, width, height);
+    for (const tile of grid.tiles) {
+      tile.water = tile.q + tile.r * 0.23 >= 0.42;
+      if (!tile.water) {
+        drawTileBase(ctx, tile, grid.size, PALETTES[state.palette]);
+        drawTerrainDecor(ctx, tile, grid.size);
+        hexPath(ctx, tile.x, tile.y, grid.size);
+        ctx.fillStyle = 'rgba(36,37,29,.47)';
+        ctx.fill();
+        drawHexOutline(ctx, tile, grid.size);
+        continue;
+      }
+      const tide = hashNumber(tile.q, tile.r, 802);
+      hexPath(ctx, tile.x, tile.y, grid.size);
+      ctx.fillStyle = `hsl(193, 31%, ${13 + tide * 6}%)`;
+      ctx.fill();
+      if (state.grid) {
+        ctx.strokeStyle = '#385054';
+        ctx.lineWidth = 0.8;
+        ctx.stroke();
+      }
+      ctx.strokeStyle = 'rgba(168,214,220,.20)';
+      ctx.lineWidth = 0.85;
+      for (let i = 0; i < 2; i++) {
+        const x = tile.x + (tide - 0.5 + i * 0.11) * grid.size;
+        const y = tile.y + (i * 0.19 - 0.06) * grid.size;
+        ctx.beginPath();
+        ctx.moveTo(x - grid.size * 0.24, y);
+        ctx.quadraticCurveTo(x, y - grid.size * 0.10, x + grid.size * 0.29, y);
+        ctx.stroke();
+      }
+    }
+    const shade = ctx.createRadialGradient(width * 0.51, height * 0.51, height * 0.16,
+      width * 0.51, height * 0.51, Math.max(width * 0.57, height * 0.77));
+    shade.addColorStop(0, 'rgba(14,18,17,0)');
+    shade.addColorStop(1, 'rgba(10,14,17,.65)');
+    ctx.fillStyle = shade;
+    ctx.fillRect(0, 0, width, height);
+    chainBoard = { cacheKey, grid, surface };
+    return chainBoard;
+  }
+
+  function chainAlignment(from, at, next) {
+    const dx = at.x - from.x;
+    const dy = at.y - from.y;
+    const nx = next.x - at.x;
+    const ny = next.y - at.y;
+    return (dx * nx + dy * ny) / (Math.hypot(dx, dy) * Math.hypot(nx, ny));
+  }
+
+  function planChain(grid, firstKey, limit) {
+    const origin = grid.tileMap.get(CHAIN_ORIGIN);
+    const targets = CHAIN_TARGETS.map(spec => ({ ...spec, tile: grid.tileMap.get(spec.key) }));
+    const order = [targets.find(target => target.key === firstKey) || targets[0]];
+    const occupied = new Set([CHAIN_ORIGIN, ...targets.map(target => target.key)]);
+    const visited = new Set([order[0].key]);
+    let previous = origin;
+    while (order.length < limit) {
+      const at = order.at(-1).tile;
+      const next = targets
+        .filter(target => !visited.has(target.key) && hexDistance(at, target.tile) === 1)
+        .sort((a, b) => chainAlignment(previous, at, b.tile) - chainAlignment(previous, at, a.tile))[0];
+      if (!next) break;
+      order.push(next);
+      visited.add(next.key);
+      previous = at;
+    }
+
+    const last = order.at(-1).tile;
+    const landing = HEX_DIRECTIONS
+      .map(({ q, r }) => tileKey(last.q + q, last.r + r))
+      .filter(key => !occupied.has(key))
+      .map(key => grid.tileMap.get(key))
+      .filter(Boolean)
+      .sort((a, b) => chainAlignment(previous, last, b) - chainAlignment(previous, last, a))[0];
+    return { origin, targets, order, landing };
+  }
+
+  function drawChainCut(ctx, from, to, size, progress, age, damageAge, index) {
+    if (progress <= 0 || damageAge >= CHAIN_TRACE_FADE_MS) return;
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    const length = Math.hypot(dx, dy);
+    const head = length * progress;
+    // Every completed segment stays in place until the shared release.
+    const fade = 1 - clamp(damageAge / CHAIN_TRACE_FADE_MS, 0, 1);
+    const heat = 1 - clamp(age / 132, 0, 1);
+    const burst = damageAge < 0 ? 0 : (1 - clamp(damageAge / 155, 0, 1)) ** 2;
+    const tail = -Math.min(size * 0.26, head * 0.38);
+    const angle = Math.atan2(dy, dx);
+    const width = size * (0.046 + heat * 0.15 + burst * 0.36);
+    ctx.save();
+    ctx.translate(from.x, from.y);
+    ctx.rotate(angle);
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = fade;
+    const edge = ctx.createLinearGradient(tail, 0, head, 0);
+    edge.addColorStop(0, 'rgba(241,154,35,0)');
+    edge.addColorStop(0.24, `rgba(251,169,39,${0.20 + Math.max(heat, burst) * 0.60})`);
+    edge.addColorStop(0.83, '#ffe4aa');
+    edge.addColorStop(1, '#fffdf1');
+    ctx.fillStyle = edge;
+    ctx.shadowColor = '#fbb842';
+    ctx.shadowBlur = size * (0.10 + heat * 0.20 + burst * 0.36);
+    // The core edge stays straight. Only the tapered bevel fans away from it.
+    ctx.beginPath();
+    ctx.moveTo(tail, 0);
+    ctx.lineTo(head * 0.63, -width);
+    ctx.lineTo(head + size * 0.08 * heat, 0);
+    ctx.lineTo(head * 0.44, width * 0.42);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = burst > 0 ? '#fffdf1' : '#ffd88d';
+    ctx.lineWidth = Math.max(1, size * (0.028 + burst * 0.055));
+    ctx.globalAlpha = fade * (0.78 + Math.max(heat, burst) * 0.22);
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(head, 0);
+    ctx.stroke();
+
+    if (burst > 0) {
+      // The released cut separates into two sharp edges along every leg at once.
+      const spread = size * (0.22 + (1 - burst) * 0.53);
+      ctx.globalAlpha = burst * 0.82;
+      ctx.fillStyle = '#fff0c5';
+      for (const side of [-1, 1]) {
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(head * 0.46, side * spread);
+        ctx.lineTo(head, 0);
+        ctx.lineTo(head * 0.51, side * spread * 0.76);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+
+    ctx.lineWidth = Math.max(0.7, size * 0.015);
+    ctx.strokeStyle = edge;
+    for (let i = 0; i < 5; i++) {
+      const offset = size * (hashNumber(index, i, 318) - 0.5) * 0.74;
+      const end = head * (0.33 + 0.65 * hashNumber(index, i, 381));
+      ctx.globalAlpha = fade * (0.10 + heat * 0.38 + burst * 0.42);
+      ctx.beginPath();
+      ctx.moveTo(Math.max(tail, end - size * (0.3 + heat * 0.56)), offset);
+      ctx.lineTo(end, offset * 0.70);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawChainGlint(ctx, x, y, angle, size, alpha) {
+    if (alpha <= 0) return;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle);
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = alpha;
+    const halo = ctx.createRadialGradient(0, 0, 0, 0, 0, size);
+    halo.addColorStop(0, '#fff0ab');
+    halo.addColorStop(0.22, 'rgba(255,170,42,.50)');
+    halo.addColorStop(1, 'rgba(244,147,23,0)');
+    ctx.fillStyle = halo;
+    ctx.fillRect(-size, -size, size * 2, size * 2);
+    ctx.fillStyle = '#fff8df';
+    ctx.beginPath();
+    ctx.moveTo(-size, 0);
+    ctx.lineTo(-size * 0.10, -size * 0.06);
+    ctx.lineTo(0, -size * 0.44);
+    ctx.lineTo(size * 0.10, -size * 0.06);
+    ctx.lineTo(size, 0);
+    ctx.lineTo(size * 0.10, size * 0.06);
+    ctx.lineTo(0, size * 0.44);
+    ctx.lineTo(-size * 0.10, size * 0.06);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawChainResolution(ctx, tile, size, age, direction, damage, index) {
+    const burst = 1 - clamp(age / 210, 0, 1);
+    if (burst > 0) {
+      ctx.save();
+      ctx.translate(tile.x, tile.y);
+      ctx.rotate(direction);
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.strokeStyle = '#ffe3a5';
+      ctx.lineWidth = Math.max(0.85, size * 0.026);
+      for (let i = 0; i < 6; i++) {
+        const angle = (i % 2) * Math.PI + (hashNumber(index, i, 216) - 0.5) * 1.7;
+        const distance = size * (0.18 + (1 - burst) * (0.38 + hashNumber(index, i, 58) * 0.66));
+        const streak = size * (0.30 + 0.24 * hashNumber(index, i, 64)) * burst;
+        ctx.globalAlpha = burst;
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(angle) * distance, Math.sin(angle) * distance);
+        ctx.lineTo(Math.cos(angle) * (distance + streak), Math.sin(angle) * (distance + streak));
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+    if (age < 720) {
+      ctx.save();
+      ctx.globalAlpha = 1 - clamp((age - 390) / 330, 0, 1);
+      ctx.font = `800 ${Math.max(12, Math.round(size * 0.40))}px "Palatino Linotype", serif`;
+      ctx.textAlign = 'center';
+      drawOutlinedText(ctx, `−${damage}`, tile.x,
+        tile.y - size * (0.64 + 0.46 * age / 720), '#ffe4a6', 3.4);
+      ctx.restore();
+    }
+  }
+
+  function renderChainPreview(now) {
+    if (!chainCanvas || !chainState.visible) return;
+    const { ctx, width, height } = prepareCanvas(chainCanvas);
+    const { grid, surface } = getChainBoard(width, height, ctx.getTransform().a);
+    const { origin, targets, order, landing } = planChain(grid, chainFirstTarget.value, Number(chainStrikeLimit.value));
+    const { size } = grid;
+    ctx.clearRect(0, 0, width, height);
+    ctx.drawImage(surface, 0, 0, width, height);
+
+    const elapsed = chainElapsed(now);
+    const exitStart = CHAIN_WINDUP_MS + order.length * CHAIN_CUT_MS;
+    const landedAt = exitStart + CHAIN_EXIT_MS;
+    const damageAge = elapsed - landedAt - CHAIN_RESOLVE_HOLD_MS;
+    const active = chainState.startedAt !== null && elapsed < landedAt;
+    const settled = chainState.startedAt !== null && !active;
+    const struck = new Map(order.map((target, index) => [target.key, index]));
+
+    if (chainState.startedAt !== null && elapsed >= CHAIN_WINDUP_MS && damageAge < CHAIN_TRACE_FADE_MS) {
+      const shade = 0.21 * (1 - clamp(damageAge / CHAIN_TRACE_FADE_MS, 0, 1));
+      ctx.fillStyle = `rgba(12,15,18,${shade})`;
+      ctx.fillRect(0, 0, width, height);
+    }
+    for (const target of targets) {
+      const { tile } = target;
+      const index = struck.get(target.key);
+      const wounded = index !== undefined && damageAge >= 0;
+      const healthAfter = Math.max(0, target.health - target.damage / 150);
+      const health = wounded ? healthAfter : target.health;
+      const alpha = wounded && health === 0 ? 1 - clamp(damageAge / 340, 0, 1) : 1;
+      if (alpha > 0) {
+        const flinch = wounded ? Math.exp(-damageAge / 62) : 0;
+        const prior = index > 0 ? order[index - 1].tile : origin;
+        const angle = Math.atan2(tile.y - prior.y, tile.x - prior.x);
+        drawUnitAt(ctx, tile.x + Math.cos(angle) * size * 0.22 * flinch,
+          tile.y + Math.sin(angle) * size * 0.22 * flinch, size, ENEMY_PALETTE, {
+            archetype: target.archetype, health, relation: 'enemy', alpha, hitFlash: flinch * 0.63
+          });
+      }
+      if (!active && !settled && hexDistance(origin, tile) <= 2) {
+        const selected = target.key === chainFirstTarget.value;
+        drawTargetingBrackets(ctx, tile, size, selected ? '#ff8161' : '#b96554', now * 0.001, selected);
+      }
+    }
+
+    const points = [origin, ...order.map(target => target.tile), landing];
+    // Build the edge of the swung blade separately from the unit's movement.
+    const blade = points.slice(0, -1).map((point, index) => {
+      const previous = points[Math.max(index - 1, 0)];
+      const next = points[index + 1];
+      const angle = Math.atan2(next.y - previous.y, next.x - previous.x);
+      const sweep = size * (index % 2 ? 0.38 : -0.42);
+      return {
+        x: point.x - Math.sin(angle) * sweep,
+        y: point.y + Math.cos(angle) * sweep - size * 0.14
+      };
+    });
+    const legs = points.length - 1;
+    let x = settled ? landing.x : origin.x;
+    let y = settled ? landing.y : origin.y;
+    let rotation = 0;
+    let dashPose = false;
+    for (let i = 0; i < legs && chainState.startedAt !== null; i++) {
+      const from = points[i];
+      const to = points[i + 1];
+      const start = CHAIN_WINDUP_MS + i * CHAIN_CUT_MS;
+      const exit = i === legs - 1;
+      const duration = exit ? CHAIN_EXIT_MS : CHAIN_CUT_MS;
+      const t = clamp((elapsed - start) / duration, 0, 1);
+      const progress = 1 - (1 - t) ** 1.6;
+      const age = Math.max(0, elapsed - start - duration);
+      if (!exit) {
+        const edgeFrom = blade[i];
+        const edgeTo = blade[i + 1];
+        drawChainCut(ctx, edgeFrom, edgeTo, size, progress, age, damageAge, i);
+        if (t === 1) {
+          const glint = Math.max(0, 1 - age / 96) ** 2;
+          drawChainGlint(ctx, edgeTo.x, edgeTo.y, Math.atan2(edgeTo.y - edgeFrom.y, edgeTo.x - edgeFrom.x), size * 0.68, glint);
+        }
+      }
+      if (elapsed >= start && elapsed < start + duration) {
+        x = lerp(from.x, to.x, progress);
+        y = lerp(from.y, to.y, progress);
+        rotation = Math.sign(to.x - from.x) * 0.24;
+        dashPose = true;
+        for (const lag of [0.36, 0.19]) {
+          const echo = Math.max(0, progress - lag);
+          drawUnitAt(ctx, lerp(from.x, to.x, echo), lerp(from.y, to.y, echo), size,
+            PALETTES[state.palette], {
+              archetype: 'samurai', relation: 'self', rotation,
+              alpha: lag > 0.2 ? 0.12 : 0.23, drawShadow: false, showFlag: false, scaleX: 1.22
+            });
+        }
+      }
+    }
+
+    if (settled) {
+      // A water landing gets a low wake instead of the dust used on land.
+      const age = elapsed - landedAt;
+      const ripple = clamp(age / 350, 0, 1);
+      if (ripple < 1) {
+        ctx.save();
+        ctx.globalAlpha = (1 - ripple) * 0.75;
+        ctx.strokeStyle = landing.water ? '#ade5ec' : '#dbb979';
+        ctx.lineWidth = Math.max(0.8, size * 0.027);
+        ctx.beginPath();
+        ctx.ellipse(x, y + size * 0.23, size * (0.27 + ripple * 0.66),
+          size * (0.09 + ripple * 0.25), 0, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+
+    const windup = active ? clamp(elapsed / CHAIN_WINDUP_MS, 0, 1) : 0;
+    const lift = windup < 1 ? Math.sin(windup * Math.PI) * size * 0.11 : 0;
+    drawUnitAt(ctx, x, y - lift, size, PALETTES[state.palette], {
+      archetype: 'samurai', health: 0.82, relation: 'self', rotation,
+      scaleX: dashPose ? 1.14 : 1, showFlag: !dashPose, shadowY: y, alpha: dashPose ? 0.83 : 1
+    });
+    if (active && windup < 1) {
+      const first = order[0].tile;
+      const direction = Math.atan2(first.y - origin.y, first.x - origin.x);
+      drawSamuraiChargeGlint(ctx, x + Math.cos(direction) * size * 0.34, y - lift - size * 0.18,
+        -Math.sign(first.x - origin.x || 1) * 0.28, size, windup);
+    }
+    if (damageAge >= 0 && chainState.startedAt !== null && damageAge < 720) {
+      order.forEach((target, index) => {
+        const prior = points[index];
+        const direction = Math.atan2(target.tile.y - prior.y, target.tile.x - prior.x);
+        drawChainResolution(ctx, target.tile, size, damageAge, direction, target.damage, index);
+      });
+    }
+  }
 
   function bindSegments(rootId, dataKey, onChange) {
     const root = document.getElementById(rootId);
@@ -1968,14 +2112,6 @@
     state.samuraiOutcome = value;
     state.samuraiCastStart = performance.now();
   });
-  bindSegments('sniperControls', 'sniperRay', value => {
-    state.sniperRay = value;
-    state.sniperCast = null;
-  });
-  bindSegments('sniperControls', 'sniperScaling', value => {
-    state.sniperScaling = value;
-  });
-
   document.getElementById('textureRange')?.addEventListener('input', event => {
     state.texture = Number(event.target.value) / 100;
     document.getElementById('textureValue').value = `${event.target.value}%`;
@@ -1986,6 +2122,12 @@
     event.currentTarget.classList.toggle('active', state.grid);
   });
 
+  document.getElementById('samuraiBlockedToggle')?.addEventListener('change', event => {
+    state.samuraiBlocked = event.target.checked;
+    document.getElementById('samuraiCastBtn').disabled = state.samuraiBlocked;
+    setSamuraiPaused(false);
+    state.samuraiCastStart = performance.now();
+  });
   document.getElementById('samuraiGuideToggle')?.addEventListener('change', event => {
     state.samuraiGuides = event.target.checked;
   });
@@ -2044,6 +2186,57 @@
     }
   });
 
+  function chainElapsed(now) {
+    if (chainState.startedAt === null || chainState.paused) return chainState.elapsed;
+    return chainState.elapsed + (now - chainState.startedAt) * chainState.rate;
+  }
+
+  function resetChainPreview(firstKey = chainFirstTarget.value, play = true) {
+    chainFirstTarget.value = firstKey;
+    chainState.elapsed = 0;
+    chainState.startedAt = play ? performance.now() : null;
+    chainState.paused = false;
+    chainPauseBtn.disabled = !play;
+    chainPauseBtn.setAttribute('aria-pressed', 'false');
+    chainPauseBtn.textContent = '定格';
+  }
+
+  if (chainCanvas) {
+    document.getElementById('chainCastBtn').addEventListener('click', () => resetChainPreview());
+    chainFirstTarget.addEventListener('change', () => resetChainPreview(undefined, false));
+    chainStrikeLimit.addEventListener('change', () => resetChainPreview(undefined, false));
+    document.getElementById('chainSlowToggle').addEventListener('change', event => {
+      const now = performance.now();
+      chainState.elapsed = chainElapsed(now);
+      if (chainState.startedAt !== null) chainState.startedAt = now;
+      chainState.rate = event.target.checked ? 0.35 : 1;
+    });
+    chainPauseBtn.addEventListener('click', () => {
+      const now = performance.now();
+      chainState.elapsed = chainElapsed(now);
+      chainState.startedAt = now;
+      chainState.paused = !chainState.paused;
+      chainPauseBtn.setAttribute('aria-pressed', String(chainState.paused));
+      chainPauseBtn.textContent = chainState.paused ? '继续' : '定格';
+    });
+    chainCanvas.addEventListener('click', event => {
+      const rect = chainCanvas.getBoundingClientRect();
+      const board = getChainBoard(rect.width, rect.height, Math.min(2, window.devicePixelRatio || 1));
+      const origin = board.grid.tileMap.get(CHAIN_ORIGIN);
+      const target = CHAIN_TARGETS.find(spec => {
+        const tile = board.grid.tileMap.get(spec.key);
+        return hexDistance(origin, tile) <= 2
+          && Math.hypot(event.clientX - rect.left - tile.x, event.clientY - rect.top - tile.y) <= board.grid.size * 0.70;
+      });
+      if (target) resetChainPreview(target.key);
+    });
+    if (typeof IntersectionObserver === 'function') {
+      new IntersectionObserver(([entry]) => {
+        chainState.visible = entry.isIntersecting;
+      }).observe(chainCanvas);
+    }
+  }
+
   document.getElementById('sniperSlowToggle')?.addEventListener('change', event => {
     state.sniperSlow = event.target.checked;
   });
@@ -2093,6 +2286,7 @@
   function tick() {
     const now = performance.now();
     renderSamuraiPreview(now);
+    renderChainPreview(now);
     renderSniperPreview(now);
     requestAnimationFrame(tick);
   }

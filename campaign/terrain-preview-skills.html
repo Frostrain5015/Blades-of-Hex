@@ -28,6 +28,15 @@
     aspect-ratio: 2.15;
     cursor: crosshair;
   }
+  .chain-controls select {
+    font: inherit;
+    color: #e7dbc0;
+    background: #1b1d19;
+  }
+  #samurai-chain { scroll-margin-top: 115px; }
+  @media (max-width: 1060px) {
+    #samurai-chain { scroll-margin-top: 16px; }
+  }
 </style>
 </head>
 <body>
@@ -37,12 +46,13 @@
       <p class="kicker">Blades of Hex · Skill Choreography Prototype</p>
       <h1>武士跳斩与<span>游击狙击</span></h1>
     </div>
-    <p class="intro">面向重做后的文化特种兵编舞验证：<strong>日本帝国武士</strong>采用更丝滑的不对称抛物线跳斩（并取消禁疗特性）；<strong>中共游击纵队</strong>重做为超远距离直线穿透狙击手，完整演示瞄准条形预览、最远目标红色准星淡入锁定与高速穿透击发。</p>
+    <p class="intro">对比日本帝国武士的单体穿身闪斩与群体连斩，并预览中共游击纵队的直线穿透狙击。</p>
   </header>
 
   <nav class="preview-nav" aria-label="原型页面导航">
     <a href="terrain-preview-air.html">空军选点</a>
     <a href="terrain-preview-skills.html" aria-current="page">技能编舞</a>
+    <a href="#samurai-chain">群体连斩</a>
   </nav>
 
   <section class="control-deck" aria-label="棋盘视觉背景控制">
@@ -79,7 +89,6 @@
   <div class="section-head">
     <span class="section-index">06A</span>
     <h2>日本帝国武士 · 三段式蓄力跳斩（取消禁疗）</h2>
-    <span class="section-note">0~0.25s 缓出跃起 → 0.25~0.45s 零重力滞空 → 0.45s+ L 型直线闪斩 → 0.08s 顿帧 + 冲击波碎石</span>
   </div>
 
   <section class="system-grid" aria-label="日本帝国武士跳斩编舞原型">
@@ -87,8 +96,8 @@
       <div class="system-panel-header">
         <div class="system-panel-title">
           <span>Imperial Samurai · Three-Phase Charged Leap &amp; Hitstop Slash</span>
-          <strong>起跳缓出 · 零重力滞空滑行 · L 型直线闪斩 · 顿帧碎石反馈</strong>
-          <small>① 0~0.25s 快速跃起，垂直速度呈 Ease-Out 缓出归零；② 0.25~0.45s 最高点重力降为 0 并保持非零水平速度滑行，亮出十字寒光形成视觉记忆点；③ 0.45s 后沿最高点到目标的直线以 90ms 三次缓出瞬身闪斩（保留旧 L 型斩击的迅疾感），拖出贯穿目标的笔直刀光；④ 落地触发 0.08s 命中顿帧、强屏幕震动、地面冲击波与抛射碎石粒子（已取消禁疗特性）。</small>
+          <strong>短跃蓄刃 · 穿身闪斩</strong>
+          <small>从滞空点一刀穿过目标，在背后一格收刀。落点已有部队时无法施放。</small>
         </div>
         <div class="segments" id="samuraiControls">
           <button class="segment active" data-samurai-mode="parabola">新 · 三段蓄力跳斩</button>
@@ -96,6 +105,7 @@
           <button class="segment" data-samurai-mode="compare">对比叠影</button>
           <button class="segment active" data-samurai-outcome="kill">斩杀回血 + 再动</button>
           <button class="segment" data-samurai-outcome="hit">普通命中</button>
+          <label class="segment-toggle"><input id="samuraiBlockedToggle" type="checkbox">背后一格有其他部队</label>
           <label class="segment-toggle"><input id="samuraiGuideToggle" type="checkbox" checked>显示轨迹辅助线</label>
           <label class="segment-toggle"><input id="samuraiSlowToggle" type="checkbox">0.35× 慢放</label>
           <label class="segment-toggle"><input id="samuraiLoopToggle" type="checkbox" checked>自动循环</label>
@@ -106,32 +116,57 @@
       <canvas id="samuraiJumpPreview" role="img" aria-label="日本帝国武士三段式蓄力跳斩动画原型"></canvas>
       <div class="system-legend" aria-hidden="true">
         <span>点击红框目标：切换 1 格 / 2 格 / 斜向跳斩</span>
-        <span>0.25~0.45s 青金滑行段：零重力滞空蓄刃视觉记忆点</span>
-        <span>0.08s 顿帧释放：透视地面冲击波 + 18 枚物理碎石弹跳（无禁疗）</span>
+        <span>滞空 0.27 秒，金色刃光在出刀前最亮</span>
+        <span>斩杀顿帧 0.08 秒</span>
       </div>
     </article>
   </section>
 
-  <div class="section-head">
+  <div class="section-head" id="samurai-chain">
     <span class="section-index">06B</span>
+    <h2>日本帝国武士 · 群体连斩</h2>
+  </div>
+
+  <section class="system-grid" aria-label="日本帝国武士群体连斩编舞原型">
+    <article class="system-panel targeting-panel skill-panel">
+      <div class="system-panel-header">
+        <div class="system-panel-title">
+          <strong>一刀起势，折线连斩</strong>
+          <small>点击红框选首击。连斩留下折线刀痕，武士落地后，整条刀痕同时爆发。</small>
+        </div>
+        <div class="segments chain-controls">
+          <label class="segment-toggle">首击
+            <select id="chainFirstTarget">
+              <option value="-3,1">岸边步兵</option>
+              <option value="-2,0">阵中骑兵</option>
+              <option value="-4,-1">落单步兵</option>
+            </select>
+          </label>
+          <label class="segment-toggle">上限
+            <select id="chainStrikeLimit">
+              <option value="4">4 段</option>
+              <option value="3">3 段</option>
+            </select>
+          </label>
+          <label class="segment-toggle"><input id="chainSlowToggle" type="checkbox">0.35× 慢放</label>
+          <button class="segment-action" id="chainCastBtn" type="button">施放连斩</button>
+          <button class="segment" id="chainPauseBtn" type="button" disabled aria-pressed="false">定格</button>
+        </div>
+      </div>
+      <canvas id="samuraiChainPreview" role="img" aria-label="武士自动连斩并留下折线刀痕，落地短暂停顿后全部伤害同时结算"></canvas>
+    </article>
+  </section>
+
+  <div class="section-head">
+    <span class="section-index">06C</span>
     <h2>中共游击纵队重做 · 超远距离直线穿透狙击</h2>
-    <span class="section-note">在画布上移动指针预览条形高亮与命中序号，点击任意方向立即施放</span>
+    <span class="section-note">移动指针选择轴线，枪弹贯穿至棋盘边缘，每次命中后威力降至 75%</span>
   </div>
 
   <section class="system-grid" aria-label="游击纵队直线穿透狙击编舞原型">
     <article class="system-panel targeting-panel skill-panel">
       <div class="system-panel-header">
-        <div class="system-panel-title">
-          <span>Guerrilla Sniper · Long-Range Piercing Line Shot</span>
-          <strong>条形弹道预览 · 最远目标红色准星淡入 · 贯穿高速狙杀</strong>
-          <small>游击纵队重做为远程精密狙击手：瞄准时沿射击方向投射条形高亮地块，清晰标出沿途命中的每一个敌方目标与增伤倍率；点击施放后在最远命中目标处淡入高对比红色狙击准星并短暂屏息锁定，随后高速狙击弹贯穿整条弹道依次击伤各个目标。</small>
-        </div>
         <div class="segments" id="sniperControls">
-          <button class="segment active" data-sniper-ray="hexAxis">六向轴线直线</button>
-          <button class="segment" data-sniper-ray="freeAngle">任意角度直线</button>
-          <button class="segment active" data-sniper-scaling="pierce">穿透递进 (+15%/穿透)</button>
-          <button class="segment" data-sniper-scaling="distance">远距精密 (+8%/格)</button>
-          <button class="segment" data-sniper-scaling="hybrid">穿透+远距双增伤</button>
           <label class="segment-toggle"><input id="sniperSlowToggle" type="checkbox">0.4× 慢放</label>
           <button class="segment-action" id="sniperCastBtn" type="button">立即施放</button>
           <button class="segment" id="sniperPauseBtn" type="button">定格</button>
@@ -139,17 +174,11 @@
         </div>
       </div>
       <canvas id="guerrillaSniperPreview" role="img" aria-label="游击纵队超远距离直线穿透狙击动画原型"></canvas>
-      <div class="system-legend" aria-hidden="true">
-        <span>琥珀红发光格带：条形弹道穿透覆盖范围</span>
-        <span>#1 / #2 / #3 角框徽章：沿途命中顺序与增伤倍率</span>
-        <span>最远目标红色准星：施放后淡入锁定再击发</span>
-      </div>
     </article>
   </section>
 
   <footer>
-    <span><strong>原型范围：</strong>本页仅用于验证第 2 项与第 3 项的视觉表现与交互时序，尚未改动正式战斗逻辑与单位规则。</span>
-    <span>Canvas 2D · Asymmetric Leap &amp; Piercing Sniper Prototype</span>
+    <span>技能动画与交互原型，供对比编舞和结算节奏。</span>
   </footer>
 </main>
 <script src="terrain-preview-skills.js"></script>
