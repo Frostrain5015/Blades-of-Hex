@@ -643,7 +643,6 @@ function _updateWeatherUI() {
 
 // ===== 日志 =====================
 export function logMessage(msg) {
-    if (gameState._simulating) return;
     gameState.logHistory.push(msg);
     if (gameState.logHistory.length > LOG_LIMIT) gameState.logHistory.shift();
 }
@@ -745,10 +744,6 @@ export function serializeState() {
     return serializeMatchState(gameState);
 }
 
-export function restoreStateHeadless(data, HexTileClass, UnitClass) {
-    restoreMatchState(gameState, data, { HexTileClass, UnitClass, computeCampBorders, computeDistrictBorders });
-}
-
 export function deserializeState(data, HexTileClass, UnitClass, options = {}) {
     restoreMatchState(gameState, data, { HexTileClass, UnitClass, computeCampBorders, computeDistrictBorders });
     // 界面刷新属于客户端职责，不进 engine
@@ -795,7 +790,6 @@ export function dismissToast() {
 }
 
 export function notify(text, type = 'info', persistent = false) {
-    if (gameState._simulating) return;
     if (gameState.aiActing && type === 'error') return;
     const cfg = { success: ['✓', 'success'], error: ['!', 'error'], info: ['i', 'info'], warn: ['⚠', 'warn'] };
     const [icon, cssType] = cfg[type] || cfg.info;

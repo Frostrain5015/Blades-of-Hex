@@ -8,7 +8,7 @@ import { TIER_CAPABILITIES } from './core/weights.js';
 import { selectCommander, selectCommanderPair } from './doctrine.js';
 
 export const meta = {
-    name: 'Hybrid 3.2',
+    name: 'Hybrid 3.1',
     tier: 'Max',
     difficultyId: 'hard',
     description: '最强混合架构 AI：Imperator 全图规则推演 + MiniMax/Beam 前瞻 + 双头策略价值网络联合决策。'
