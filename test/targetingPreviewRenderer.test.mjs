@@ -82,6 +82,39 @@ for (const kind of TARGETING_PREVIEW_KINDS) {
 }
 
 {
+    const previousOffscreenCanvas = globalThis.OffscreenCanvas;
+    let sprites = 0;
+    globalThis.OffscreenCanvas = class {
+        constructor() {
+            sprites++;
+        }
+        getContext() { return createContext(); }
+    };
+    try {
+        const ctx = createContext();
+        const blends = [];
+        ctx.drawImage = () => blends.push(ctx.globalCompositeOperation);
+        const unitTargets = Array.from({ length: 16 }, (_, index) => ({
+            center: { x: center.x + index * 18, y: center.y },
+            size: 30,
+            kind: 'heal',
+            color: '#63d98b',
+            phase: index * 0.2
+        }));
+        const scene = freeze({ unitTargets });
+        assert.equal(renderTargetingPreview(ctx, scene), 16);
+        assert.equal(renderTargetingPreview(ctx, scene), 16);
+        assert.equal(sprites, 2, 'All inactive heals reuse one corner sprite and one cross sprite');
+        assert.equal(blends.filter(blend => blend === 'screen').length, 32);
+        assert.equal(blends.filter(blend => blend === 'source-over').length, 32);
+        assert.equal(ctx.calls.filter(call => call[0] === 'stroke').length, 0);
+    } finally {
+        if (previousOffscreenCanvas === undefined) delete globalThis.OffscreenCanvas;
+        else globalThis.OffscreenCanvas = previousOffscreenCanvas;
+    }
+}
+
+{
     const ctx = createContext();
     drawUnitTargetPreview(ctx, freeze({ center, size: 30, kind: 'attack', active: true, time: 1.25 }));
     const attackStrokes = ctx.calls.filter(call => call[0] === 'stroke');

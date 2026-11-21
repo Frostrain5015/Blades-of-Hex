@@ -105,6 +105,7 @@ import { areCommanderMechanicsSuppressed, sharedHexEdgeSegmentKey } from '../rul
 import { hasAureliaOathEffect } from '../rules/aurelia.js';
 import { getOracleStatueAnchor, hasCelestineSynergyActive, getCelestineOracleState } from '../rules/celestine.js';
 import { measure, perfEnabled } from './perf.js';
+import { getCanvasPixelRatio } from './canvasRuntime.js';
 
 let lastTime = performance.now();
 let _lastParticleSpawn = 0;
@@ -112,6 +113,8 @@ let _lastParticleSpawn = 0;
 // ── 每帧稳定结果缓存：国界/区划的河段过滤与无边模式 filler 边界 ──
 // 输入数组在占领/河流拓扑变化时才被整体替换，可用引用同一性做缓存键。
 const _riverFilteredEdgeCache = new WeakMap();
+let _boardBorderLayer = null;
+const BORDER_LAYER_PADDING = 20;
 
 function _filterEdgesSkippingRivers(edges, riverSegments) {
     if (!riverSegments || !edges.length) return edges;
@@ -574,6 +577,35 @@ function drawRiverGateMapLabels() {
 export function renderGame() {
     return perfEnabled() ? measure('renderGame', _renderGame) : _renderGame();
 }
+function _drawBoardBorders(tiles, tileMap, districts, camps) {
+    const showGrid = settings.showGrid !== false;
+    if (!tiles.length || (!showGrid && !districts?.length && !camps?.length)) return;
+    const ratio = getCanvasPixelRatio();
+    const previous = _boardBorderLayer;
+    const width = LOGICAL_W + BORDER_LAYER_PADDING * 2;
+    const height = LOGICAL_H + BORDER_LAYER_PADDING * 2;
+    if (!previous || previous.tiles !== tiles || previous.tileMap !== tileMap
+        || previous.tileCount !== tiles.length || previous.districts !== districts
+        || previous.camps !== camps || previous.showGrid !== showGrid || previous.ratio !== ratio) {
+        const canvas = previous?.canvas || document.createElement('canvas');
+        canvas.width = Math.round(width * ratio);
+        canvas.height = Math.round(height * ratio);
+        const layer = canvas.getContext('2d');
+        if (!layer) {
+            if (showGrid) drawAllBorders(ctx, tiles, tileMap);
+            drawDistrictBorders(ctx, districts);
+            drawCampBorders(ctx, camps);
+            return;
+        }
+        layer.setTransform(ratio, 0, 0, ratio, BORDER_LAYER_PADDING * ratio, BORDER_LAYER_PADDING * ratio);
+        if (showGrid) drawAllBorders(layer, tiles, tileMap);
+        drawDistrictBorders(layer, districts);
+        drawCampBorders(layer, camps);
+        _boardBorderLayer = { canvas, tiles, tileMap, tileCount: tiles.length, districts, camps, showGrid, ratio };
+    }
+    ctx.drawImage(_boardBorderLayer.canvas, -BORDER_LAYER_PADDING, -BORDER_LAYER_PADDING, width, height);
+}
+
 function _renderGame() {
     const now = performance.now();
     const dt = Math.min((now - lastTime) / 1000, 0.05);
@@ -639,12 +671,10 @@ function _renderGame() {
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawCityMapMarker();
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawOverlay();
     // 国界线/区划线置于所有部队、旗杆、先锋旗与将领元素之下。
-    if (settings.showGrid !== false) drawAllBorders(ctx, borderTiles, borderTileMap);
     const riverSegments = gameState?.riverTopology?.segmentsByKey;
-    drawDistrictBorders(ctx, _filterEdgesSkippingRivers(districtBorderEdges, riverSegments));
     // 跳过与河段重合的国界：(qa,ra)↔(qb,rb) 边上有河流则跳过，让河段视觉清晰。
     const campNoRiver = _filterEdgesSkippingRivers(campBorderEdges, riverSegments);
-    drawCampBorders(ctx, campNoRiver);
+    _drawBoardBorders(borderTiles, borderTileMap, _filterEdgesSkippingRivers(districtBorderEdges, riverSegments), campNoRiver);
     for (let i = 0, len = tiles.length; i < len; i++) tiles[i].drawFlagPole();
 
     // ── 将领特效图层：ground（地块覆盖层之后、先锋旗立绘之前）──
@@ -2331,8 +2361,12 @@ function _strokeHexRegionBorder(tiles, insideFn, now, pulse, outer, inner) {
 }
 
 let _targetingPreviewCache = null;
+const _targetingBoardClipCache = new WeakMap();
+const _targetingHexShapes = new WeakMap();
 
 function _hexScreenShape(tile, size = HEX_SIZE) {
+    const cached = size === HEX_SIZE ? _targetingHexShapes.get(tile) : null;
+    if (cached && cached.center.x === tile.x && cached.center.y === tile.y) return cached;
     const points = [];
     for (let index = 0; index < 6; index++) {
         const angle = (Math.PI / 180) * (60 * index - 30);
@@ -2341,26 +2375,39 @@ function _hexScreenShape(tile, size = HEX_SIZE) {
             y: tile.y + size * Math.sin(angle)
         });
     }
-    return { center: { x: tile.x, y: tile.y }, size, points };
+    const shape = { center: { x: tile.x, y: tile.y }, size, points };
+    if (size === HEX_SIZE) _targetingHexShapes.set(tile, shape);
+    return shape;
 }
 
 function _getTargetingBoardClipShapes(playableOnly = false) {
     const renderTiles = !playableOnly && gameState.boardLayout === 'borderless'
         ? getBorderlessVisualGrid(gameState.tiles, gameState.tileMap).tiles
         : gameState.tiles;
-    return renderTiles
+    const cacheKey = playableOnly ? 'playable' : 'visual';
+    const cached = _targetingBoardClipCache.get(renderTiles);
+    const sameBoard = cached?.tileMap === gameState.tileMap && cached?.tileCount === renderTiles.length;
+    if (sameBoard && cached[cacheKey]) return cached[cacheKey];
+    const shapes = renderTiles
         .filter(tile => !playableOnly || isPlayableBoardTile(tile))
         .map(tile => _hexScreenShape(tile, playableOnly ? HEX_SIZE : HEX_SIZE * 1.01));
+    _targetingBoardClipCache.set(renderTiles, {
+        ...(sameBoard ? cached : {}),
+        tileMap: gameState.tileMap,
+        tileCount: renderTiles.length,
+        [cacheKey]: shapes
+    });
+    return shapes;
 }
 
 function _getTargetingPreviewSession(myCamp) {
     const cardTargeting = gameState.cardTargeting;
     const campKey = campToKey(myCamp);
-    const tileCount = gameState.tiles?.length || 0;
     const boardLayout = gameState.boardLayout;
     if (_targetingPreviewCache?.cardTargeting === cardTargeting
         && _targetingPreviewCache.campKey === campKey
-        && _targetingPreviewCache.tileCount === tileCount
+        && _targetingPreviewCache.tileMap === gameState.tileMap
+        && _targetingPreviewCache.tiles === gameState.tiles
         && _targetingPreviewCache.boardLayout === boardLayout) {
         return _targetingPreviewCache;
     }
@@ -2378,28 +2425,15 @@ function _getTargetingPreviewSession(myCamp) {
             .map(tile => ({ q: tile.q, r: tile.r, center: tile }));
         airRangeContours = buildHexRegionContours(rangeCells, HEX_SIZE);
     }
-    let aaBaseCells = null;
-    let aaContours = null;
-    if (preview.air?.aaLayersByTileKey) {
-        aaBaseCells = [...preview.air.aaLayersByTileKey.entries()]
-            .map(([key, level]) => {
-                const tile = gameState.tileMap.get(key);
-                if (!tile) return null;
-                return { tile, ..._hexScreenShape(tile, HEX_SIZE), q: tile.q, r: tile.r, level };
-            })
-            .filter(Boolean);
-        aaContours = buildHexRegionContours(aaBaseCells, HEX_SIZE);
-    }
     _targetingPreviewCache = {
         cardTargeting,
         campKey,
-        tileCount,
+        tileMap: gameState.tileMap,
+        tiles: gameState.tiles,
         boardLayout,
         preview,
         boardClipShapes,
-        airRangeContours,
-        aaBaseCells,
-        aaContours
+        airRangeContours
     };
     return _targetingPreviewCache;
 }
@@ -2420,12 +2454,16 @@ const TARGET_ENTRY_OPTIONS = Object.freeze({
     settledScale: 1,
     settledAlpha: 1
 });
+const SETTLED_TARGET_ENTRY = Object.freeze({ scale: 1, alpha: 1 });
 
 function _targetEntry(originTile, tile, now, startedAt) {
     // Global cards have no battlefield source: their candidates enter together
     // and then continue with the renderer's stable per-tile breathing phase.
-    const origin = originTile || tile;
-    return resolveMovementTileReveal(origin, tile, now, startedAt, TARGET_ENTRY_OPTIONS);
+    if (!Number.isFinite(startedAt) || startedAt <= 0 || now - startedAt >= TARGET_ENTRY_OPTIONS.tileDurationMs
+        + (originTile && tile ? hexDistance(originTile, tile) * TARGET_ENTRY_OPTIONS.stepDelayMs : 0)) {
+        return SETTLED_TARGET_ENTRY;
+    }
+    return resolveMovementTileReveal(originTile || tile, tile, now, startedAt, TARGET_ENTRY_OPTIONS);
 }
 
 function _signalRangeRegionOptions(now, alpha = 1) {
@@ -2629,7 +2667,7 @@ function _drawUnifiedAirViewLayer(now, session, options = {}) {
 
     if (session.boardClipShapes?.length) {
         ctx.save();
-        if (clipToBoard(ctx, { shapes: session.boardClipShapes })) {
+        if (clipToBoard(ctx, { shapes: session.boardClipShapes, cache: true })) {
             ctx.fillStyle = `rgba(8, 17, 21, ${(0.25 * alpha).toFixed(3)})`;
             ctx.fillRect(-20, -20, LOGICAL_W + 40, LOGICAL_H + 40);
         }
@@ -2851,7 +2889,7 @@ function drawCardTargetingPreview(now) {
         }
     }
     const time = now / 1000;
-    const boardClip = { shapes: session.boardClipShapes, cache: preview.intent === TARGET_INTENTS.ATTACH };
+    const boardClip = { shapes: session.boardClipShapes, cache: true };
     const colonelUnit = preview.air?.colonelOriginUnitId
         ? gameState.tiles.find(tile => tile.unit?.id === preview.air.colonelOriginUnitId)?.unit
         : null;
@@ -3099,7 +3137,7 @@ function _drawDeselectingActionPreview(now) {
     const attackTiles = (gameState.deselectAtkTiles || []).filter(tile => tile?.unit);
     if (attackTiles.length) {
         renderTargetingPreview(ctx, {
-            boardClip: { shapes: _getTargetingBoardClipShapes() },
+            boardClip: { shapes: _getTargetingBoardClipShapes(), cache: true },
             unitTargets: attackTiles.map(tile => ({
                 center: getUnitVisualPos(tile.unit),
                 size: UNIT_HUD_OUTER_RADIUS * 1.72 * (0.86 + exitAlpha * 0.14),
@@ -3173,7 +3211,7 @@ function drawUnitActionTargetingPreview(now, deselecting) {
     if (!attackTiles.length && !chainTiles.length) return;
     const hovered = gameState.hoveredTile;
     renderTargetingPreview(ctx, {
-        boardClip: { shapes: _getTargetingBoardClipShapes() },
+        boardClip: { shapes: _getTargetingBoardClipShapes(), cache: true },
         unitTargets: [
             ...attackTiles.map(tile => {
                 const entry = _targetEntry(unit.tile, tile, now, gameState.selectionTime);

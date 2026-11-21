@@ -35,6 +35,10 @@ const KIND_SET = new Set(TARGETING_PREVIEW_KINDS);
 const CORNERS = Object.freeze([[-1, -1], [1, -1], [1, 1], [-1, 1]]);
 const TAU = Math.PI * 2;
 const boardClipCache = new WeakMap();
+const previewSprites = new Map();
+const SPRITE_SIZE = 96;
+const SPRITE_WAVE = 1;
+const SPRITE_LIMIT = 40;
 
 /**
  * Shared descriptor contract (documentation only):
@@ -368,6 +372,50 @@ function drawHologramMotifResolved(ctx, descriptor, kind, size, active, wave, co
     return true;
 }
 
+function previewSprite(key, draw) {
+    if (previewSprites.has(key)) return previewSprites.get(key);
+    const extent = SPRITE_SIZE * 2;
+    const canvas = typeof OffscreenCanvas === 'function'
+        ? new OffscreenCanvas(extent, extent)
+        : globalThis.document?.createElement('canvas');
+    if (!canvas) return null;
+    canvas.width = extent;
+    canvas.height = extent;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.translate(SPRITE_SIZE, SPRITE_SIZE);
+    draw(ctx);
+    if (previewSprites.size >= SPRITE_LIMIT) {
+        previewSprites.delete(previewSprites.keys().next().value);
+    }
+    previewSprites.set(key, canvas);
+    return canvas;
+}
+
+function drawPreviewSprite(ctx, sprite, center, radius, alpha, composite = 'source-over') {
+    ctx.save();
+    ctx.globalAlpha *= alpha;
+    ctx.globalCompositeOperation = composite;
+    ctx.shadowBlur = 0;
+    ctx.shadowColor = 'transparent';
+    ctx.drawImage(sprite, center.x - radius, center.y - radius, radius * 2, radius * 2);
+    ctx.restore();
+}
+
+function drawInactiveMotif(ctx, descriptor, kind, size, wave, color) {
+    if (typeof ctx.drawImage !== 'function') return false;
+    const opacityMultiplier = opacity(descriptor.alpha, 1);
+    if (opacityMultiplier <= 0) return true;
+    const sprite = previewSprite(`motif:${kind}:${color}`, spriteCtx => {
+        drawHologramMotifResolved(spriteCtx, { center: { x: 0, y: 0 } }, kind, SPRITE_SIZE, false, SPRITE_WAVE, color);
+    });
+    if (!sprite) return false;
+    const scale = (0.94 + wave * 0.025) / (0.94 + SPRITE_WAVE * 0.025);
+    const alpha = opacityMultiplier * (0.72 + wave * 0.1) / (0.72 + SPRITE_WAVE * 0.1);
+    drawPreviewSprite(ctx, sprite, descriptor.center, size * scale, alpha, kind === 'attack' ? 'source-over' : 'screen');
+    return true;
+}
+
 /** Draw one of the accepted center holograms without a surrounding frame. */
 export function drawHologramMotif(ctx, descriptor = {}) {
     const kind = KIND_SET.has(descriptor.kind) ? descriptor.kind : 'attack';
@@ -377,6 +425,8 @@ export function drawHologramMotif(ctx, descriptor = {}) {
     const wave = Number.isFinite(descriptor.wave)
         ? Math.max(0, Math.min(1, descriptor.wave))
         : waveAt(descriptor.time, 2.15, descriptor.phase);
+    const color = colorFor(kind, descriptor.color);
+    if (!active && drawInactiveMotif(ctx, descriptor, kind, size, wave, color)) return true;
     return drawHologramMotifResolved(
         ctx,
         descriptor,
@@ -384,7 +434,7 @@ export function drawHologramMotif(ctx, descriptor = {}) {
         size,
         active,
         wave,
-        colorFor(kind, descriptor.color)
+        color
     );
 }
 
@@ -396,6 +446,35 @@ export function drawUnitTargetPreview(ctx, descriptor = {}) {
     const active = Boolean(descriptor.active);
     const wave = waveAt(descriptor.time, 2.15, descriptor.phase);
     const color = colorFor(kind, descriptor.color);
+
+    if (!active && typeof ctx.drawImage === 'function') {
+        const alpha = opacity(descriptor.alpha, 1);
+        if (alpha <= 0) return true;
+        const cornerScale = (0.665 + wave * 0.018) / (0.665 + SPRITE_WAVE * 0.018);
+        const cornerAlpha = alpha * (0.7 + wave * 0.12) / (0.7 + SPRITE_WAVE * 0.12);
+        // The red frame and crosshair use the same blend mode and fit in one sprite.
+        if (kind === 'attack') {
+            const sprite = previewSprite(`attack:${color}`, spriteCtx => {
+                const origin = { x: 0, y: 0 };
+                spriteCtx.save();
+                drawCornerFrame(spriteCtx, origin, SPRITE_SIZE, color, false, SPRITE_WAVE);
+                spriteCtx.restore();
+                drawHologramMotifResolved(spriteCtx, { center: origin }, kind, SPRITE_SIZE, false, SPRITE_WAVE, color);
+            });
+            if (sprite) {
+                drawPreviewSprite(ctx, sprite, descriptor.center, size * cornerScale, cornerAlpha);
+                return true;
+            }
+        }
+        const corners = previewSprite(`corners:${color}`, spriteCtx => {
+            drawCornerFrame(spriteCtx, { x: 0, y: 0 }, SPRITE_SIZE, color, false, SPRITE_WAVE);
+        });
+        if (corners) {
+            drawPreviewSprite(ctx, corners, descriptor.center, size * cornerScale, cornerAlpha);
+            return drawInactiveMotif(ctx, descriptor, kind, size, wave, color)
+                || drawHologramMotifResolved(ctx, descriptor, kind, size, active, wave, color);
+        }
+    }
 
     ctx.save();
     applyDescriptorAlpha(ctx, descriptor);
@@ -413,6 +492,29 @@ function drawCompactCorners(ctx, center, half, arm) {
         ctx.lineTo(center.x + sx * half, center.y + sy * (half - arm));
         ctx.stroke();
     }
+}
+
+function drawDeploymentStructure(ctx, center, size, color, descriptor, baseAlpha) {
+    ctx.globalAlpha = baseAlpha * 0.52;
+    ctx.fillStyle = color;
+    ctx.strokeStyle = descriptor.structureStroke || '#dff7ff';
+    ctx.lineWidth = size * 0.025;
+    ctx.beginPath();
+    ctx.rect(center.x - size * 0.28, center.y - size * 0.08, size * 0.56, size * 0.3);
+    ctx.fill();
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(center.x - size * 0.32, center.y - size * 0.08);
+    ctx.lineTo(center.x, center.y - size * 0.28);
+    ctx.lineTo(center.x + size * 0.32, center.y - size * 0.08);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.globalAlpha = baseAlpha * 0.76;
+    ctx.beginPath();
+    ctx.arc(center.x, center.y + size * 0.06, size * 0.055, 0, TAU);
+    ctx.fillStyle = descriptor.structureLight || '#e6fbff';
+    ctx.fill();
 }
 
 /** Draw the accepted dashed tile socket used by deployment actions. */
@@ -447,26 +549,7 @@ export function drawTileDeploymentPreview(ctx, descriptor = {}) {
     drawCompactCorners(ctx, center, half, size * 0.16);
 
     if (descriptor.showStructure ?? active) {
-        ctx.globalAlpha = baseAlpha * 0.52;
-        ctx.fillStyle = color;
-        ctx.strokeStyle = descriptor.structureStroke || '#dff7ff';
-        ctx.lineWidth = size * 0.025;
-        ctx.beginPath();
-        ctx.rect(center.x - size * 0.28, center.y - size * 0.08, size * 0.56, size * 0.3);
-        ctx.fill();
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(center.x - size * 0.32, center.y - size * 0.08);
-        ctx.lineTo(center.x, center.y - size * 0.28);
-        ctx.lineTo(center.x + size * 0.32, center.y - size * 0.08);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-        ctx.globalAlpha = baseAlpha * 0.76;
-        ctx.beginPath();
-        ctx.arc(center.x, center.y + size * 0.06, size * 0.055, 0, TAU);
-        ctx.fillStyle = descriptor.structureLight || '#e6fbff';
-        ctx.fill();
+        drawDeploymentStructure(ctx, center, size, color, descriptor, baseAlpha);
     }
     ctx.restore();
     return true;
@@ -982,7 +1065,7 @@ function drawBatchedInactiveTileDeployments(ctx, descriptors) {
     const batches = new Map();
     const fallbackSingles = [];
     for (const descriptor of descriptors) {
-        if (descriptor.active || descriptor.showStructure) {
+        if (descriptor.active) {
             fallbackSingles.push(descriptor);
             continue;
         }
@@ -999,7 +1082,7 @@ function drawBatchedInactiveTileDeployments(ctx, descriptors) {
             bucket = { color, alpha, size, entries: [] };
             batches.set(bucketKey, bucket);
         }
-        bucket.entries.push({ points: scaledPoints(points, 0.88), center });
+        bucket.entries.push({ points: scaledPoints(points, 0.88), center, descriptor });
     }
     let drawn = 0;
     for (const bucket of batches.values()) {
@@ -1040,6 +1123,22 @@ function drawBatchedInactiveTileDeployments(ctx, descriptors) {
         }
         ctx.stroke();
         ctx.restore();
+        for (const { center, descriptor } of entries) {
+            if (!descriptor.showStructure) continue;
+            const sprite = typeof ctx.drawImage === 'function' && previewSprite(
+                `structure:${color}:${descriptor.structureStroke}:${descriptor.structureLight}`, spriteCtx => {
+                    spriteCtx.shadowColor = color;
+                    spriteCtx.shadowBlur = SPRITE_SIZE * 0.025;
+                    drawDeploymentStructure(spriteCtx, { x: 0, y: 0 }, SPRITE_SIZE, color, descriptor, 1);
+                }
+            );
+            if (sprite) drawPreviewSprite(ctx, sprite, center, size, alpha);
+            else {
+                ctx.save();
+                drawDeploymentStructure(ctx, center, size, color, descriptor, ctx.globalAlpha * alpha);
+                ctx.restore();
+            }
+        }
         drawn += entries.length;
     }
     for (const descriptor of fallbackSingles) drawn += Number(drawTileDeploymentPreview(ctx, descriptor));
