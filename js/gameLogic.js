@@ -38,7 +38,7 @@ import {
     spawnConfetti, triggerTurnFlash, clearTransientEffects,
     spawnMoraleEffect, spawnCommanderSkillEffect,
     triggerFactionMoraleFlash,
-    spawnProjectile, getProjectileFlightMs, spawnTorpedo, getTorpedoFlightMs, spawnDroneProjectile, DRONE_PROJECTILE_IMPACT_MS,
+    spawnGuerrillaBullet, spawnProjectile, getProjectileFlightMs, spawnTorpedo, getTorpedoFlightMs, spawnDroneProjectile, DRONE_PROJECTILE_IMPACT_MS,
     spawnStrafeTracer, spawnDroneSuicideFlak, spawnDroneDive, triggerRecoil, triggerCharge,
     spawnLightningStrike, spawnOrbitalBeam,
     spawnGoldenFlame, spawnVictoryRipple,
@@ -48,7 +48,7 @@ import {
     spawnHealingChain,
     spawnReinforceEffect, spawnCardCopyEffect,
     HEAVY_CANNON_IMPACT_MS, KATYUSHA_IMPACT_MS, KATYUSHA_IMPACT_TIMES, getKatyushaDamageShares, stageKatyushaHealth,
-    spawnHeavyCannonShell, spawnKatyushaBarrage, spawnBanzaiDash
+    spawnHeavyCannonShell, spawnKatyushaBarrage
 } from './effects.js';
 import { playSound } from './audio.js';
 import {
@@ -103,7 +103,7 @@ import {
     hasTianhengSynergyActive
 } from '../rules/tianheng.js';
 import { measure, perfEnabled } from './perf.js';
-import { getBanzaiChargePath, getTargetingAreaTiles, resolveTargetingPreview, isResolvedTargetingCandidate } from '../rules/targeting.js';
+import { getTargetingAreaTiles, resolveTargetingPreview, isResolvedTargetingCandidate } from '../rules/targeting.js';
 import { isPlayableBoardTile } from '../rules/boardLayout.js';
 import {
     ANTI_AIR_RADIUS,
@@ -156,11 +156,7 @@ import {
     markAirCommandUsed
 } from '../rules/airCommands.js';
 import {
-    BANZAI_CHARGE_CONFIG,
     GUERRILLA_CONCEALMENT_CONFIG,
-    getBanzaiBonusDamage,
-    getBanzaiCooldown,
-    getGuerrillaConcealmentReason,
     applyFireSeaToUnit,
     FIRE_SEA_CONFIG,
     getFireSeaDefenseReduction,
@@ -2530,6 +2526,67 @@ function _reconstructPath(parents, startTile, targetTile) {
     return path;
 }
 
+function triggerMovementMine(unit, targetTile, delayMs = 0) {
+    // 地雷触发（特效对所有玩家广播）
+    if (targetTile._minePlanted) {
+        const mineCampKey = targetTile._mineCampKey;
+        const unitCampKey = _campKey(unit.camp);
+        if (mineCampKey !== unitCampKey) {
+            const terrainDefense = unit.isEmbarked
+                ? getTransportBaseDefense(unit)
+                : (TERRAIN_CONFIG[targetTile.terrain]?.defenseBonus || 0);
+            const moraleDefense = isMechanicEnabled(gameState, 'morale')
+                ? (MORALE_CONFIG[unit.morale]?.defBonus || 0)
+                : 0;
+            // 地雷/水雷非战斗触发：不走克制与暴击浮动，但完整读取单位自身及地形/将领/协同常规防御减伤（不无视护甲），护盾正常吸收。
+            const totalDefense = terrainDefense
+                + (unit.config.defense || 0)
+                + (unit._rankPanelDefenseBonus || 0)
+                + moraleDefense
+                + getCommanderDefenseBonus(unit)
+                + getCommanderAuraDefenseBonus(unit)
+                + (unit.getCampaignDefenseBonus?.() || 0)
+                + getFellowRobeDefenseBonus(unit, gameState)
+                + getKmtLinkDefenseBonus(unit, gameState, terrainDefense)
+                + (hasAureliaOathEffect(unit, gameState) ? AURELIA_OATH_EFFECT.defenseBonusPct : 0);
+            const multiplier = Math.max(
+                COMBAT_BALANCE.defense.minimumMultiplier,
+                1 - Math.min(COMBAT_BALANCE.defense.maximumReduction, totalDefense)
+            );
+            const rawMineDmg = Math.round(100 * multiplier);
+            const oldHp = unit.hp;
+            if (delayMs > 0) {
+                unit._hpBarDelayUntil = performance.now() + delayMs;
+                unit._deferImpactFxUntil = unit._hpBarDelayUntil;
+            }
+            unit.applyDamage(rawMineDmg, { source: 'effect', effect: 'mine', sourceCampKey: mineCampKey, skipAura: true, impactDelayMs: delayMs });
+            const mineDmg = Math.max(0, oldHp - unit.hp);
+            enqueueFloatText({
+                x: targetTile.x, y: targetTile.y, q: targetTile.q, r: targetTile.r,
+                value: mineDmg, isCrit: true, timeLeft: 900, delayMs
+            });
+            const playMine = () => {
+                spawnDirectionalParticles(targetTile.x, targetTile.y + 10, targetTile.x, targetTile.y - 50, '#ff4400', 20);
+                spawnDirectionalParticles(targetTile.x, targetTile.y + 10, targetTile.x, targetTile.y - 50, '#ffaa00', 12);
+                spawnExplosionParticles(targetTile.x, targetTile.y, '#664400', 8);
+                triggerScreenShake(6, 250);
+                playSound('attack');
+            };
+            if (delayMs > 0) setTimeout(playMine, delayMs);
+            else playMine();
+            const mineName = targetTile._mineType === 'water' ? '水雷' : '地雷';
+            logMessage(`💣 ${mineName}触发！${unit.camp.name}${unit.config.name}受到${mineDmg}伤害`);
+            const result = { q: targetTile.q, r: targetTile.r, x: targetTile.x, y: targetTile.y, dmg: mineDmg, mineType: targetTile._mineType || 'land' };
+            targetTile._minePlanted = false;
+            targetTile._mineCampKey = null;
+            targetTile._mineType = null;
+            return result;
+        }
+    }
+
+    return null;
+}
+
 export function moveUnit(unit, targetTile) {
     return withMatchAction('move', () => perfEnabled()
         ? measure('moveUnit', () => _moveUnit(unit, targetTile)) : _moveUnit(unit, targetTile));
@@ -2663,54 +2720,7 @@ function _moveUnit(unit, targetTile) {
         notify('天眼哨机超出信号范围', 'warn');
     }
 
-    // 地雷触发（特效对所有玩家广播）
-    let _mineTrigger = null;
-    if (targetTile._minePlanted) {
-        const mineCampKey = targetTile._mineCampKey;
-        const unitCampKey = _campKey(unit.camp);
-        if (mineCampKey !== unitCampKey) {
-            const terrainDefense = unit.isEmbarked
-                ? getTransportBaseDefense(unit)
-                : (TERRAIN_CONFIG[targetTile.terrain]?.defenseBonus || 0);
-            const moraleDefense = isMechanicEnabled(gameState, 'morale')
-                ? (MORALE_CONFIG[unit.morale]?.defBonus || 0)
-                : 0;
-            // 地雷/水雷非战斗触发：不走克制与暴击浮动，但完整读取单位自身及地形/将领/协同常规防御减伤（不无视护甲），护盾正常吸收。
-            const totalDefense = terrainDefense
-                + (unit.config.defense || 0)
-                + (unit._rankPanelDefenseBonus || 0)
-                + moraleDefense
-                + getCommanderDefenseBonus(unit)
-                + getCommanderAuraDefenseBonus(unit)
-                + (unit.getCampaignDefenseBonus?.() || 0)
-                + getFellowRobeDefenseBonus(unit, gameState)
-                + getKmtLinkDefenseBonus(unit, gameState, terrainDefense)
-                + (hasAureliaOathEffect(unit, gameState) ? AURELIA_OATH_EFFECT.defenseBonusPct : 0);
-            const multiplier = Math.max(
-                COMBAT_BALANCE.defense.minimumMultiplier,
-                1 - Math.min(COMBAT_BALANCE.defense.maximumReduction, totalDefense)
-            );
-            const rawMineDmg = Math.round(100 * multiplier);
-            const oldHp = unit.hp;
-            unit.applyDamage(rawMineDmg, { source: 'effect', effect: 'mine', sourceCampKey: mineCampKey, skipAura: true });
-            const mineDmg = Math.max(0, oldHp - unit.hp);
-            enqueueFloatText({
-                x: targetTile.x, y: targetTile.y, q: targetTile.q, r: targetTile.r,
-                value: mineDmg, isCrit: true, timeLeft: 900
-            });
-            spawnDirectionalParticles(targetTile.x, targetTile.y + 10, targetTile.x, targetTile.y - 50, '#ff4400', 20);
-            spawnDirectionalParticles(targetTile.x, targetTile.y + 10, targetTile.x, targetTile.y - 50, '#ffaa00', 12);
-            spawnExplosionParticles(targetTile.x, targetTile.y, '#664400', 8);
-            triggerScreenShake(6, 250);
-            playSound('attack');
-            const mineName = targetTile._mineType === 'water' ? '水雷' : '地雷';
-            logMessage(`💣 ${mineName}触发！${unit.camp.name}${unit.config.name}受到${mineDmg}伤害`);
-            _mineTrigger = { x: targetTile.x, y: targetTile.y, dmg: mineDmg, mineType: targetTile._mineType || 'land' };
-            targetTile._minePlanted = false;
-            targetTile._mineCampKey = null;
-            targetTile._mineType = null;
-        }
-    }
+    const _mineTrigger = triggerMovementMine(unit, targetTile);
 
     if (targetTile.isCity && !unit._isDrone) {
         unit.remainingMP = 0; // entering city ends movement
@@ -2901,7 +2911,8 @@ function _attackUnit(attackerUnit, targetUnit, options) {
     const culturalImpactMs = attackerUnit.type === 'fr_heavy_cannon' ? HEAVY_CANNON_IMPACT_MS
         : attackerUnit.type === 'ru_katyusha' ? KATYUSHA_IMPACT_MS : 0;
     const _impactVisualMs = _torpedoMs || _airStrafeMs || culturalImpactMs
-        || (attackerUnit.type === 'us_marine' ? DRONE_PROJECTILE_IMPACT_MS : 0);
+        || (attackerUnit.type === 'cpc_guerrilla' && !attackerUnit.isEmbarked ? CULTURE_STRIKE_TIMING.normalBullet
+            : attackerUnit.type === 'us_marine' ? DRONE_PROJECTILE_IMPACT_MS : 0);
     // 飞行类攻击的击杀伴随特效（士气上升/斩将全军鼓舞等）统一延迟到弹着爆炸时刻
     const _deferImpactFx = (fn) => _impactVisualMs > 0 ? setTimeout(fn, _impactVisualMs) : fn();
     const ambush = isStealthGuerrilla(attackerUnit);
@@ -3162,7 +3173,7 @@ function _attackUnit(attackerUnit, targetUnit, options) {
                 spawnProjectile(fromX, fromY, toX, toY, isCrit, impact);
             }
         } else if (attackPresentation === ATTACK_PRESENTATION.FIRE_TRACER) {
-            spawnDroneProjectile(fromX, fromY, toX, toY, isCrit, attackDodged ? null : () => {
+            (attackerUnit.type === 'cpc_guerrilla' && !attackerUnit.isEmbarked ? spawnGuerrillaBullet : spawnDroneProjectile)(fromX, fromY, toX, toY, isCrit, attackDodged ? null : () => {
                 triggerAttackFlash(toX, toY, isCrit);
                 spawnDirectionalParticles(fromX, fromY, toX, toY, '#ff8844', isCrit ? 4 : 2);
                 // 无人机普攻不震屏，更贴合枪弹手感
@@ -3294,7 +3305,8 @@ function _attackUnit(attackerUnit, targetUnit, options) {
                 }
                 const strongholdImpactMs = counterImpactMs || (counterPresentation === ATTACK_PRESENTATION.FIRE_CANNON
                     ? getProjectileFlightMs(toX, toY, _counterX, _counterY)
-                    : counterPresentation === ATTACK_PRESENTATION.FIRE_TRACER ? DRONE_PROJECTILE_IMPACT_MS : 0);
+                    : counterPresentation === ATTACK_PRESENTATION.FIRE_TRACER
+                        ? (targetUnit.type === 'cpc_guerrilla' ? CULTURE_STRIKE_TIMING.normalBullet : DRONE_PROJECTILE_IMPACT_MS) : 0);
                 const hpBeforeCounter = attackerUnit.hp;
                 if (isKatyushaCounter) {
                     const barrage = applyKatyushaBarrageDamage(targetUnit, attackerUnit, counterResult.dmg, counterStartedAt, counterResult.isCrit);
@@ -3318,7 +3330,7 @@ function _attackUnit(attackerUnit, targetUnit, options) {
                         spawnTorpedo(_cfx, _cfy, _counterX, _counterY, counterResult.isCrit);
                     } else if (counterPresentation === ATTACK_PRESENTATION.FIRE_TRACER) {
                         playSound('machinegun');
-                        spawnDroneProjectile(_cfx, _cfy, _counterX, _counterY, counterResult.isCrit, () => {
+                        (targetUnit.type === 'cpc_guerrilla' && !targetUnit.isEmbarked ? spawnGuerrillaBullet : spawnDroneProjectile)(_cfx, _cfy, _counterX, _counterY, counterResult.isCrit, () => {
                             triggerAttackFlash(_counterX, _counterY, counterResult.isCrit);
                             spawnDirectionalParticles(_cfx, _cfy, _counterX, _counterY, '#ff8844', counterResult.isCrit ? 8 : 4);
                             triggerScreenShake(counterResult.isCrit ? 6 : 3, counterResult.isCrit ? 200 : 120);
@@ -4601,7 +4613,7 @@ function _attackCityTile(attackerUnit, targetTile, options) {
         else if (isKatyusha) spawnKatyushaBarrage(fromX, fromY, toX, toY, isCrit, impact, { startedAt: barrageStartedAt, splash: katyushaSplash });
         else spawnProjectile(fromX, fromY, toX, toY, isCrit, impact);
     } else if (attackPresentation === ATTACK_PRESENTATION.FIRE_TRACER) {
-        spawnDroneProjectile(fromX, fromY, toX, toY, isCrit, () => {
+        (attackerUnit.type === 'cpc_guerrilla' && !attackerUnit.isEmbarked ? spawnGuerrillaBullet : spawnDroneProjectile)(fromX, fromY, toX, toY, isCrit, () => {
             triggerAttackFlash(toX, toY, isCrit);
             spawnDirectionalParticles(fromX, fromY, toX, toY, '#ff8844', isCrit ? 4 : 2);
         });
@@ -5114,185 +5126,95 @@ export function executeHeavyCannonStance(unit) {
     return true;
 }
 
-export function executeGuerrillaConcealment(unit) {
-    if (gameState.gameOver || unit?.type !== 'cpc_guerrilla' || unit.camp !== gameState.currentCamp
-        || unit.tile?.unit !== unit) return false;
-    const reason = getGuerrillaConcealmentReason(unit, gameState);
-    if (reason) {
-        notify(reason, 'error');
-        return false;
-    }
-    unit.remainingMP -= GUERRILLA_CONCEALMENT_CONFIG.movementCost;
-    unit._guerrillaHiddenThroughRound = getRoundIndex(gameState) + GUERRILLA_CONCEALMENT_CONFIG.durationRounds;
-    const { q, r, x, y } = unit.tile;
-    const effect = { unitId: unit.id, campKey: _campKey(unit.camp), q, r, x, y };
-    if (gameState.selectedUnit === unit) {
-        gameState.movableTiles = getMovableTiles(unit);
-        gameState.attackableTiles = getAttackableTiles(unit);
-        refreshChainAttackPlans(unit);
-    }
-    if (gameState.skirmishFog) _updateSkirmishFogAll();
-    emit('fx:guerrillaConcealment', effect);
-    logMessage(`🌿 ${unit.camp.name}游击纵队进入隐匿状态`);
-    updateUI();
-    broadcastAction('guerrillaConcealment', effect);
-    return true;
-}
+export function executeCultureStrike(unit, targetTile) {
+    return withMatchAction('cultureStrike', () => {
+        if (gameState._replayMode || gameState.gameOver || !isCultureStrikeTurn(unit, gameState)) return false;
+        const plan = planCultureStrike(unit, targetTile, gameState, { commit: true });
+        if (!plan) return false;
 
-export function executeBanzaiCharge(unit, targetTile) {
-    return withMatchAction('banzaiCharge', () => _executeBanzaiCharge(unit, targetTile));
-}
-
-function _executeBanzaiCharge(unit, targetTile) {
-    if (gameState.gameOver || !unit || !unit.tile || !targetTile?.unit) return false;
-    if (unit.type !== 'jp_samurai' || unit.camp !== gameState.currentCamp) return false;
-    if (unit._campaignCanAct === false || unit._campaignCanAttack === false) {
-        notify('当前剧情状态不允许发动万岁冲锋', 'error');
-        return false;
-    }
-    if (!unit.canAct || unit.isNewRecruit || unit._imprisoned || unit._transportTransitionedThisTurn
-        || (isMechanicEnabled(gameState, 'morale') && unit.morale === 0)) {
-        notify('该单位当前无法行动', 'error');
-        return false;
-    }
-    const curRound = getRoundIndex(gameState);
-    if (getBanzaiCooldown(unit, gameState) > 0) {
-        notify('冷却1回合', 'error');
-        return false;
-    }
-    if (!(unit.remainingMP >= BANZAI_CHARGE_CONFIG.movementCost)) {
-        notify('行动力不足（需2点）', 'error');
-        return false;
-    }
-    const path = getBanzaiChargePath(unit, targetTile, gameState);
-    if (!path || !isVisibleForAction(targetTile, unit.camp, gameState)) {
-        notify('2格内没有可突击的敌方单位', 'error');
-        return false;
-    }
-
-    const targetUnit = targetTile.unit;
-    const target = targetUnit.config.name;
-    const fromTile = path[0];
-    const isFollowup = unit._banzaiFollowupTurn === gameState.turnCounter;
-    unit._banzaiFollowupTurn = null;
-    unit.remainingMP -= BANZAI_CHARGE_CONFIG.movementCost;
-    const rawSelfDmg = Math.round(unit.hp * BANZAI_CHARGE_CONFIG.selfDamageCurrentHpPct);
-    const selfDmg = Math.max(0, Math.min(unit.hp - 1, rawSelfDmg));
-    if (selfDmg > 0) {
-        unit.applyDamage(selfDmg, { source: 'effect', ignoreShield: true, minHp: 1 });
-        enqueueFloatText({
-            x: fromTile.x, y: fromTile.y, q: fromTile.q, r: fromTile.r,
-            value: selfDmg, color: '#ef4444', timeLeft: 900
-        });
-    }
-
-    const impactDelay = 165 + 105 * (path.length - 1);
-    const impactAt = performance.now() + impactDelay;
-    const attackResult = unit.calculateDamage(targetUnit, impactDelay, {
-        bonusDamage: getBanzaiBonusDamage(targetUnit), showDamageText: false
-    });
-    const dodged = !!attackResult.dodged;
-    let killed = false;
-    let hpDealt = 0;
-    if (!dodged) {
-        targetUnit._hpBarDelayUntil = impactAt;
-        targetUnit._deferImpactFxUntil = impactAt;
-        const hpBefore = targetUnit.hp;
-        killed = targetUnit.takeDamage(attackResult.dmg, unit, false, {
-            isCrit: attackResult.isCrit, impactDelayMs: impactDelay
-        });
-        hpDealt = Math.max(0, hpBefore - targetUnit.hp);
-        if (hpDealt > 0 && targetUnit.tile) {
-            enqueueFloatText({
-                x: targetTile.x, y: targetTile.y, q: targetTile.q, r: targetTile.r,
-                value: hpDealt, isCrit: attackResult.isCrit, timeLeft: 900, delayMs: impactDelay
-            });
+        const timing = CULTURE_STRIKE_TIMING;
+        const config = CULTURE_STRIKES[unit.type];
+        const isChain = plan.kind === 'samuraiChain';
+        const impactDelay = isChain ? timing.charge + plan.hits.length * timing.cut + timing.exit + timing.hold
+            : timing.lock + (plan.path.length - 1) * timing.bulletPerHex;
+        if (isStealthGuerrilla(unit)) endGuerrillaConcealment(unit);
+        if (isChain) {
+            unit._banzaiReadyRound = getRoundIndex(gameState) + config.cooldown + 1;
+            unit._banzaiFollowupTurn = null;
+        } else {
+            unit._guerrillaReadyRound = getRoundIndex(gameState) + config.cooldown + 1;
         }
-        unit.addXP(attackResult.isCrit ? 3 : 1);
-        if (killed) {
-            const rankExtra = [0, 2, 5, 12, 20];
-            unit.addXP(3 + (rankExtra[targetUnit._rank] || 0));
-        }
-    }
-
-    let movePath = path.slice(0, -1);
-    if (killed && canUnitOccupyTile(unit, targetTile, gameState) && !isCitySiegeBlocked(targetTile, unit.camp, gameState)) {
-        movePath = path;
-    }
-    const destTile = movePath.at(-1);
-
-    if (destTile !== fromTile) {
-        fromTile.unit = null;
-        unit.tile = destTile;
-        destTile.unit = unit;
-        unit.movedThisTurn = true;
-        unit.moveDistance += hexDistance(fromTile, destTile);
-        unit.startMovePath?.(movePath);
-        if (isEmbarkableLandUnit(unit)) unit.isEmbarked = isWaterTile(destTile);
-        clearPortDepartureState(unit, fromTile, destTile);
-        if (destTile.isCity && destTile.camp !== unit.camp) updateDistrictColor(destTile, unit.camp, unit);
-        if (destTile.isPort) capturePort(gameState, destTile, unit);
-    }
-
-    let healAmt = 0;
-    if (killed) {
-        healAmt = unit.heal(Math.round(unit.maxHp * BANZAI_CHARGE_CONFIG.killHealMaxHpPct), {
-            bypassAntiHeal: true, delayMs: impactDelay
+        unit.canAct = false;
+        unit.remainingMP = 0;
+        const startedAt = performance.now();
+        // All strikes read the caster's pre-settlement attack and modifiers.
+        let pierced = 0;
+        const attacks = plan.hits.map(({ tile, multiplier }) => {
+            const target = tile.unit;
+            const delayMs = isChain ? impactDelay : timing.lock + hexDistance(plan.origin, tile) * timing.bulletPerHex;
+            const baseMulti = isChain ? multiplier : config.multiplier * config.retention ** pierced;
+            const attack = withFloatTextImpactTiming(startedAt, delayMs, () => unit.calculateDamage(target, delayMs, {
+                baseMulti, showDamageText: false
+            }));
+            if (!isChain && !attack.dodged) pierced++;
+            return { tile, target, delayMs, attack, multiplier: baseMulti };
         });
-    }
+        let xp = 0;
+        const results = attacks.map(({ tile, target, delayMs, attack, multiplier }) => withFloatTextImpactTiming(startedAt, delayMs, () => {
+            let dmg = 0, killed = false;
+            if (!attack.dodged && target.hp > 0) {
+                const before = target.hp;
+                target._hpBarDelayUntil = startedAt + delayMs;
+                target._deferImpactFxUntil = startedAt + delayMs;
+                killed = target.takeDamage(attack.dmg, unit, false, {
+                    isCrit: attack.isCrit, impactDelayMs: delayMs
+                });
+                dmg = Math.max(0, before - target.hp);
+                xp += (attack.isCrit ? 3 : 1) + (killed ? 3 + ([0, 2, 5, 12, 20][target._rank] || 0) : 0);
+                enqueueFloatText({ q: tile.q, r: tile.r, x: tile.x, y: tile.y, value: dmg,
+                    isCrit: attack.isCrit, timeLeft: 900, delayMs });
+            }
+            return { q: tile.q, r: tile.r, unitId: target.id, dmg, killed, delayMs, multiplier, dodged: Boolean(attack.dodged) };
+        }));
+        if (xp > 0 && unit.hp > 0) unit.addXP(xp);
 
-    unit._banzaiReadyRound = curRound + BANZAI_CHARGE_CONFIG.cooldown + 1;
-    const followup = killed && !isFollowup;
-    if (followup) {
-        unit._banzaiFollowupTurn = gameState.turnCounter;
-        unit.remainingMP += BANZAI_CHARGE_CONFIG.killMovementRefund;
-    }
-    unit.canAct = followup;
-    if (!followup) unit.remainingMP = 0;
-
-    unit._banzaiJump = {
-        fromX: fromTile.x,
-        fromY: fromTile.y,
-        toX: targetTile.x,
-        toY: targetTile.y,
-        destX: destTile.x,
-        destY: destTile.y,
-        startTime: performance.now(),
-        impactDelay
-    };
-    spawnBanzaiDash(fromTile.x, fromTile.y, targetTile.x, targetTile.y, {
-        killed, healAmt, followup, destX: unit.tile.x, destY: unit.tile.y, dodged, delayMs: impactDelay
+        if (plan.landing && unit.hp > 0) {
+            const { origin, landing } = plan;
+            origin.unit = null;
+            landing.unit = unit;
+            unit.tile = landing;
+            unit.movePath = null;
+            unit.movedThisTurn = true;
+            unit.moveDistance += plan.path.slice(1).reduce((total, tile, i) =>
+                total + hexDistance(plan.path[i], tile), 0);
+            unit.isEmbarked = isWaterTile(landing);
+            if (unit.isEmbarked) unit._berserkerQixue = false;
+            clearPortDepartureState(unit, origin, landing);
+            if (landing.isCity && landing.camp !== unit.camp) updateDistrictColor(landing, unit.camp, unit);
+            if (landing.isPort) capturePort(gameState, landing, unit);
+            if (unit.commander === 'tianyan') refreshDroneSignal(gameState, unit.camp);
+            if (gameState.skirmishFog) beginFogPresentationHold(gameState, unit.camp, impactDelay - timing.hold);
+        }
+        const effect = {
+            kind: plan.kind, unitId: unit.id, campKey: _campKey(unit.camp), impactDelay,
+            path: plan.path.map(({ q, r }) => ({ q, r })), results
+        };
+        presentCultureStrike(gameState, effect, startedAt);
+        if (plan.landing && unit.tile === plan.landing && unit.hp > 0) {
+            const landingDelay = impactDelay - timing.hold;
+            const mine = triggerMovementMine(unit, plan.landing, Math.max(0, startedAt + landingDelay - performance.now()));
+            if (mine) effect.landingMine = { ...mine, unitId: unit.id, killed: unit.hp <= 0, delayMs: landingDelay };
+        }
+        recalcAllFlankingMorale();
+        if (gameState.skirmishFog) _updateSkirmishFogAll();
+        logMessage(`${unit.camp.name}${unit.config.name}发动【${config.name}】，命中${results.filter(hit => !hit.dodged).length}个目标`);
+        clearselection({ preserveInspection: gameState.aiActing });
+        updateUI();
+        broadcastAction('cultureStrike', effect);
+        return true;
     });
-    if (followup) {
-        logMessage(`⚔️ ${unit.camp.name}帝国武士【万岁冲锋】斩杀${target}，恢复${healAmt}生命并再次行动！`);
-    } else if (killed) {
-        logMessage(`⚔️ ${unit.camp.name}帝国武士【万岁冲锋】斩杀${target}，恢复${healAmt}生命`);
-    } else {
-        logMessage(`⚔️ ${unit.camp.name}帝国武士发动【万岁冲锋】，对${target}造成${hpDealt}伤害`);
-    }
-
-    recalcAllFlankingMorale();
-    if (gameState.skirmishFog) _updateSkirmishFogAll();
-    clearselection({ preserveInspection: gameState.aiActing });
-    updateUI();
-    broadcastAction('banzaiCharge', {
-        unitId: unit.id,
-        targetUnitId: targetUnit.id,
-        impactDelay,
-        fromQ: fromTile.q, fromR: fromTile.r,
-        targetQ: targetTile.q, targetR: targetTile.r,
-        destQ: unit.tile.q, destR: unit.tile.r,
-        fromX: fromTile.x, fromY: fromTile.y,
-        toX: targetTile.x, toY: targetTile.y,
-        destX: unit.tile.x, destY: unit.tile.y,
-        path: movePath.map(({ q, r, x, y }) => ({ q, r, x, y })),
-        selfDmg, dmg: hpDealt,
-        isCrit: !!attackResult.isCrit,
-        dodged, killed, healAmt, followup,
-        readyRound: unit._banzaiReadyRound
-    });
-    return true;
 }
+
 // 天衡【日月天衡】：回收刚结束回合阵营的真实剩余行动力，满阈值自动释放。
 function _accrueSunMoonForCamp(campKey, totalRemaining) {
     if (!campKey || campKey === 'neutral' || !hasTianhengSynergyActive(gameState, campKey)) {
@@ -6053,3 +5975,5 @@ function _executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) {
     const recordedAction = broadcastAction('tacticalCard', { cardId, x, y, q: targetTile.q, r: targetTile.r, dmg: result.dmg, isCrit: result.isCrit, deployed: result.deployed, commander: result.commander, healAmt: result.healAmt, purifiedPoison: result.purifiedPoison, poisoned: result.poisoned, mineType: result.mineType, imprisoned: result.imprisoned, killedTiles: result.killedTiles, carpetBombResults, orbitalStrikeResults, heavyCannonVolleys: forceMarchVolleys, burnDisplayName, scoutQ: result.scoutQ, scoutR: result.scoutR, antiAir: result.antiAir ?? null });
     committedActionId = recordedAction?.actionId || null;
 }
+import { CULTURE_STRIKES, CULTURE_STRIKE_TIMING, isCultureStrikeTurn, planCultureStrike } from '../rules/cultureStrike.js';
+import { presentCultureStrike } from './cultureStrikeFx.js';

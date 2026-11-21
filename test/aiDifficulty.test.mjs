@@ -12,6 +12,7 @@ import { chooseDefaultSpecialization, UNIT_CONFIG, MG_NEST_MACHINE_GUN_DAMAGE_BO
 import { COMBAT_BALANCE } from '../rules/constants.js';
 import { getStandardMap } from '../rules/standardMaps.js';
 import { createMatchState, serializeMatchState } from '../engine/matchState.js';
+import { planCultureStrike } from '../rules/cultureStrike.js';
 import { Unit, setGameStateRef, setIsNetworkGameRef } from '../js/Unit.js';
 import {
     getStrategicCityDistrictProfile,
@@ -826,12 +827,12 @@ test('Hybrid 3.1 修正：圣武士满信仰邻接敌军时，planTurn 虚拟锁
     assert.equal(pick.action.unitId, 11);
 });
 
-test('Hybrid 3.1 修正：游击队接敌且剩余 ≥2 MP 时优先触发 1 MP 隐蔽突袭 (guerrillaConcealment)', () => {
+test('Hybrid 优先以远距狙击攻击轴线上可见敌军', () => {
     const state = createMatchState();
     const me = state.factions.player1;
     const foe = state.factions.player2;
-    const gTile = { q: 0, r: 0, isCity: false, isPort: false, camp: null, unit: null };
-    const eTile = { q: 1, r: 0, isCity: false, isPort: false, camp: null, unit: null };
+    const gTile = { q: 0, r: 0, s: 0, isCity: false, isPort: false, camp: null, unit: null };
+    const eTile = { q: 5, r: 0, s: -5, isCity: false, isPort: false, camp: null, unit: null };
     const guerrilla = {
         id: 31, type: 'cpc_guerrilla', camp: me, hp: 165, maxHp: 165, canAct: true, remainingMP: 2,
         commander: null, _concealed: false, _concealUsedThisTurn: false,
@@ -845,7 +846,7 @@ test('Hybrid 3.1 修正：游击队接敌且剩余 ≥2 MP 时优先触发 1 MP 
         getEffectiveAttack: () => 50, getEffectiveRange: () => 1
     };
     eTile.unit = enemy;
-    state.tiles = [gTile, eTile];
+    state.tiles = [gTile, ...[1, 2, 3, 4].map(q => ({ ...eTile, q, s: -q, unit: null })), eTile];
     state.tileMap = new Map(state.tiles.map(t => [`${t.q},${t.r}`, t]));
     state.currentCamp = me;
     state.turnOrder = ['player1', 'player2'];
@@ -853,7 +854,7 @@ test('Hybrid 3.1 修正：游击队接敌且剩余 ≥2 MP 时优先触发 1 MP 
     state.playerGold.player1 = 0;
     const helpers = {
         getMovableTiles: () => [],
-        getAttackableTiles: (u) => (u.id === 31 ? [eTile] : []),
+        getAttackableTiles: () => [],
         hexDistance: (a, b) => (Math.abs(a.q - b.q) + Math.abs(a.q + a.r - b.q - b.r) + Math.abs(a.r - b.r)) >> 1,
         HEX_NEIGHBORS: [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]],
         CAMP: state.factions,
@@ -863,8 +864,9 @@ test('Hybrid 3.1 修正：游击队接敌且剩余 ≥2 MP 时优先触发 1 MP 
         isTileVisible: () => true,
         isUnitVisibleToCamp: () => true
     };
+    assert.ok(planCultureStrike(guerrilla, eTile, state), '规则允许五格外狙击');
     const pick = selectHybridAction(state, helpers, me);
     assert.ok(pick?.action, '应选出有效动作');
-    assert.equal(pick.action.type, 'guerrillaConcealment');
+    assert.equal(pick.action.type, 'cultureStrike');
     assert.equal(pick.action.unitId, 31);
 });

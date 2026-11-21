@@ -16,6 +16,7 @@ import { getUnitStatusIcons } from './unitStatusIcons.js';
 import { getActiveCultureId, getCulturalBadgeCropForUnit } from '../rules/cultures.js';
 import { isUniqueCultureUnit } from '../rules/units.js';
 import { hasHostileUnitNear, isStealthGuerrilla, isStealthUnit, isUnitVisibleToCamp } from '../rules/visibility.js';
+import { getCultureStrikePosition } from './cultureStrikeFx.js';
 import {
     UNIT_BADGE_CENTER_Y,
     UNIT_BADGE_RADIUS,
@@ -42,6 +43,11 @@ function isHumanTurn(gameState) {
 }
 
 export function getUnitVisualPos(unit) {
+    if (unit._cultureStrikeMotion) {
+        const motion = unit._cultureStrikeMotion;
+        if (frameInfo.now - motion.startedAt < motion.impactDelay) return getCultureStrikePosition(motion, frameInfo.now, HEX_SIZE);
+        unit._cultureStrikeMotion = null;
+    }
         const baseX = unit.tile.x, baseY = unit.tile.y;
         let vx = baseX, vy = baseY;
 

@@ -1,4 +1,5 @@
 import { getUndergroundIntelligenceStatus } from '../rules/undergroundIntelligence.js';
+import { CULTURE_STRIKES, cultureStrikeCooldown, cultureStrikeUnavailable, listCultureStrikePlans } from '../rules/cultureStrike.js';
 import { HEX_SIZE, canvas, cardCanvas, settings, saveSettings, MORALE_CONFIG, TERRAIN_CONFIG, FORTIFICATION_CONFIG, LOGICAL_W, LOGICAL_H, WEATHER_CONFIG, TACTICAL_CARD_CONFIG, CARD_SYSTEM_CONFIG, UNIT_CONFIG, COLONEL_CARDS, COLONEL_CARD_GOLD, getCardMeta, getRoundIndex, getFactionCount, getFlagColors, hexDistance } from './config.js';
 import { allCommanders as COMMANDER_CONFIG } from '../commander/index.js';
 import { getCommander, getCommanderDefenseBonus, getCommanderAuraDefenseBonus, getEffectiveWeather } from './commanderInterface.js';
@@ -18,7 +19,7 @@ import {
     getMovableTiles, getAttackableTiles, refreshChainAttackPlans,
     moveUnit, attackUnit, attackCityTile, recruitUnit, endTurn,
     executeTacticalCard, executeDroneDeploy, executeDroneSuicide, executeEngineerTrench, executeEngineerFlak, executeEngineerBunkerConstruction,
-    executeConstructionAt, executeFieldConstruction, executeBunkerConstruction, executeAirfieldConstruction, executeFieldRepair, executeAirCommand, executeBanzaiCharge, executeGuerrillaConcealment, executeHeavyCannonStance, executeRiverGateSwitch,
+    executeConstructionAt, executeFieldConstruction, executeBunkerConstruction, executeAirfieldConstruction, executeFieldRepair, executeAirCommand, executeCultureStrike, executeHeavyCannonStance, executeRiverGateSwitch,
     cancelCardTargeting, recalcAllFlankingMorale, drawCard, reinforceUnit, repairShipAtPort, recordAuxiliaryAction
 } from './gameLogic.js';
 import { spawnCommanderSkillEffect, spawnPaladinOrbitBeams, spawnAstrologerEffect, getKatyushaPresentedHealth } from './effects.js';
@@ -34,7 +35,7 @@ import { paintFlagBadgeCanvas } from './flagBadgeCanvas.js';
 import { campToKey } from '../rules/camps.js';
 import { campFromKey } from '../rules/diplomacy.js';
 import { getFactionKeys } from '../rules/diplomacy.js';
-import { AIR_TARGETING_CARD_IDS, getBanzaiChargePath, resolveTargetingPreview, isResolvedTargetingCandidate } from '../rules/targeting.js';
+import { AIR_TARGETING_CARD_IDS, resolveTargetingPreview, isResolvedTargetingCandidate } from '../rules/targeting.js';
 import { isPlayableBoardTile, isPointInBoardHex } from '../rules/boardLayout.js';
 import { RECRUITMENT_OPTIONS, getUniqueRecruitmentOption } from './recruitmentUi.js';
 import { areCommanderMechanicsSuppressed, getTransportBaseDefense } from '../rules/movement.js';
@@ -47,7 +48,7 @@ import { CONSTRUCTION_CONFIG, canBuildAirfieldAt, canFieldRepair, constructionCo
 import { measure, perfEnabled } from './perf.js';
 import { AIR_COMMAND_CONFIG, getAirCommandAvailability, getAirCommandCost, getAirCommandRange, getAirfieldColonel, getVisibleAirCommandKinds } from '../rules/airCommands.js';
 import { isUnitVisibleToCamp } from '../rules/visibility.js';
-import { BANZAI_CHARGE_CONFIG, GUERRILLA_CONCEALMENT_CONFIG, HEAVY_CANNON_STANCE, UNDERGROUND_INTELLIGENCE, getHistoricalCost, getHeavyCannonStanceBlock, isHeavyCannonDeployed, getActiveFactionCulture, getBanzaiCooldown, getCultureForFaction, getCulturalReinforceCostScale, getFireSeaDefenseReduction, getGuerrillaConcealmentReason, getNeverSurrenderStatBonus, hasNegativeWeatherImmunity } from '../rules/cultures.js';
+import { HEAVY_CANNON_STANCE, UNDERGROUND_INTELLIGENCE, getHistoricalCost, getHeavyCannonStanceBlock, isHeavyCannonDeployed, getActiveFactionCulture, getCultureForFaction, getCulturalReinforceCostScale, getFireSeaDefenseReduction, getNeverSurrenderStatBonus, hasNegativeWeatherImmunity } from '../rules/cultures.js';
 import {
     AURELIA_FACTION_PASSIVE,
     hasAureliaOathPassive,
@@ -559,44 +560,15 @@ function _collectBoardActions(unit, tile = null) {
                 : cooldown > 0 ? `冷却${cooldown}回合` : '金币不足', theme: 'construction'
         });
     }
-    if (unit.type === 'jp_samurai') {
-        const cooldown = getBanzaiCooldown(unit, gameState);
-        const hasTarget = gameState.tiles.some(t => t.unit && isTileVisible(t, unit.camp, gameState)
-            && getBanzaiChargePath(unit, t, gameState));
-        const canUse = isControllable && unit.canAct && !unit.isNewRecruit && !unit._imprisoned
-            && !unit._transportTransitionedThisTurn && unit.morale !== 0
-            && unit.remainingMP >= BANZAI_CHARGE_CONFIG.movementCost && cooldown === 0 && hasTarget;
+    const strike = CULTURE_STRIKES[unit.type];
+    if (strike) {
+        const cooldown = cultureStrikeCooldown(unit, gameState);
+        let reason = isControllable ? cultureStrikeUnavailable(unit, gameState) : unavailableReason;
+        if (!reason && !listCultureStrikePlans(unit, gameState).length) reason = '没有合法目标';
         actions.push({
-            key: `banzaiCharge:${unit.id}`,
-            buttonId: 'boardActiveSkill',
-            kind: 'banzaiCharge',
-            unitId: unit.id,
-            icon: BANZAI_CHARGE_CONFIG.icon || '⚔️',
-            label: BANZAI_CHARGE_CONFIG.name,
-            cooldown,
-            canUse,
-            reason: canUse ? ''
-                : !isControllable ? unavailableReason
-                : unit._imprisoned ? '被禁锢'
-                : !unit.canAct || unit.isNewRecruit || unit._transportTransitionedThisTurn || unit.morale === 0 ? '本回合无法行动'
-                : cooldown > 0 ? '冷却1回合'
-                : unit.remainingMP < BANZAI_CHARGE_CONFIG.movementCost ? '行动力不足（需2点）'
-                : '2格内没有可突击的敌方单位',
-            theme: 'commander'
-        });
-    }
-    if (unit.type === 'cpc_guerrilla') {
-        const reason = isControllable ? getGuerrillaConcealmentReason(unit, gameState) : unavailableReason;
-        actions.push({
-            key: `guerrillaConcealment:${unit.id}`,
-            buttonId: 'boardGuerrillaConcealment',
-            kind: 'guerrillaConcealment',
-            unitId: unit.id,
-            icon: GUERRILLA_CONCEALMENT_CONFIG.icon,
-            label: GUERRILLA_CONCEALMENT_CONFIG.name,
-            canUse: isControllable && !reason,
-            reason,
-            theme: 'reinforce'
+            key: `cultureStrike:${unit.id}`, buttonId: 'boardCultureStrike', kind: 'cultureStrike',
+            unitId: unit.id, icon: strike.icon, label: strike.name, cooldown,
+            canUse: isControllable && !reason, reason, theme: 'commander'
         });
     }
     if (unit._isDrone) {
@@ -926,21 +898,18 @@ function _activateBoardAction(action) {
     const unit = _findUnitById(action.unitId);
     if (!unit) return;
 
-    if (action.kind === 'banzaiCharge') {
-        const banzai = unit ? _collectBoardActions(unit, unit.tile).find(a => a.kind === 'banzaiCharge') : null;
-        if (!banzai?.canUse) return;
-        if (gameState.cardTargeting?.cardId === 'banzai_charge' && gameState.cardTargeting.unitId === unit.id) {
+    if (action.kind === 'cultureStrike') {
+        const skill = _collectBoardActions(unit, unit.tile).find(a => a.kind === 'cultureStrike');
+        if (!skill?.canUse) return;
+        if (gameState.cardTargeting?.cardId === 'culture_strike' && gameState.cardTargeting.unitId === unit.id) {
             cancelCardTargeting();
             return;
         }
         gameState.airViewActive = false;
-        showTargetingBanner('请选择万岁冲锋目标（2格内敌军）');
+        showTargetingBanner(unit.type === 'jp_samurai' ? '选择连斩首个目标' : '选择轴线上的敌军以瞄准');
         gameState.cardTargeting = {
-            cardId: 'banzai_charge',
-            targeting: 'enemyGlobal',
-            handIndex: -1,
-            unitId: unit.id,
-            startedAt: performance.now()
+            cardId: 'culture_strike', targeting: 'enemyGlobal', handIndex: -1,
+            unitId: unit.id, startedAt: performance.now()
         };
         updateUI();
         return;
@@ -955,15 +924,6 @@ function _activateBoardAction(action) {
         showTargetingBanner('请选择目标');
         gameState.cardTargeting = { cardId: 'drone_suicide', targeting: 'anyTileGlobal', handIndex: -1, droneId: unit.id, startedAt: performance.now() };
         updateUI();
-        return;
-    }
-
-    if (action.kind === 'guerrillaConcealment') {
-        if (_isLocalActionUnit(unit)) {
-            gameState.airViewActive = false;
-            cancelCardTargeting();
-            executeGuerrillaConcealment(unit);
-        }
         return;
     }
 
@@ -2135,12 +2095,9 @@ function _describeBoardAction(action) {
         }
         if (!desc && commander?.activeSkill) desc = commander.activeSkill.desc || '';
         if (!desc) desc = '该将领的主动技能。';
-    } else if (action.kind === 'banzaiCharge') {
+    } else if (action.kind === 'cultureStrike') {
         kicker = '特色主动技';
-        desc = BANZAI_CHARGE_CONFIG.desc;
-    } else if (action.kind === 'guerrillaConcealment') {
-        kicker = '特色主动技';
-        desc = GUERRILLA_CONCEALMENT_CONFIG.desc;
+        desc = CULTURE_STRIKES[unit.type]?.desc || '';
     } else if (action.kind === 'droneSuicide') {
         kicker = '单位技能';
         desc = '选择3格内的敌方单位后自爆，对目标造成伤害。';
@@ -2820,21 +2777,15 @@ export function initInput() {
                 return;
             }
             // 无人机自爆
-            if (ct.cardId === 'banzai_charge') {
-                const samurai = gameState.tiles.reduce((f, t) => f || (t.unit && t.unit.id === ct.unitId ? t.unit : null), null);
-                if (!samurai || samurai.type !== 'jp_samurai') { notify('帝国武士无效', 'error'); cancelCardTargeting(); return; }
-                if (!isResolvedTargetingCandidate(targetingPreview, clickedTile)) return;
-                if (executeBanzaiCharge(samurai, clickedTile)) {
+            if (ct.cardId === 'culture_strike') {
+                const unit = _findUnitById(ct.unitId);
+                if (!unit || !isResolvedTargetingCandidate(targetingPreview, clickedTile)) return;
+                if (executeCultureStrike(unit, clickedTile)) {
                     gameState.cardTargeting = null;
                     hideTargetingBanner();
-                    clearselection();
-                    if (samurai.hp > 0 && samurai.tile) {
-                        gameState.selectedTile = samurai.tile;
-                        showSelectionHudForTile(samurai.tile);
-                    } else {
-                        gameState.selectedTile = clickedTile;
-                        showSelectionHudForTile(clickedTile);
-                    }
+                    showSelectionHudForTile(unit.hp > 0 ? unit.tile : clickedTile);
+                } else {
+                    notify('当前无法完成这次攻击', 'warn');
                 }
                 return;
             }

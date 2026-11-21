@@ -102,7 +102,7 @@ export function getGuerrillaConcealmentReason(unit, state) {
     return '';
 }
 
-export const SAMURAI_PASSIVE_DESCRIPTION = '无法接受常规治疗，仅可通过城市或村庄补员恢复生命值。';
+export const SAMURAI_PASSIVE_DESCRIPTION = '主动技能【群体连斩】最多连续攻击四名相邻敌军，所有目标使用相同的招式倍率。';
 export const GUERRILLA_PASSIVE_DESCRIPTION = '移动不受地形与天气的额外行动力消耗影响。';
 
 export const HEAVY_CANNON_STANCE = Object.freeze({
@@ -278,7 +278,7 @@ export const CULTURE_CONFIG = deepFreeze({
         },
         tier2: {
             title: '武运长久',
-            summary: '己方所有单位晋升速度提高20%；击杀敌军时恢复自身20%已损失生命值。'
+            summary: '己方所有单位晋升速度提高30%；击杀敌军时恢复自身20%已损失生命值。'
         }
     }
 });
@@ -427,7 +427,7 @@ export function getCulturalTerrainStepDelta(state, camp, terrain) {
 }
 
 export function getCulturalXpMultiplier(state, camp) {
-    return isCampCulture(state, camp, 'jp') ? 1.20 : 1;
+    return isCampCulture(state, camp, 'jp') ? 1.30 : 1;
 }
 
 export function getFireSeaState(unit) {

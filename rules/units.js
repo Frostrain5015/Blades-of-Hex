@@ -46,14 +46,14 @@ export const UNIT_CONFIG = deepFreeze({
         cultureId: 'kmt', isUniqueUnit: true, recruitmentSites: ['city']
     },
     cpc_guerrilla: {
-        name: '游击纵队', hp: 170, attack: 48, defense: 0.05, speed: 6, range: 1, cost: 10,
+        name: '游击纵队', hp: 170, attack: 34, defense: 0.05, speed: 6, range: 3, cost: 13,
         color: '#9e3b14', movementDomain: 'land', baseType: 'infantry',
         cultureId: 'cpc', isUniqueUnit: true, recruitmentSites: ['city'], recruitmentLimit: 2
     },
     jp_samurai: {
-        name: '帝国武士', hp: 210, attack: 50, defense: 0.05, speed: 5, range: 1, cost: 9,
+        name: '帝国武士', hp: 210, attack: 50, defense: 0.05, speed: 5, range: 1, cost: 14,
         color: '#6b2259', movementDomain: 'land', baseType: 'infantry',
-        cultureId: 'jp', isUniqueUnit: true, recruitmentSites: ['city'], permanentAntiHeal: true
+        cultureId: 'jp', isUniqueUnit: true, recruitmentSites: ['city']
     }
 });
 

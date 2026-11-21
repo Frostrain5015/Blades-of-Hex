@@ -244,6 +244,45 @@ function tryQuiescenceFriendlyCapture(sim, world, cityKey) {
 export function applyMaxCandidateToSim(baseSim, cand, world) {
     if (!cand || cand.actionType === 'endTurn') return cloneSimState(baseSim);
 
+    if (cand.actionType === 'cultureStrike') {
+        const attacker = baseSim.myUnits.get(cand.unitId);
+        const plan = cand.strikePlan;
+        if (!attacker?.canAct || attacker.stunned || !plan || attacker.q !== plan.origin.q || attacker.r !== plan.origin.r) return null;
+        const landing = plan.landing;
+        if (landing && baseSim.occupied.has(`${landing.q},${landing.r}`)) return null;
+        const sim = cloneSimState(baseSim);
+        const mover = sim.myUnits.get(attacker.id);
+        for (const { tile, multiplier } of plan.hits) {
+            const key = `${tile.q},${tile.r}`;
+            const id = tile.unit?.id;
+            const targets = sim.rivalUnits.has(id) ? sim.rivalUnits : sim.neutralUnits;
+            const target = targets.get(id);
+            if (!target || target.q !== tile.q || target.r !== tile.r) return null;
+            const damage = estimateHitDmg(world, attacker, target) * multiplier;
+            if (damage >= target.hp + target.shield) {
+                targets.delete(id);
+                sim.occupied.delete(key);
+            } else {
+                target.hp -= Math.max(0, damage - target.shield);
+                target.shield = Math.max(0, target.shield - damage);
+            }
+        }
+        mover.canAct = false;
+        if (landing) {
+            sim.occupied.delete(`${mover.q},${mover.r}`);
+            mover.q = landing.q;
+            mover.r = landing.r;
+            const key = `${mover.q},${mover.r}`;
+            sim.occupied.set(key, { side: 'mine', id: mover.id });
+            const city = sim.cities.get(key);
+            if (city && city.owner !== 'mine' && city.hp <= 0 && mover.isCapturer) {
+                city.owner = 'mine';
+                city.campKey = world.myCampKey;
+            }
+        }
+        return sim;
+    }
+
     if ((cand.actionType === 'airCommand' && cand.commandKind === 'airdrop')
         || (cand.actionType === 'tacticalCard' && cand.cardId === 'airdrop')) {
         const key = `${cand.q},${cand.r}`;
@@ -707,7 +746,7 @@ export function computeMinimaxAlphaBetaBonuses(state, world, strategy, candidate
     for (let i = 0; i < candidates.length; i++) {
         if (vetoFlags && vetoFlags[i]) continue;
         const c = candidates[i];
-        if (!['attack', 'move', 'recruit', 'tacticalCard', 'droneSuicide', 'banzaiCharge'].includes(c.actionType)) continue;
+        if (!['attack', 'move', 'recruit', 'tacticalCard', 'droneSuicide', 'banzaiCharge', 'cultureStrike'].includes(c.actionType)) continue;
         let priority = preScores ? Number(preScores[i] || 0) : 0;
         if (c.q !== undefined && c.r !== undefined) {
             const city = rootSim.cities.get(`${c.q},${c.r}`);

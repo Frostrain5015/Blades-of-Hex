@@ -21,16 +21,11 @@ import { isWaterTile } from '../../rules/surfaces.js';
 import { getKmtLinkedUnits } from '../../rules/kmtStronghold.js';
 import { getUnitBaseType } from '../../rules/units.js';
 import {
-    BANZAI_CHARGE_CONFIG,
-    GUERRILLA_CONCEALMENT_CONFIG,
     getActiveCultureId,
-    getBanzaiBonusDamage,
-    getBanzaiCooldown,
     getFireSeaState,
-    getGuerrillaConcealmentReason,
     getNeverSurrenderStacks
 } from '../../rules/cultures.js';
-import { getBanzaiChargePath } from '../../rules/targeting.js';
+import { chooseCultureStrike } from './cultureStrikes.js';
 import { isEmbarkableLandUnit } from '../../rules/movement.js';
 import { isStealthGuerrilla, STEALTH_VISIBILITY_RULES } from '../../rules/visibility.js';
 import { COMMANDER_CONFIG } from '../../rules/commanders.js';
@@ -118,8 +113,7 @@ function historicalAttackValue(world, attacker, target, damage, kills) {
             if (attacker.type !== 'cpc_guerrilla') return 0;
             const isolated = !world.rivalUnits.some(unit => unit !== target
                 && unit.tile && distance(unit.tile, target.tile) === 1);
-            const ambushActive = isStealthGuerrilla(attacker)
-                || !getGuerrillaConcealmentReason(attacker, world.gameState);
+            const ambushActive = isStealthGuerrilla(attacker);
             const backlineTarget = getUnitBaseType(target) === 'archer' || !!target.commander;
             return (isolated ? 16 : 0)
                 + (ambushActive && kills ? 18 : 0)
@@ -805,16 +799,8 @@ function remainingMpAfterMove(world, unit, tile) {
     return Math.max(0, startMp - moveMpCost(world, unit, tile));
 }
 
-function canGuerrillaConcealForMove(world, unit, tile) {
-    if (unit?.type !== 'cpc_guerrilla' || !tile || world.onWater(tile)) return false;
-    if (isStealthGuerrilla(unit)) return true;
-    if (getGuerrillaConcealmentReason(unit, world.gameState)) return false;
-    const startMp = Number(unit.remainingMP ?? unit.config?.speed ?? 5);
-    return startMp - moveMpCost(world, unit, tile) >= GUERRILLA_CONCEALMENT_CONFIG.movementCost;
-}
-
 function isGuerrillaUndetectedAt(world, unit, tile) {
-    if (!canGuerrillaConcealForMove(world, unit, tile)) return false;
+    if (!isStealthGuerrilla(unit) || world.onWater(tile)) return false;
     const distance = world.helpers.hexDistance;
     for (const enemy of [...world.rivalUnits, ...world.neutralUnits]) {
         if (!enemy.tile || enemy.hp <= 0) continue;
@@ -947,12 +933,6 @@ function attackPotential(world, missionsCtx, unit, tile) {
         }
         return best * 0.55; // 落点潜在收益打折；以虚拟站位评估真实暴露与反击。
     });
-    if (unit.type === 'cpc_guerrilla') {
-        const ambushReady = canGuerrillaConcealForMove(world, unit, tile);
-        return withVirtualSkill(unit, ambushReady
-            ? { _guerrillaHiddenThroughRound: world.round + 1 }
-            : { _guerrillaHiddenThroughRound: null, remainingMP: 0 }, evaluateAtTile);
-    }
     if (unit.commander === 'paladin' && (unit.activeSkillCD || 0) <= 0
         && (unit._smiteReady || Number(unit._faith || 0) >= 1)) {
         return withVirtualSkill(unit, {
@@ -1187,23 +1167,9 @@ function planMove(world, missionsCtx, unit, posture, actions, { captureObjective
         if (score > bestScore) { bestScore = score; bestTile = tile; }
     }
     if (!bestTile || bestTile === unit.tile) return false;
-    const maxPounceDist = Math.max(2, guerrillaMaxLandSteps(unit, Number(unit.config?.speed) || 5));
-    const inAmbushPounceRange = [...world.rivalUnits, ...world.neutralUnits].some(enemy =>
-        enemy.tile && enemy.hp > 0 && world.helpers.hexDistance(bestTile, enemy.tile) <= maxPounceDist);
-    const shouldConcealOnMove = unit.type === 'cpc_guerrilla' && !isStealthGuerrilla(unit)
-        && canGuerrillaConcealForMove(world, unit, bestTile)
-        && ((isGuerrillaUndetectedAt(world, unit, bestTile) && inAmbushPounceRange)
-            || attackPotential(world, missionsCtx, unit, bestTile) > 0);
-    if (shouldConcealOnMove) {
-        actions.push({ type: 'guerrillaConcealment', unitId: unit.id });
-    }
-    const preserveStealth = unit.type === 'cpc_guerrilla'
-        && (isStealthGuerrilla(unit) || shouldConcealOnMove)
-        && isGuerrillaUndetectedAt(world, unit, bestTile)
-        && attackPotential(world, missionsCtx, unit, bestTile) <= 0;
     actions.push({
         type: 'move', unitId: unit.id, tileQ: bestTile.q, tileR: bestTile.r,
-        ...(captureObjective || preserveStealth ? { autoAttack: false } : {})
+        ...(captureObjective ? { autoAttack: false } : {})
     });
     return true;
 }
@@ -1639,173 +1605,6 @@ function planDroneOps(world, missionsCtx, actions, processed, availableGold) {
     actions.push({ type: 'droneDeploy', unitId: tianyan.id, tileQ: candidates[0].q, tileR: candidates[0].r });
 }
 
-function getBanzaiChargePathFrom(unit, fromTile, targetTile, state) {
-    if (!fromTile || !targetTile) return null;
-    if (fromTile === unit.tile) return getBanzaiChargePath(unit, targetTile, state);
-    const origTile = unit.tile;
-    const origFromUnit = fromTile.unit;
-    origTile.unit = null;
-    fromTile.unit = unit;
-    unit.tile = fromTile;
-    try {
-        return getBanzaiChargePath(unit, targetTile, state);
-    } finally {
-        unit.tile = origTile;
-        origTile.unit = unit;
-        fromTile.unit = origFromUnit;
-    }
-}
-
-function planBanzaiCharges(world, missionsCtx, actions, processed, {
-    onlyImmediateKills = false,
-    plannedDamageByTarget = null
-} = {}) {
-    const hexDist = world.helpers.hexDistance;
-    const allEnemies = [...world.rivalUnits, ...world.neutralUnits].filter(e => e.tile && e.hp > 0);
-    for (const unit of world.myUnits) {
-        if (processed.has(unit.id) || unit.type !== 'jp_samurai' || !unit.canAct || unit.isNewRecruit || unit._imprisoned || !unit.tile) continue;
-        if (shouldReserveCityGarrison(world, unit)) continue;
-        const holdingCity = shouldHoldCityPosition(world, unit, missionsCtx.assignment.get(unit.id));
-        if (getBanzaiCooldown(unit, world.gameState) > 0 || unit.remainingMP < BANZAI_CHARGE_CONFIG.movementCost) continue;
-
-        const launchTiles = [{ tile: unit.tile, moveCost: 0 }];
-        if (unit.remainingMP > BANZAI_CHARGE_CONFIG.movementCost) {
-            for (const tile of world.helpers.getMovableTiles(unit)) {
-                if (!tile || tile === unit.tile || world.onWater(tile) || tile.isCity) continue;
-                if (tile.unit && (!world.isUnitVisible || world.isUnitVisible(tile.unit))) continue;
-                if (tile._minePlanted && tile._mineCampKey !== world.myCampKey) continue;
-                const mpLeft = remainingMpAfterMove(world, unit, tile);
-                if (mpLeft >= BANZAI_CHARGE_CONFIG.movementCost) {
-                    launchTiles.push({
-                        tile,
-                        moveCost: Math.max(1, (Number(unit.remainingMP) || 4) - mpLeft)
-                    });
-                }
-            }
-        }
-
-        let best = null;
-        for (const enemy of allEnemies) {
-            if (!isNeutralEngageable(world, missionsCtx, enemy)) continue;
-            const priorDmg = plannedDamageByTarget?.get(enemy.id) || 0;
-            const effectiveHp = enemy.hp - priorDmg;
-            if (effectiveHp <= 0) continue;
-            const effectiveShield = Math.max(0, (enemy.activeShield ?? enemy._shield ?? 0) - Math.max(0, priorDmg));
-            const lethalHp = effectiveHp + effectiveShield;
-            const missingHp = Math.max(0, enemy.maxHp - effectiveHp);
-            const hpRatio = effectiveHp / Math.max(1, enemy.maxHp);
-            const isMidOrLowHp = hpRatio <= 0.72 || missingHp >= 35;
-            const bonusDmg = Math.min(
-                BANZAI_CHARGE_CONFIG.maxBonusDamage,
-                missingHp * BANZAI_CHARGE_CONFIG.missingHpDamagePct
-            );
-            const baseDmg = world.combat.estimateDamage(unit, enemy, enemy.tile);
-            const banzaiDmg = world.combat.estimateDamage(unit, enemy, enemy.tile, bonusDmg);
-            const kills = banzaiDmg >= lethalHp;
-            if (onlyImmediateKills && !kills) continue;
-            const isFollowupCharge = unit._banzaiFollowupTurn === world.gameState.turnCounter;
-            const isDoomed = Boolean(world._doomedUnitIds?.has(unit.id));
-            if (!kills) {
-                // 万岁冲锋不击杀会白扣 30% 当前生命且无回血/无返还行动：
-                // 正常仅在非二段追击、半血以下且友军能补刀时使用；若己方必死且能额外换伤，则放行爆发最后价值。
-                if (!isDoomed && (isFollowupCharge || hpRatio > 0.55 || unit.hp < 85 || holdingCity)) continue;
-                if (isDoomed && (holdingCity || banzaiDmg <= baseDmg)) continue;
-                if (!isDoomed) {
-                    const remainingAfterBanzai = lethalHp - banzaiDmg;
-                    const allyCanFinish = world.myUnits.some(ally => ally !== unit && !processed.has(ally.id)
-                        && ally.canAct && ally.tile
-                        && world.helpers.getAttackableTiles(ally).includes(enemy.tile)
-                        && world.combat.estimateDamage(ally, enemy, enemy.tile) >= remainingAfterBanzai);
-                    if (!allyCanFinish) continue;
-                }
-            }
-            if (holdingCity && world.rivalUnits.some(other =>
-                other !== enemy && other.hp > 0 && world.isCapturable(other)
-                && other.tile && hexDist(other.tile, unit.tile) <= 3)) {
-                continue;
-            }
-
-            for (const { tile: fromTile, moveCost } of launchTiles) {
-                if (hexDist(fromTile, enemy.tile) > BANZAI_CHARGE_CONFIG.range) continue;
-                const path = getBanzaiChargePathFrom(unit, fromTile, enemy.tile, world.gameState);
-                if (!path) continue;
-                const dashDist = path.length - 1;
-                if (!kills && moveCost === 0 && dashDist === 1 && bonusDmg < 12) continue;
-
-                const canResetAction = unit._banzaiFollowupTurn !== world.gameState.turnCounter;
-                const destTile = kills ? enemy.tile : path.at(-2);
-                const hasChainTarget = kills && canResetAction && allEnemies.some(other =>
-                    other !== enemy && hexDist(destTile, other.tile) <= 3);
-                if (kills && moveCost === 0 && dashDist === 1 && baseDmg >= lethalHp
-                    && unit.hp >= unit.maxHp * 0.88 && !hasChainTarget) {
-                    // 满血贴身且无后续连斩目标时留给普通攻击收割，省下冲锋冷却。
-                    continue;
-                }
-
-                const hpAfterSelf = Math.max(1, unit.hp - Math.round(unit.hp * BANZAI_CHARGE_CONFIG.selfDamageCurrentHpPct));
-                const incoming = world.threatAt(destTile, unit, kills ? enemy : null);
-                if (!kills && !isDoomed && incoming >= hpAfterSelf * 0.95) continue;
-
-                let score = Math.min(lethalHp, banzaiDmg) * hpGold(enemy) + enemyCapturerPremium(world, enemy);
-                if (isMidOrLowHp) {
-                    score += (1 - hpRatio) * 45 + bonusDmg * 0.6;
-                }
-                if (kills) {
-                    const healOnKill = Math.round(unit.maxHp * BANZAI_CHARGE_CONFIG.killHealMaxHpPct)
-                        + Math.round((unit.maxHp - hpAfterSelf) * 0.20);
-                    const netHpDelta = Math.min(unit.maxHp, hpAfterSelf + healOnKill) - unit.hp;
-                    score += residualGold(enemy) * (W.killPremiumRatio + 0.35)
-                        + netHpDelta * hpGold(unit) * 1.2;
-                    if (hasChainTarget) {
-                        const lethalChain = allEnemies.some(other => other !== enemy
-                            && hexDist(destTile, other.tile) <= 2
-                            && world.combat.estimateDamage(unit, other, other.tile, getBanzaiBonusDamage(other))
-                                >= other.hp + (other.activeShield ?? other._shield ?? 0));
-                        score += lethalChain ? 65 : 28;
-                    }
-                    if (enemy.tile.isCity && enemy.tile.camp !== world.myCamp) score += 90;
-                }
-                if (enemy.commander) score += W.commanderKillBonus + 20;
-                if ((enemy._rank || 0) >= 2) score += 25;
-                if (getUnitBaseType(enemy) === 'archer') score += 22;
-                if ((dashDist === 2 || moveCost > 0) && kills) score += 35;
-                score += missionTargetBonus(world, missionsCtx, enemy, kills);
-                score -= incoming * hpGold(unit) * (kills ? 0.22 : 0.55) + moveCost * 2;
-
-                if (!best || score > best.score) {
-                    best = { enemy, fromTile, moveCost, kills, score };
-                }
-            }
-        }
-        if (best && (best.kills || best.score >= 22)) {
-            if (best.fromTile !== unit.tile) {
-                actions.push({
-                    type: 'move',
-                    unitId: unit.id,
-                    tileQ: best.fromTile.q,
-                    tileR: best.fromTile.r,
-                    autoAttack: false
-                });
-            }
-            actions.push({
-                type: 'banzaiCharge',
-                unitId: unit.id,
-                targetQ: best.enemy.tile.q,
-                targetR: best.enemy.tile.r
-            });
-            processed.add(unit.id);
-        }
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════
-// 主入口
-// ═══════════════════════════════════════════════════════════════
-
-/**
- * 产出一个完整回合的单位动作序列。
- * 顺序：主动技能 → 夺城结算 → 普通攻击（价值序）→ 攻城 → 移动。
- */
 export function planTactics(world, strategy, missionsCtx, availableGold = world.gold - strategy.reserve) {
     const actions = [];
     const processed = new Set();
@@ -1849,21 +1648,7 @@ export function planTactics(world, strategy, missionsCtx, availableGold = world.
                     }
                 }
             }
-            if (!processed.has(unit.id) && unit.type === 'cpc_guerrilla' && unit.canAct && unit.tile
-                && !isStealthGuerrilla(unit) && !getGuerrillaConcealmentReason(unit, world.gameState)) {
-                const canStrikeNow = Boolean(bestAttackFor(world, missionsCtx, unit));
-                const canMoveAndAmbush = !unit.isNewRecruit && Number(unit.remainingMP || 0) >= 2
-                    && [...world.rivalUnits, ...world.neutralUnits].some(e =>
-                        e.tile && e.hp > 0 && world.helpers.hexDistance(unit.tile, e.tile) <= Number(unit.remainingMP || 0));
-                if (canStrikeNow || canMoveAndAmbush) {
-                    actions.push({ type: 'guerrillaConcealment', unitId: unit.id });
-                    const prevHidden = unit._guerrillaHiddenThroughRound;
-                    unit._guerrillaHiddenThroughRound = world.round + 1;
-                    virtualReverts.push(() => {
-                        unit._guerrillaHiddenThroughRound = prevHidden;
-                    });
-                }
-            }
+
         }
 
         // 含主动技能加成的近战击杀夺城结算。
@@ -1871,7 +1656,15 @@ export function planTactics(world, strategy, missionsCtx, availableGold = world.
 
         // 0.5 天眼无人机：自爆兑现 + 向前线部署新哨机；帝国武士：优先收割已处于斩杀线的目标。
         planDroneOps(world, missionsCtx, actions, processed, availableGold);
-        planBanzaiCharges(world, missionsCtx, actions, processed, { onlyImmediateKills: true });
+        for (const unit of world.myUnits) {
+            if (processed.has(unit.id)) continue;
+            const strike = chooseCultureStrike(world, unit);
+            if (!strike) continue;
+            const normal = bestAttackFor(world, missionsCtx, unit);
+            if (strike.value <= Math.max(1, normal?.value || 0)) continue;
+            actions.push({ type: 'cultureStrike', unitId: unit.id, targetQ: strike.plan.aim.q, targetR: strike.plan.aim.r });
+            processed.add(unit.id);
+        }
 
         // 1.5 破门序列：攻城任务守军的协同斩杀（终结者收尾进城）。
         planBreachSequence(world, missionsCtx, actions, processed);
@@ -1911,16 +1704,6 @@ export function planTactics(world, strategy, missionsCtx, availableGold = world.
             if (processed.has(unit.id) || !unit.canAct) continue;
             const best = bestAttackFor(world, missionsCtx, unit);
             if (!best) continue;
-            // 若帝国武士万岁冲锋可用且普攻不能击杀，保留行动供 2.5 步执行移动+冲锋斩首。
-            if (unit.type === 'jp_samurai' && !best.kills
-                && getBanzaiCooldown(unit, world.gameState) <= 0
-                && unit.remainingMP >= BANZAI_CHARGE_CONFIG.movementCost
-                && [...world.rivalUnits, ...world.neutralUnits].some(enemy =>
-                    enemy.tile && enemy.hp > 0 && world.helpers.hexDistance(unit.tile, enemy.tile) <= 4
-                    && (enemy.hp < enemy.maxHp * 0.85 || world.myUnits.some(ally =>
-                        ally !== unit && ally.canAct && world.helpers.getAttackableTiles(ally).includes(enemy.tile))))) {
-                continue;
-            }
             attackPlans.push({ unit, best });
         }
         // 集火协调：同一目标被多个攻击手覆盖且合击必杀时，全员加协同价值——
@@ -1946,22 +1729,6 @@ export function planTactics(world, strategy, missionsCtx, availableGold = world.
             processed.add(unit.id);
         }
 
-        // 2.5 帝国武士斩首收割：计入友军本轮已规划的火力软化，对可达范围内中低血量敌人发动（移动+）万岁冲锋。
-        const plannedDamageByTarget = new Map();
-        for (const action of actions) {
-            if (action.type !== 'attack' || !action.unitId || !action.targetId) continue;
-            const attacker = world.myUnits.find(u => u.id === action.unitId);
-            const target = [...world.rivalUnits, ...world.neutralUnits].find(e => e.id === action.targetId);
-            if (attacker && target?.tile) {
-                const dmg = world.combat.estimateDamage(attacker, target, target.tile);
-                plannedDamageByTarget.set(target.id, (plannedDamageByTarget.get(target.id) || 0) + dmg);
-            }
-        }
-        planBanzaiCharges(world, missionsCtx, actions, processed, {
-            onlyImmediateKills: false,
-            plannedDamageByTarget
-        });
-
         // 3. 攻城（近战此时若被 processed 跳过，不影响——打守军优先于磨城防）。
         planSiegeAttacks(world, missionsCtx, actions, processed);
 
@@ -1975,20 +1742,6 @@ export function planTactics(world, strategy, missionsCtx, availableGold = world.
         for (const unit of movers) {
             if (processed.has(unit.id)) continue;
             planMove(world, missionsCtx, unit, strategy.posture, actions);
-        }
-
-        // 4.5 游击纵队原地隐匿：尚未移动/攻击且处于敌军下回合潜伏扑杀圈内（未被侦测）时，开启隐匿待机。
-        for (const unit of world.myUnits) {
-            if (processed.has(unit.id) || unit.type !== 'cpc_guerrilla' || !unit.canAct || !unit.tile || isStealthGuerrilla(unit)) continue;
-            if (actions.some(a => a.unitId === unit.id
-                && (a.type === 'guerrillaConcealment' || a.type === 'move' || a.type === 'attack' || a.type === 'siegeCityAttack'))) continue;
-            if (getGuerrillaConcealmentReason(unit, world.gameState)) continue;
-            const maxPounceDist = Math.max(2, guerrillaMaxLandSteps(unit, Number(unit.config?.speed) || 5));
-            const inPounceWindow = [...world.rivalUnits, ...world.neutralUnits].some(e =>
-                e.tile && e.hp > 0 && world.helpers.hexDistance(unit.tile, e.tile) <= maxPounceDist);
-            if (inPounceWindow && isGuerrillaUndetectedAt(world, unit, unit.tile)) {
-                actions.push({ type: 'guerrillaConcealment', unitId: unit.id });
-            }
         }
 
         return actions;

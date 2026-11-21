@@ -98,6 +98,7 @@ function createReplayUnit(u, tile, state, UnitClass) {
     if (u.followsCity) unit._followsCity = { ...u.followsCity };
     if (u.guerrillaHiddenThroughRound !== undefined) unit._guerrillaHiddenThroughRound = u.guerrillaHiddenThroughRound;
     if (Number.isFinite(u.banzaiReadyRound)) unit._banzaiReadyRound = u.banzaiReadyRound;
+    if (Number.isFinite(u.guerrillaReadyRound)) unit._guerrillaReadyRound = u.guerrillaReadyRound;
     if (u.constructionScaffold) unit._constructionScaffold = { ...u.constructionScaffold };
     return unit;
 }
@@ -476,9 +477,11 @@ function getImpactDelayForStep(step, state) {
         if (p.attackerType === 'ru_katyusha') return 750;
         if (pres === ATTACK_PRESENTATION.FIRE_TORPEDO) return 420;
         if (p.attackerType === 'us_marine') return 260;
+        if (p.attackerType === 'cpc_guerrilla') return CULTURE_STRIKE_TIMING.normalBullet;
         return 0;
     }
     if (step.actionType === 'banzaiCharge') return Number(p.impactDelay || 380);
+    if (step.actionType === 'cultureStrike') return Number(p.impactDelay) || 0;
     return 0;
 }
 
@@ -493,6 +496,10 @@ function applyChangesBucket(changes, step, state, deps, preUnits, impactDelay, f
     const { UnitClass, computeCampBorders, invalidateBoard, forceDistrictFade } = deps;
     const now = performance.now();
     const p = step.payload || {};
+    const impactFor = id => step.actionType === 'cultureStrike'
+        ? (String(p.landingMine?.unitId) === String(id) ? p.landingMine.delayMs
+            : p.results?.find(hit => String(hit.unitId) === String(id))?.delayMs ?? impactDelay)
+        : impactDelay;
     let borderDirty = false;
 
     for (const move of changes.unitsMoved || []) {
@@ -509,7 +516,7 @@ function applyChangesBucket(changes, step, state, deps, preUnits, impactDelay, f
                 return { q: node.q, r: node.r, x: t?.x ?? node.x ?? oldTile?.x ?? 0, y: t?.y ?? node.y ?? oldTile?.y ?? 0 };
             })
             : (oldTile ? [{ q: oldTile.q, r: oldTile.r, x: oldTile.x, y: oldTile.y }, { q: toTile.q, r: toTile.r, x: toTile.x, y: toTile.y }] : null);
-        if (animPath) {
+        if (animPath && step.actionType !== 'cultureStrike') {
             const moveDelayMs = step.actionType === 'attack'
                 ? (p.attackerType === 'us_marine' ? 260 : 140)
                 : 0;
@@ -537,9 +544,10 @@ function applyChangesBucket(changes, step, state, deps, preUnits, impactDelay, f
         const unit = findUnitInState(state, hpChange.unitId);
         if (!unit) continue;
         const prev = preUnits.get(String(unit.id));
-        if (impactDelay > 0 && prev && hpChange.delta < 0) {
+        const hitDelay = impactFor(unit.id);
+        if (hitDelay > 0 && prev && hpChange.delta < 0) {
             unit.displayHp = prev.displayHp;
-            unit._hpBarDelayUntil = now + impactDelay;
+            unit._hpBarDelayUntil = now + hitDelay;
         } else {
             unit.displayHp = hpChange.after;
         }
@@ -562,7 +570,8 @@ function applyChangesBucket(changes, step, state, deps, preUnits, impactDelay, f
         syncUnitRankAndSpec(unit, c);
         if (c.shield) {
             unit._shield = Number(c.shield.after || 0);
-            if (impactDelay > 0) unit._hpBarDelayUntil = Math.max(unit._hpBarDelayUntil || 0, now + impactDelay);
+            const hitDelay = impactFor(unit.id);
+            if (hitDelay > 0) unit._hpBarDelayUntil = Math.max(unit._hpBarDelayUntil || 0, now + hitDelay);
             else unit._displayShield = unit._shield;
         }
         if (c.shieldTurns) unit._shieldTurns = Number(c.shieldTurns.after || 0);
@@ -573,7 +582,7 @@ function applyChangesBucket(changes, step, state, deps, preUnits, impactDelay, f
         if (c.canAct) unit.canAct = !!c.canAct.after;
         if (c.remainingMP) unit.remainingMP = Number(c.remainingMP.after || 0);
         if (c.commanderId) unit.commander = c.commanderId.after || null;
-        if (c.embarked) unit.setEmbarked?.(!!c.embarked.after);
+        if (c.embarked) unit.isEmbarked = !!c.embarked.after;
         if (c.activeSkillCD) unit.activeSkillCD = Number(c.activeSkillCD.after || 0);
         if (c.activeSkillDur) unit.activeSkillDur = Number(c.activeSkillDur.after || 0);
         if (c.berserkerQixue) unit._berserkerQixue = !!c.berserkerQixue.after;
@@ -587,6 +596,7 @@ function applyChangesBucket(changes, step, state, deps, preUnits, impactDelay, f
         if (c.displaySpeed) unit.displaySpeed = Number(c.displaySpeed.after || unit.displaySpeed);
         if (c.guerrillaHiddenThroughRound) unit._guerrillaHiddenThroughRound = c.guerrillaHiddenThroughRound.after ?? null;
         if (c.banzaiReadyRound) unit._banzaiReadyRound = Number(c.banzaiReadyRound.after || 0);
+        if (c.guerrillaReadyRound) unit._guerrillaReadyRound = Number(c.guerrillaReadyRound.after || 0);
         if (c.constructionScaffold) unit._constructionScaffold = c.constructionScaffold.after ? { ...c.constructionScaffold.after } : null;
     }
 
@@ -601,7 +611,8 @@ function applyChangesBucket(changes, step, state, deps, preUnits, impactDelay, f
             const ghostUnit = unit || pre.unit;
             ghostUnit.hp = Math.max(1, Number(pre?.hp || ghostUnit.hp || 1));
             ghostUnit.displayHp = Number(pre?.displayHp || ghostUnit.hp || 1);
-            (state.unitDeathGhosts ||= []).push({ unit: ghostUnit, until: now + deathGhostMs });
+            (state.unitDeathGhosts ||= []).push({ unit: ghostUnit,
+                until: now + (step.actionType === 'cultureStrike' ? impactFor(removed.id) : deathGhostMs) });
         }
         fxMeta.removedUnits.push({ removed, pre });
     }
@@ -1239,3 +1250,4 @@ export function createReplaySession({
 
     return { start, pause, resume, togglePause, setPerspective, togglePerspective, stop, getStatus };
 }
+import { CULTURE_STRIKE_TIMING } from '../rules/cultureStrike.js';

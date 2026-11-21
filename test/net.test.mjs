@@ -386,6 +386,74 @@ export async function run(browser) {
     R.assert(queuedResult.activeSkillCD > 0 && queuedResult.reinforced,
         `连续主动技能与补员均到达观察端（cd=${queuedResult.activeSkillCD}, reinforced=${queuedResult.reinforced}）`);
 
+    for (const type of ['jp_samurai', 'cpc_guerrilla']) {
+        const fixture = await B.evaluate(async casterType => {
+            const { gameState, serializeState } = await import('/js/state.js');
+            const { Unit } = await import('/js/Unit.js');
+            const { isLandTile } = await import('/rules/surfaces.js');
+            const { HEX_NEIGHBORS } = await import('/rules/hex.js');
+            const { planCultureStrike } = await import('/rules/cultureStrike.js');
+            const { sendAction } = await import('/js/network.js');
+            const own = gameState.currentCamp;
+            const enemy = Object.values(gameState.factions).find(camp => camp !== own && ['player1', 'player2'].includes(camp.id));
+            gameState.skirmishFog = false;
+            for (const t of gameState.tiles) {
+                if (!isLandTile(t) || t.unit || t.isCity) continue;
+                const lane = HEX_NEIGHBORS.map(([dq, dr]) => [1, 2, 3].map(i =>
+                    gameState.tileMap.get(`${t.q + dq * i},${t.r + dr * i}`)))
+                    .find(line => line.every(cell => isLandTile(cell) && !cell.unit && !cell.isCity));
+                if (!lane) continue;
+                const unit = new Unit(casterType, own, t);
+                const victims = lane.slice(0, 2).map(cell => new Unit('infantry', enemy, cell));
+                const plan = planCultureStrike(unit, victims[0].tile, gameState, { commit: true });
+                if (!plan || plan.hits.length < 2) {
+                    t.unit = null;
+                    for (const victim of victims) victim.tile.unit = null;
+                    continue;
+                }
+                sendAction('move', serializeState());
+                return { id: unit.id, target: { q: victims[0].tile.q, r: victims[0].tile.r } };
+            }
+            return null;
+        }, type);
+        R.assert(!!fixture, `${type} 联机测试布阵`);
+        if (!fixture) continue;
+        await waitFor(() => A.evaluate(async id => {
+            const { gameState } = await import('/js/state.js');
+            return gameState.tiles.some(tile => tile.unit?.id === id);
+        }, fixture.id), 12000, '观察端装载技能前棋盘');
+        await A.evaluate(async id => {
+            const { gameState } = await import('/js/state.js');
+            window.cultureStrikeObservation = null;
+            const sample = () => {
+                const scene = gameState.cultureStrikeEffects?.find(fx => fx.unitId === id);
+                if (!scene) return requestAnimationFrame(sample);
+                window.cultureStrikeObservation = {
+                    hits: scene.results.length, delays: scene.results.map(hit => hit.delayMs),
+                    hpHeld: scene.results.every(hit => {
+                        const unit = gameState.tileMap.get(`${hit.q},${hit.r}`)?.unit;
+                        return !unit || unit._hpBarDelayUntil === scene.startedAt + hit.delayMs;
+                    }),
+                    motion: scene.path.at(-1).unit?._cultureStrikeMotion === scene
+                };
+            };
+            requestAnimationFrame(sample);
+        }, fixture.id);
+        const accepted = await B.evaluate(async ({ id, target }) => {
+            const { gameState } = await import('/js/state.js');
+            const { executeCultureStrike } = await import('/js/gameLogic.js');
+            const unit = gameState.tiles.find(tile => tile.unit?.id === id)?.unit;
+            return executeCultureStrike(unit, gameState.tileMap.get(`${target.q},${target.r}`));
+        }, fixture);
+        R.assert(accepted, `${type} 本地动作可提交`);
+        await waitFor(() => A.evaluate(() => !!window.cultureStrikeObservation), 12000, '观察端收到技能表现');
+        const watched = await A.evaluate(() => window.cultureStrikeObservation);
+        R.assert(watched.hits >= 2 && watched.hpHeld && (type === 'jp_samurai'
+            ? watched.motion && new Set(watched.delays).size === 1
+            : new Set(watched.delays).size === watched.hits), `${type} 联机按技能时间线播放位移和延迟血条`);
+    }
+    R.assertNoPageErrors(A, '文化技能观察端');
+    R.assertNoPageErrors(B, '文化技能施放端');
     await A.context().close();
     await B.context().close();
     return R.summary();

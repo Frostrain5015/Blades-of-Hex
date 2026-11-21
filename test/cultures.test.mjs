@@ -104,7 +104,6 @@ const {
     NEVER_SURRENDER_CONFIG,
     FREE_RESISTANCE_EFFECT,
     FIRE_SEA_CONFIG,
-    BANZAI_CHARGE_CONFIG,
     CULTURE_CONFIG,
     CULTURE_ORDER,
     normalizeFactionRuleMode,
@@ -632,33 +631,18 @@ test('德国文化：斯图卡无冷却、机场费用降低30%、火海附着�
     assert.deepEqual(getFireSeaState(restored.tileMap.get('2,0').unit), { roundsRemaining: 2, sourceCampKey: 'player1' });
 });
 
-test('日本文化：帝国武士常驻禁疗但允许补员与强制回血，万岁冲锋参数及Tier2 经验+20%', () => {
+test('日本文化：武士接受常规治疗，武运长久提高 30% 经验', () => {
     const state = setupCultureState('img/flags/svg/jp.svg', 'img/flags/svg/gb.svg');
     const jp = state.factions.player1;
-    const t = addTile(state, 0, 0, jp, { isCity: true });
-
-    const samurai = spawnUnit('jp_samurai', jp, t);
+    const tile = addTile(state, 0, 0, jp, { isCity: true });
+    const samurai = spawnUnit('jp_samurai', jp, tile);
     samurai.hp = 100;
-    assert.equal(samurai.config.permanentAntiHeal, true);
-    assert.equal(samurai.heal(50), 0);
-    assert.equal(samurai.hp, 100);
-    assert.equal(samurai.heal(40, { allowReinforce: true }), 40);
-    assert.equal(samurai.hp, 140);
-    assert.equal(samurai.heal(30, { bypassAntiHeal: true }), 30);
-    assert.equal(samurai.hp, 170);
-
-    assert.equal(BANZAI_CHARGE_CONFIG.range, 2);
-    assert.equal(BANZAI_CHARGE_CONFIG.cooldown, 1);
-    assert.equal(BANZAI_CHARGE_CONFIG.movementCost, 2);
-    assert.equal(BANZAI_CHARGE_CONFIG.selfDamageCurrentHpPct, 0.30);
-    assert.equal(BANZAI_CHARGE_CONFIG.missingHpDamagePct, 0.30);
-    assert.equal(BANZAI_CHARGE_CONFIG.maxBonusDamage, 60);
-    assert.equal(BANZAI_CHARGE_CONFIG.killHealMaxHpPct, 0.35);
-
-    // Tier 2: 经验获取速度 +20%
-    assert.equal(getCulturalXpMultiplier(state, jp), 1.20);
+    assert.equal(samurai.heal(50), 50);
+    assert.equal(samurai.hp, 150);
+    assert.equal(samurai.config.cost, 14);
+    assert.equal(getCulturalXpMultiplier(state, jp), 1.30);
     samurai.addXP(10, { silent: true });
-    assert.equal(samurai._xp, 12);
+    assert.equal(samurai._xp, 13);
 });
 
 test('效果队列遵循「详情图鉴化、状态动态化」原则，不在 desc 中重复可变状态', () => {

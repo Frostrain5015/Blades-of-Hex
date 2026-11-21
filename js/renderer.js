@@ -1004,6 +1004,7 @@ function _renderGame() {
 
     // ── 将领特效图层：combatFx（治疗光环之后、雷击之前；吸血鬼血流）──
     drawFxLayer('combatFx', ctx, now);
+    drawCultureStrikeEffects(gameState, ctx, now);
 
     // 雷击对策卡通用特效
     updateLightningBolts(now);
@@ -2815,6 +2816,26 @@ function drawCardTargetingPreview(now) {
     const hoveredKey = targetingTileKey(hovered);
     const activeKey = hoveredKey && isPlayableBoardTile(hovered)
         && preview.candidateTileKeys.has(hoveredKey) ? hoveredKey : null;
+    if (activeKey && cardTargeting.cardId === 'culture_strike') {
+        const caster = findCultureStrikeCaster(gameState, cardTargeting.unitId);
+        const strike = planCultureStrike(caster, hovered, gameState);
+        if (strike) {
+            ctx.save();
+            ctx.strokeStyle = strike.landing ? '#f9d371' : '#f5825f';
+            ctx.lineWidth = HEX_SIZE * (strike.landing ? 0.09 : 0.24);
+            ctx.globalAlpha = strike.landing ? 0.74 : 0.44;
+            ctx.lineJoin = 'round';
+            ctx.beginPath();
+            ctx.moveTo(strike.origin.x, strike.origin.y);
+            for (const tile of strike.path.slice(1)) ctx.lineTo(tile.x, tile.y);
+            ctx.stroke();
+            ctx.globalAlpha = 0.9;
+            ctx.lineWidth = HEX_SIZE * 0.055;
+            for (const { tile } of strike.hits) drawCultureTargetOutline(tile, '#ff7968', HEX_SIZE * 0.52);
+            if (strike.landing) drawCultureTargetOutline(strike.landing, '#76dfcf', HEX_SIZE * 0.66);
+            ctx.restore();
+        }
+    }
     const time = now / 1000;
     const boardClip = { shapes: session.boardClipShapes };
     const colonelUnit = preview.air?.colonelOriginUnitId
@@ -3023,6 +3044,13 @@ function drawCardTargetingPreview(now) {
     }
 
     _drawAirliftDestinationLink(preview, hovered);
+}
+
+function drawCultureTargetOutline(tile, color, radius) {
+    ctx.strokeStyle = color;
+    ctx.beginPath();
+    ctx.arc(tile.x, tile.y, radius, 0, 2 * Math.PI);
+    ctx.stroke();
 }
 
 function _drawDeselectingActionPreview(now) {
@@ -4196,3 +4224,5 @@ function drawCommanderPennants() {
 
 // E2 亡灵法师 —— 魂卒召回：黑烟团从法师位置飞向目标位置
 
+import { findCultureStrikeCaster, planCultureStrike } from '../rules/cultureStrike.js';
+import { drawCultureStrikeEffects } from './cultureStrikeFx.js';

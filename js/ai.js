@@ -8,7 +8,7 @@ import {
     getMovableTiles, getAttackableTiles, moveUnit, attackUnit, attackCityTile, recruitUnit, reinforceUnit, repairShipAtPort,
     executeTacticalCard, executeEngineerTrench, executeEngineerFlak, executeEngineerBunkerConstruction,
     executeDroneDeploy, executeDroneSuicide,
-    executeFieldConstruction, executeAirfieldConstruction, executeFieldRepair, executeAirCommand, executeBanzaiCharge, executeGuerrillaConcealment, executeHeavyCannonStance, executeRiverGateSwitch,
+    executeFieldConstruction, executeAirfieldConstruction, executeFieldRepair, executeAirCommand, executeCultureStrike, executeHeavyCannonStance, executeRiverGateSwitch,
     recalcAllFlankingMorale, drawCard, recordAuxiliaryAction, canReachCityAfterBreach, estimateAirCommandDamage
 } from './gameLogic.js';
 import { getRiverGate, getRiverGateOpenLane, canSwitchRiverGate, chooseRiverGateLane } from '../rules/riverGate.js';
@@ -52,9 +52,8 @@ import { areCommanderMechanicsSuppressed } from '../rules/movement.js';
 import { canRecruitTypeAtSelectedSite, getRecruitmentOptionsForTile } from './recruitmentUi.js';
 import { chooseDefaultSpecialization, countLivingUnitsOfType, getUnitBaseType } from '../rules/units.js';
 import { isUnitVisibleToCamp } from '../rules/visibility.js';
-import { getActiveCultureId, getBanzaiBonusDamage, getCulturalReinforceCostScale, getFireSeaState, getGuerrillaConcealmentReason, getHeavyCannonStanceBlock, getHistoricalCost, getHistoricalRecruitCost, isHeavyCannonDeployed } from '../rules/cultures.js';
+import { getActiveCultureId, getCulturalReinforceCostScale, getFireSeaState, getHeavyCannonStanceBlock, getHistoricalCost, getHistoricalRecruitCost, isHeavyCannonDeployed } from '../rules/cultures.js';
 import { isCityDisabled } from '../rules/citySiege.js';
-import { getBanzaiChargePath } from '../rules/targeting.js';
 import {
     canBuildAirfieldAt,
     canBuildFieldFortification,
@@ -832,9 +831,6 @@ async function _executeActionInner(action, aiCamp) {
         const target = resolveUnit(followup.targetId);
         if (!target?.tile || !getAttackableTiles(unit, AI_TARGETING).includes(target.tile)) return false;
         await delay(AI_DELAY);
-        if (unit.type === 'cpc_guerrilla' && !getGuerrillaConcealmentReason(unit, gameState)) {
-            executeGuerrillaConcealment(unit);
-        }
         if (unit.commander === 'paladin' && !areCommanderMechanicsSuppressed(unit)
             && (unit.activeSkillCD || 0) <= 0 && !unit._smiteReady && Number(unit._faith || 0) >= 1) {
             await executeAction({ type: 'activateSkill', unitId: unit.id }, aiCamp);
@@ -864,9 +860,6 @@ async function _executeActionInner(action, aiCamp) {
                     if (planned.holdPosition) attackOptions = { ...AI_TARGETING, holdPosition: true };
                 }
                 await delay(AI_DELAY);
-                if (unit.type === 'cpc_guerrilla' && !getGuerrillaConcealmentReason(unit, gameState)) {
-                    executeGuerrillaConcealment(unit);
-                }
                 if (unit.commander === 'paladin' && !areCommanderMechanicsSuppressed(unit)
                     && (unit.activeSkillCD || 0) <= 0 && !unit._smiteReady && Number(unit._faith || 0) >= 1) {
                     await executeAction({ type: 'activateSkill', unitId: unit.id }, aiCamp);
@@ -1069,36 +1062,17 @@ async function _executeActionInner(action, aiCamp) {
             executeDroneSuicide(unit, targetUnit.tile);
             break;
         }
-        case 'guerrillaConcealment': {
+        case 'cultureStrike': {
             const unit = resolveUnit(action.unitId);
-            if (!unit || unit.type !== 'cpc_guerrilla' || !unit.canAct || !unit.tile) return false;
-            if (getGuerrillaConcealmentReason(unit, gameState)) return false;
-            await delay(AI_DELAY * 0.4);
-            return executeGuerrillaConcealment(unit);
-        }
-        case 'banzaiCharge': {
-            const unit = resolveUnit(action.unitId);
-            const targetTile = resolveTile(action.targetQ, action.targetR);
-            if (!unit || !targetTile || unit.type !== 'jp_samurai' || !unit.canAct || !targetTile.unit) return;
+            const target = resolveTile(action.targetQ, action.targetR);
+            if (!unit || !target) return false;
             await delay(AI_DELAY);
-            if (!executeBanzaiCharge(unit, targetTile)) return false;
-            await waitForUnitMovePresentation(unit);
-            const profile = resolveAiDifficultyProfile(gameState, aiCamp);
-            if (unit._banzaiFollowupTurn === gameState.turnCounter && unit.canAct && unit.hp > 0
-                && (Number(profile?.replanPasses) || 1) <= 1) {
-                const followup = gameState.tiles.filter(tile => {
-                    const enemy = tile.unit;
-                    return enemy && enemy.hp + (enemy.activeShield || 0)
-                        <= unit.getEffectiveAttack() + getBanzaiBonusDamage(enemy)
-                        && isKnownToAi(tile, aiCamp) && getBanzaiChargePath(unit, tile, gameState);
-                }).sort((a, b) => a.unit.hp - b.unit.hp)[0];
-                if (followup) {
-                    await delay(AI_DELAY);
-                    executeBanzaiCharge(unit, followup);
-                    await waitForUnitMovePresentation(unit);
-                }
+            const success = executeCultureStrike(unit, target);
+            if (success && _runtimeOptions.delayScale > 0 && !gameState._simulating) {
+                const motion = gameState.cultureStrikeEffects?.at(-1);
+                if (motion) await delay(motion.impactDelay);
             }
-            return true;
+            return success;
         }
         case 'drawCard': {
             const base = CARD_SYSTEM_CONFIG.drawCost * (1 + (gameState.playerDrawsThisTurn[campKey] || 0));
@@ -1265,12 +1239,6 @@ export async function processOpponentTurn(aiCamp) {
                 } else if (executed) {
                     if (action.type === 'tacticalCard' && action.cardId === 'forceMarch' && action.targetId) {
                         forceMarchedUnitIds.add(action.targetId);
-                    } else if (action.type === 'banzaiCharge' && action.unitId) {
-                        const samurai = resolveUnit(action.unitId);
-                        if (samurai?.canAct && samurai._banzaiFollowupTurn === gameState.turnCounter) {
-                            movedUnitIds.delete(action.unitId);
-                            forceMarchedUnitIds.add(action.unitId);
-                        }
                     } else if (action.type === 'move' && action.unitId) {
                         const movedUnit = resolveUnit(action.unitId);
                         if (movedUnit?._specializationAttackSpent && movedUnit.canAct && movedUnit.remainingMP > 0) {
@@ -1310,12 +1278,6 @@ export async function processOpponentTurn(aiCamp) {
                     if (!executed) continue;
                     if (action.type === 'tacticalCard' && action.cardId === 'forceMarch' && action.targetId) {
                         forceMarchedUnitIds.add(action.targetId);
-                    } else if (action.type === 'banzaiCharge' && action.unitId) {
-                        const samurai = resolveUnit(action.unitId);
-                        if (samurai?.canAct && samurai._banzaiFollowupTurn === gameState.turnCounter) {
-                            movedUnitIds.delete(action.unitId);
-                            forceMarchedUnitIds.add(action.unitId);
-                        }
                     } else if (action.type === 'move' && action.unitId) {
                         const movedUnit = resolveUnit(action.unitId);
                         if (movedUnit?._specializationAttackSpent && movedUnit.canAct && movedUnit.remainingMP > 0) {
@@ -1455,18 +1417,6 @@ export async function processOpponentTurn(aiCamp) {
             }
             await runAiEngineerOps(aiCamp, difficultyProfile);
             await runAiFieldFortifications(aiCamp, difficultyProfile);
-            if (getActiveCultureId(gameState, aiCamp) === 'cpc') {
-                for (const tile of gameState.tiles) {
-                    const unit = tile.unit;
-                    if (unit?.type !== 'cpc_guerrilla' || unit.camp !== aiCamp || unit.hp <= 0
-                        || getGuerrillaConcealmentReason(unit, gameState)) continue;
-                    const canSetAmbush = gameState.tiles.some(target => target.unit?.hp > 0
-                        && hexDistance(tile, target) <= 3 && canAttack(gameState, aiCamp, target.unit.camp)
-                        && isKnownToAi(target, aiCamp) && isUnitVisibleToCamp(target.unit, aiCamp, gameState));
-                    if (canSetAmbush) await runObservedAction({ type: 'guerrillaConcealment', unitId: unit.id }, aiCamp,
-                        () => executeGuerrillaConcealment(unit));
-                }
-            }
         }
     } finally {
         _turnPresentationScale = previousPresentationScale;

@@ -830,9 +830,11 @@ export function applyRemoteState(data, HexTileClass, UnitClass) {
     const inspectionTarget = gameState.inspectionTarget || _getLegacyInspectionTarget();
     const fireVisuals = new Map();
     const airdropLandings = new Map();
+    const cultureMotions = new Map();
     for (const { unit } of gameState.tiles) {
         if (unit && (unit._fireSeaVisual || unit._fireSeaVisualDelayUntil)) fireVisuals.set(unit.id, unit);
         if (unit?._airdropLandAt) airdropLandings.set(unit.id, unit._airdropLandAt);
+        if (unit?._cultureStrikeMotion) cultureMotions.set(unit.id, unit._cultureStrikeMotion);
     }
     deserializeState(data, HexTileClass, UnitClass, { preserveClientUi: true });
     for (const tile of gameState.tiles) {
@@ -840,6 +842,9 @@ export function applyRemoteState(data, HexTileClass, UnitClass) {
         const previous = fireVisuals.get(unit?.id);
         if (previous?._fireSeaVisual) unit._fireSeaVisual = previous._fireSeaVisual;
         if (previous?._fireSeaVisualDelayUntil) unit._fireSeaVisualDelayUntil = previous._fireSeaVisualDelayUntil;
+        const motion = cultureMotions.get(unit?.id);
+        const dest = motion?.path.at(-1);
+        if (dest?.q === tile.q && dest.r === tile.r) unit._cultureStrikeMotion = motion;
         if (!unit || !airdropLandings.has(unit.id)) continue;
         unit._airdropLandAt = airdropLandings.get(unit.id);
         unit._airdropWaiting = false;

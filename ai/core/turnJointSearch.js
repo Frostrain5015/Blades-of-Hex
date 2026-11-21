@@ -57,7 +57,7 @@ export function computeTurnJointRolloutBonuses(state, world, strategy, candidate
     for (let i = 0; i < candidates.length; i++) {
         if (vetoFlags && vetoFlags[i]) continue;
         const c = candidates[i];
-        if (!['attack', 'move', 'recruit', 'tacticalCard', 'airCommand', 'droneSuicide', 'banzaiCharge'].includes(c.actionType)) continue;
+        if (!['attack', 'move', 'recruit', 'tacticalCard', 'airCommand', 'droneSuicide', 'banzaiCharge', 'cultureStrike'].includes(c.actionType)) continue;
         if (c.actionType === 'airCommand' && c.commandKind !== 'airdrop') continue;
         // Only cards whose immediate effects are represented by the simulator can affect a rollout.
         if (c.actionType === 'tacticalCard' && !['heal', 'shield', 'lightning', 'imprison', 'airdrop'].includes(c.cardId)) continue;

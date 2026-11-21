@@ -430,6 +430,7 @@ export function resetClientUiState(ui) {
     ui.healTexts = [];
     ui.shieldTexts = [];
     ui.unitDeathGhosts = [];
+    ui.cultureStrikeEffects = [];
     ui._pendingFreeResistanceFx = [];
     ui._pendingHistoricalFx = [];
     ui._pendingKmtStrongholdFx = [];

@@ -113,6 +113,7 @@ function compactUnit(unit, tile) {
         followsCity: unit._followsCity ? { q: unit._followsCity.q, r: unit._followsCity.r } : null,
         guerrillaHiddenThroughRound: unit._guerrillaHiddenThroughRound ?? null,
         banzaiReadyRound: Number(unit._banzaiReadyRound || 0),
+        guerrillaReadyRound: Number(unit._guerrillaReadyRound || 0),
         constructionScaffold: unit._constructionScaffold ? { ...unit._constructionScaffold } : null
     };
 }
@@ -269,7 +270,7 @@ function diffStates(before, after) {
             'rank', 'specializationKey', 'commanderId', 'isCommanderUnit', 'embarked',
             'activeSkillCD', 'activeSkillDur', 'berserkerQixue', 'faith',
             'smiteReady', 'smiteCharged', 'healingAura', 'maxHp', 'fireSea', 'poisonTurns',
-            'isNewRecruit', 'displaySpeed', 'guerrillaHiddenThroughRound', 'banzaiReadyRound'
+            'isNewRecruit', 'displaySpeed', 'guerrillaHiddenThroughRound', 'banzaiReadyRound', 'guerrillaReadyRound'
         ];
         const scaffoldChanged = JSON.stringify(old.constructionScaffold || null) !== JSON.stringify(unit.constructionScaffold || null);
         if (hasChanged(old, unit, stateFields) || scaffoldChanged) {

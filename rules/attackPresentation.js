@@ -115,7 +115,7 @@ function classifyCombatAttack({ type, isDrone }) {
     const baseType = getUnitBaseType(type) || type;
     if (baseType === 'submarine') return ATTACK_PRESENTATION.FIRE_TORPEDO;
     if (baseType === 'carrier') return ATTACK_PRESENTATION.FIRE_AIR_STRAFE;
-    if (isDrone || baseType === 'drone' || baseType === 'mgNest' || baseType === 'destroyer') return ATTACK_PRESENTATION.FIRE_TRACER;
+    if (isDrone || type === 'cpc_guerrilla' || baseType === 'drone' || baseType === 'mgNest' || baseType === 'destroyer') return ATTACK_PRESENTATION.FIRE_TRACER;
     if (baseType === 'archer' || baseType === 'warship' || baseType === 'shoreBattery') return ATTACK_PRESENTATION.FIRE_CANNON;
     return ATTACK_PRESENTATION.ASSAULT;
 }

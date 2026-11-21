@@ -781,6 +781,14 @@ const DRONE_SHOT_INTERVAL_MS = 90;
 const DRONE_SHOT_FLIGHT_MS = 100;
 export const DRONE_PROJECTILE_IMPACT_MS = (DRONE_SHOT_COUNT - 1) * DRONE_SHOT_INTERVAL_MS + DRONE_SHOT_FLIGHT_MS;
 
+export function spawnGuerrillaBullet(fromX, fromY, toX, toY, isCrit, onImpact) {
+    droneProjectiles.push({
+        fromX, fromY, toX, toY, startTime: performance.now(), duration: CULTURE_STRIKE_TIMING.normalBullet,
+        isCrit, onImpact, isGuerrillaBullet: true
+    });
+    spawnDroneMuzzleFlash(fromX, fromY, toX, toY, isCrit);
+}
+
 export function spawnDroneProjectile(fromX, fromY, toX, toY, isCrit, onImpact) {
     const now = performance.now();
     for (let b = 0; b < DRONE_SHOT_COUNT; b++) {
@@ -869,6 +877,10 @@ export function drawDroneProjectiles(ctx2d, now) {
         if (elapsed < 0) continue;
         const t = Math.min(1, Math.max(0, elapsed / p.duration));
         if (t >= 1) continue;
+        if (p.isGuerrillaBullet) {
+            drawSniperBullet(ctx2d, { x: p.fromX, y: p.fromY }, { x: p.toX, y: p.toY }, HEX_SIZE, t);
+            continue;
+        }
 
         const hx = p.fromX + (p.toX - p.fromX) * t;
         const hy = p.fromY + (p.toY - p.fromY) * t;
@@ -2668,3 +2680,5 @@ export function clearTransientEffects() {
     turnFlash.alpha = 0;
     borderFlash.alpha = 0;
 }
+import { CULTURE_STRIKE_TIMING } from '../rules/cultureStrike.js';
+import { drawSniperBullet } from './cultureStrikeFx.js';

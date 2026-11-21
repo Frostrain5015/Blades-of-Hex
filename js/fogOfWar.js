@@ -1,3 +1,5 @@
+import { isTileVisible } from '../rules/visibility.js';
+export { isTileVisible };
 // 战争迷雾引擎 —— 视野计算、状态管理、过渡动画
 import { hexDistance, getRoundIndex } from './config.js';
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
@@ -245,30 +247,6 @@ export function expireScoutReveals(gameState, camp) {
     for (const [coord, expires] of reveals) {
         if (expires <= getRoundIndex(gameState)) reveals.delete(coord);
     }
-}
-
-function isScoutRevealed(tile, camp, gameState) {
-    if (!gameState.skirmishFog) return false;
-    const key = _campKey(camp);
-    if (key === 'neutral') return false;
-    return gameState.scoutReveals[key].has(`${tile.q},${tile.r}`);
-}
-
-// ---- 查询辅助 ----
-export function isTileVisible(tile, camp, gameState) {
-    if (!gameState.skirmishFog || !isMechanicEnabled(gameState, 'fogOfWar')) return true;
-    const key = _campKey(camp);
-    if (key === 'neutral') return true;
-    if (gameState.visibleTiles[key].has(`${tile.q},${tile.r}`)) return true;
-    if (isMechanicEnabled(gameState, 'alliedVision')) {
-        const coord = `${tile.q},${tile.r}`;
-        for (const allyKey of getFactionKeys(gameState)) {
-            if (allyKey !== key && getRelation(gameState, key, allyKey) === 'ally' && gameState.visibleTiles?.[allyKey]?.has(coord)) return true;
-        }
-    }
-    // 侦察揭示的地块也视为可见
-    if (isScoutRevealed(tile, camp, gameState)) return true;
-    return false;
 }
 
 export function isTileExplored(tile, camp, gameState) {

@@ -1,3 +1,4 @@
+import { chooseCultureStrike } from './cultureStrikes.js';
 // Hybrid 评分与决策核心（浏览器安全）—— 融合 Imperator 完整规则规划与 91 维双层 GELU MLP 策略网络。
 //
 // 严格保持纯前端可打包：仅依赖 ai/models/policy-prototype.json、ai/core/* 与 rules/*，
@@ -24,7 +25,7 @@ import { getRound, getRoundIndex } from '../../rules/turns.js';
 import { UNIT_CONFIG, canRecruitUniqueUnit, canUnitBeRecruitedAtSite, getSpecializationOptions } from '../../rules/units.js';
 import { TACTICAL_CARD_DATA } from '../../rules/cards.js';
 import { CARD_SYSTEM_CONFIG } from '../../rules/constants.js';
-import { getBanzaiChargePath, resolveTargetingPreview } from '../../rules/targeting.js';
+import { resolveTargetingPreview } from '../../rules/targeting.js';
 import { canReinforceAtTile, computeHealGoldCost, isHealingBlocked } from '../../rules/healing.js';
 import { getKmtReinforceDeficit } from '../../rules/kmtStronghold.js';
 import { canRepairShipAtPort, isRegularNavalUnit } from '../../rules/naval.js';
@@ -42,9 +43,7 @@ import { isCityDisabled } from '../../rules/citySiege.js';
 import { getCulturalRecruitmentCandidate } from '../../rules/aiRecruitment.js';
 import {
     getActiveCultureId,
-    getBanzaiCooldown,
     getCulturalReinforceCostScale,
-    getGuerrillaConcealmentReason,
     getHeavyCannonStanceCooldown,
     getHistoricalCost,
     getHistoricalRecruitCost
@@ -279,21 +278,6 @@ export function enumerateHybridCandidates(state, camp, helpers, world = null) {
                     unitId: unit.id
                 });
             }
-            if (unit.type === 'jp_samurai' && getBanzaiCooldown(unit, state) === 0) {
-                for (const tile of state.tiles) {
-                    if (tile.unit && unitVisibleFn(tile.unit) && canAttack(state, camp, tile.unit.camp)
-                        && getBanzaiChargePath(unit, tile, state)) {
-                        candidates.push({
-                            id: candidates.length,
-                            key: `banzaiCharge:${unit.id}:${tile.q},${tile.r}`,
-                            actionType: 'banzaiCharge',
-                            unitId: unit.id,
-                            q: tile.q,
-                            r: tile.r
-                        });
-                    }
-                }
-            }
         }
         if (unit.pendingSpecialization) {
             for (const opt of getSpecializationOptions(unit)) {
@@ -306,12 +290,13 @@ export function enumerateHybridCandidates(state, camp, helpers, world = null) {
                 });
             }
         }
-        if (unit.type === 'cpc_guerrilla' && !getGuerrillaConcealmentReason(unit, state)) {
+        const strike = chooseCultureStrike(world, unit);
+        if (strike && strike.value > 0) {
+            const { plan, value } = strike;
             candidates.push({
-                id: candidates.length,
-                key: `conceal:${unit.id}`,
-                actionType: 'guerrillaConcealment',
-                unitId: unit.id
+                id: candidates.length, key: `cultureStrike:${unit.id}:${plan.aim.q},${plan.aim.r}`,
+                actionType: 'cultureStrike', unitId: unit.id, q: plan.aim.q, r: plan.aim.r,
+                strikePlan: plan, strikeValue: value
             });
         }
         if (unit.commander === 'engineer') {
@@ -964,6 +949,7 @@ function plannedActionKey(action, state) {
     if (action.type === 'reinforce') return `reinforce:${action.unitId}`;
     if (action.type === 'repairShip') return `repairShip:${action.unitId}`;
     if (action.type === 'heavyCannonStance') return `heavyCannonStance:${action.unitId}`;
+    if (action.type === 'cultureStrike') return `cultureStrike:${action.unitId}:${action.targetQ},${action.targetR}`;
     if (action.type === 'guerrillaConcealment') return `conceal:${action.unitId}`;
     if (action.type === 'activateSkill') return `skill:${action.unitId}:${action.skillId || ''}`;
     if (action.type === 'banzaiCharge') return `banzaiCharge:${action.unitId}:${action.targetQ},${action.targetR}`;
@@ -1175,6 +1161,9 @@ function scoreCandidatesImperator(state, helpers, camp, world, strategy, imperat
                     vetoFlags[i] = 1;
                 }
             }
+        } else if (c.actionType === 'cultureStrike') {
+            const extraHits = c.strikePlan.hits.length - 1;
+            utility = Math.max(utility, 86 + Math.min(48, c.strikeValue * 4) + extraHits * 9);
         } else if (c.actionType === 'guerrillaConcealment') {
             const gu = world.myUnits.find(x => x.id === c.unitId);
             const mp = Number(gu?.remainingMP || 0);
@@ -1412,6 +1401,8 @@ export function candidateToExecutorAction(cand, state, plannedAct = null) {
             return { type: 'guerrillaConcealment', unitId: cand.unitId };
         case 'activateSkill':
             return { type: 'activateSkill', unitId: cand.unitId, skillId: cand.skillId };
+        case 'cultureStrike':
+            return { type: 'cultureStrike', unitId: cand.unitId, targetQ: cand.q, targetR: cand.r };
         case 'banzaiCharge':
             return { type: 'banzaiCharge', unitId: cand.unitId, targetQ: cand.q, targetR: cand.r };
         case 'droneDeploy':

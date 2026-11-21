@@ -8,7 +8,7 @@ import WebSocket from 'ws';
 import { engine } from '../core/headless.js';
 import * as net from '../js/network.js';
 import {
-    attackCityTile, executeAirCommand, executeBanzaiCharge, executeGuerrillaConcealment,
+    attackCityTile, executeAirCommand, executeCultureStrike,
     executeHeavyCannonStance, getFogSafeMovableTiles, grantTurnStartIncome, repairShipAtPort, resumeNeutralTurnIfNeeded
 } from '../js/gameLogic.js';
 import { aiSelectCommander, aiSelectCommanderPair, configureAiRuntime } from '../js/ai.js';
@@ -19,8 +19,9 @@ import { isUnitVisibleToCamp, isSubmarineTargetableBy } from '../rules/visibilit
 import { getRecruitmentOptionsForTile, canRecruitTypeAtSelectedSite } from '../js/recruitmentUi.js';
 import { getCommanderRecruitCost } from '../js/commanderInterface.js';
 import { UNIT_CONFIG, getSpecializationOptions } from '../rules/units.js';
-import { getHistoricalRecruitCost, getGuerrillaConcealmentReason, getBanzaiCooldown, getHeavyCannonStanceCooldown } from '../rules/cultures.js';
-import { getBanzaiChargePath, resolveTargetingPreview } from '../rules/targeting.js';
+import { getHistoricalRecruitCost, getHeavyCannonStanceCooldown } from '../rules/cultures.js';
+import { resolveTargetingPreview } from '../rules/targeting.js';
+import { listCultureStrikePlans } from '../rules/cultureStrike.js';
 import { TACTICAL_CARD_CONFIG, getCardMeta } from '../rules/cards.js';
 import { isCityDisabled } from '../rules/citySiege.js';
 import { canReinforceAtTile } from '../rules/healing.js';
@@ -83,10 +84,11 @@ export function buildObservation(camp) {
         reinforce: canReinforceAtTile(unit, state) && !unit.tile._reinforcedThisTurn && unit.hp < unit.maxHp,
         repair: canRepairShipAtPort(unit, state) && !unit.tile._reinforcedThisTurn && unit.hp < unit.maxHp,
         specialization: unit.pendingSpecialization ? getSpecializationOptions(unit).map(option => option.key) : [],
-        conceal: unit.type === 'cpc_guerrilla' && !getGuerrillaConcealmentReason(unit, state),
         stance: unit.type === 'fr_heavy_cannon' && unit.canAct && !unit.isNewRecruit && getHeavyCannonStanceCooldown(unit, state) === 0,
-        charge: unit.type === 'jp_samurai' && getBanzaiCooldown(unit, state) === 0
-            ? visible.filter(tile => unitVisible(tile.unit, camp) && getBanzaiChargePath(unit, tile, state)).map(coord) : []
+        cultureStrike: listCultureStrikePlans(unit, state).map(plan => ({
+            aim: coord(plan.aim), hits: plan.hits.map(hit => coord(hit.tile)),
+            landing: plan.landing ? coord(plan.landing) : null
+        }))
     }));
     return {
         you: campKey, round: getRound(state), weather: state.weather, fog: state.skirmishFog,
@@ -173,10 +175,9 @@ function applyAction(action, camp, originalHand, usedCards) {
             if (!unit || !canRepairShipAtPort(unit, state)) return false;
             repairShipAtPort(unit);
             break;
-        case 'charge':
+        case 'cultureStrike':
             if (!unit || !tileVisible(tile, camp) || !unitVisible(tile.unit, camp)) return false;
-            return executeBanzaiCharge(unit, tile);
-        case 'conceal': return !!unit && executeGuerrillaConcealment(unit);
+            return executeCultureStrike(unit, tile);
         case 'stance': return !!unit && executeHeavyCannonStance(unit);
         case 'specialize':
             if (typeof action.key !== 'string' || !unit?.pendingSpecialization || !unit.chooseSpecialization(action.key, true)) return false;

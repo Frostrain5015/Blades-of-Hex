@@ -15,13 +15,16 @@ const { CULTURE_CONFIG, getHeavyCannonStanceBlock, isHeavyCannonDeployed } = awa
 const { getStandardMap } = await import('../rules/standardMaps.js');
 const { getRound } = await import('../rules/turns.js');
 const { isTileVisible, updateFogOfWar } = await import('../js/fogOfWar.js');
-const { isUnitVisibleToCamp } = await import('../rules/visibility.js');
 const { getUndergroundIntelligenceStatus } = await import('../rules/undergroundIntelligence.js');
-const { BURN_MS, attackCityTile, endTurn, executeAirCommand, executeBanzaiCharge, executeGuerrillaConcealment, executeHeavyCannonStance, resolvePoisonAtTurnStart } = await import('../js/gameLogic.js');
+const { BURN_MS, attackCityTile, endTurn, executeAirCommand, executeCultureStrike, executeHeavyCannonStance, resolvePoisonAtTurnStart } = await import('../js/gameLogic.js');
 const { getAirCommandAvailability } = await import('../rules/airCommands.js');
 const { droneProjectiles, HEAVY_CANNON_IMPACT_MS, heavyCannonShells, ringWaves, spawnHeavyCannonShell, updateHeavyCannonShells } = await import('../js/effects.js');
 const { KATYUSHA_IMPACT_TIMES, getKatyushaDamageShares, getKatyushaPresentedHealth, katyushaRockets } = await import('../js/effects.js');
 const { startMatchRecording, getCurrentMatchLog } = await import('../js/matchRecorder.js');
+const { CULTURE_STRIKES, cultureStrikeCooldown, planCultureStrike } = await import('../rules/cultureStrike.js');
+const { presentCultureStrike, getCultureStrikePosition } = await import('../js/cultureStrikeFx.js');
+const { buildReplayInitialState, applyReplayStep, extractReplaySteps } = await import('../js/matchReplay.js');
+const { computeCampBorders, computeDistrictBorders } = await import('../js/HexTile.js');
 const state = engine.gameState;
 const events = [];
 const restoreRuntime = configureAiRuntime({
@@ -323,7 +326,7 @@ test('中等 AI 保留机场扫射，地面攻击打残目标后同回合补刀'
 });
 
 test('历史模式二人和三人开局按主城换特色兵种，英国改换本土巡洋舰', () => {
-    const cases = [['us',10], ['gb',4], ['fr',4], ['ru',5], ['kmt',10], ['cpc',9], ['de',12], ['jp',10]];
+    const cases = [['us',10], ['gb',4], ['fr',4], ['ru',5], ['kmt',10], ['cpc',6], ['de',12], ['jp',5]];
     for (const family of ['crown-ring', 'uncharted-passage']) {
         for (const seats of [2, 3]) {
             const map = getStandardMap(seats, family);
@@ -582,145 +585,110 @@ test('地下情报网覆盖村庄相邻格，离开非己方村庄两回合后�
     assert.equal(isTileVisible(neighbor, me, state), false);
 });
 
-test('疗愈卡对禁疗武士只允许净化，补员仍可回血', () => {
-    const { me, home } = setupMatch();
-    const samurai = place('jp_samurai', me, home);
-    samurai.hp = 80;
-    state.playerHands.player1 = ['heal'];
-
-    engine.executeTacticalCard('heal', home);
-    assert.deepEqual(state.playerHands.player1, ['heal']);
-    assert.equal(samurai.hp, 80);
-
-    samurai._poison = { turns: 2 };
-    engine.executeTacticalCard('heal', home);
-    assert.equal(state.playerHands.player1.length, 0);
-    assert.equal(samurai._poison, null);
-    assert.equal(samurai.hp, 80);
-    engine.reinforceUnit(samurai);
-    assert.equal(samurai.hp, 185);
-});
-
-test('武士冲锋拒绝新兵和堵路，合法冲锋的生命消耗绕过护盾', () => {
+test('群体连斩以相同第一乘区倍率命中四人，落地之后同帧结算', () => {
     const { me, foe, home } = setupMatch();
     const samurai = place('jp_samurai', me, home);
-    const target = place('infantry', foe, state.tileMap.get('2,0'));
-    const mid = state.tileMap.get('1,0');
-    samurai.isNewRecruit = true;
-    assert.equal(executeBanzaiCharge(samurai, target.tile), false);
-
-    samurai.isNewRecruit = false;
-    place('infantry', me, mid);
-    assert.equal(executeBanzaiCharge(samurai, target.tile), false);
-    assert.equal(samurai.hp, 210);
-
-    mid.unit = null;
-    samurai.remainingMP = 1;
-    assert.equal(executeBanzaiCharge(samurai, target.tile), false);
-    samurai.remainingMP = 5;
-    samurai._shield = 60;
-    assert.equal(executeBanzaiCharge(samurai, target.tile), true);
-    assert.equal(samurai.hp, 147);
-    assert.equal(samurai._shield, 60);
-    assert.equal(samurai.tile, mid);
-});
-
-test('武士首次斩杀返还行动，两次斩杀均可叠加武运长久回血', () => {
-    const { me, foe, home } = setupMatch();
-    me.flagPreset = 'img/flags/svg/jp.svg';
-    state.factionRuleMode = 'culture';
-    const samurai = place('jp_samurai', me, home);
-    const targets = ['1,0', '2,0', '3,0'].map(key => {
-        const unit = place('infantry', foe, state.tileMap.get(key));
-        unit.hp = 60;
-        return unit;
-    });
     samurai._calcFloat = () => 1;
-    samurai.hp = 100;
-    samurai.remainingMP = 2;
-    assert.equal(executeBanzaiCharge(samurai, targets[0].tile), true);
-    assert.equal(targets[0].hp, 0);
-    assert.equal(samurai.hp, 172);
-    assert.equal(samurai.remainingMP, 2);
-    assert.equal(samurai.canAct, true);
-    assert.equal(executeBanzaiCharge(samurai, targets[1].tile), true);
-    assert.equal(targets[1].hp, 0);
-    assert.equal(samurai.hp, 210);
+    const baseAttack = samurai.getEffectiveAttack();
+    samurai.getEffectiveAttack = () => baseAttack + 20;
+    const targets = ['1,0', '2,0', '3,-1', '4,-1', '5,-1'].map(key =>
+        place('infantry', foe, state.tileMap.get(key)));
+    const config = CULTURE_STRIKES.jp_samurai;
+    const expected = targets.slice(0, 4).map(target =>
+        samurai.calculateDamage(target, 0, { baseMulti: config.multiplier, showDamageText: false }).dmg);
+    const plan = planCultureStrike(samurai, targets[0].tile, state);
+    assert.deepEqual(plan.hits.map(hit => hit.tile.unit), targets.slice(0, 4));
+    assert.ok(plan.hits.every(hit => hit.multiplier === 1.8));
+    assert.equal(plan.landing.unit, null);
+    samurai.isNewRecruit = true;
+    assert.equal(executeCultureStrike(samurai, targets[0].tile), false);
+    samurai.isNewRecruit = false;
+    startMatchRecording(state);
+    assert.equal(executeCultureStrike(samurai, targets[0].tile), true);
+    assert.equal(samurai.tile, plan.landing);
+    assert.equal(samurai.hp, samurai.maxHp);
     assert.equal(samurai.canAct, false);
-    assert.equal(executeBanzaiCharge(samurai, targets[2].tile), false);
+    assert.equal(cultureStrikeCooldown(samurai, state), 2);
+    const step = getCurrentMatchLog().timeline.at(-1);
+    assert.equal(step.actionType, 'cultureStrike');
+    assert.equal(step.payload.path.length, 6);
+    assert.equal(step.payload.impactDelay, 1092);
+    assert.ok(step.payload.results.every(hit => hit.delayMs === 1092));
+    for (let i = 0; i < 4; i++) assert.ok(Math.abs(expected[i] - (targets[i].maxHp - targets[i].hp)) <= 1);
+    assert.equal(targets[4].hp, targets[4].maxHp);
 });
 
-test('游击纵队消耗1行动力隐匿，奇袭+75%伤害且目标无法反击，击杀返还2点撤离行动力，闪避也消耗隐匿', () => {
-    const { me, foe, home, enemyCity } = setupMatch();
-    const guerrilla = place('cpc_guerrilla', me, home);
+test('远距狙击无距离上限、穿透衰减、友军挡弹，普攻用三格单发', () => {
+    const { me, foe, home } = setupMatch();
+    const gun = place('cpc_guerrilla', me, home);
+    gun._calcFloat = () => 1;
+    const first = place('infantry', foe, state.tileMap.get('3,0'));
+    const second = place('infantry', foe, state.tileMap.get('8,0'));
+    const friend = place('infantry', me, state.tileMap.get('9,0'));
+    const back = place('infantry', foe, state.tileMap.get('11,0'));
+    assert.ok(engine.getAttackableTiles(gun).includes(first.tile));
+    assert.ok(!engine.getAttackableTiles(gun).includes(second.tile));
+    assert.equal(planCultureStrike(gun, back.tile, state), null);
+    const plan = planCultureStrike(gun, second.tile, state);
+    assert.equal(plan.path.at(-1), friend.tile);
+    assert.deepEqual(plan.hits.map(hit => hit.tile.unit), [first, second]);
+    assert.deepEqual(plan.hits.map(hit => Number(hit.multiplier.toFixed(2))), [3.2, 2.4]);
+    startMatchRecording(state);
+    assert.equal(executeCultureStrike(gun, second.tile), true);
+    assert.equal(gun.tile, home);
+    assert.equal(cultureStrikeCooldown(gun, state), 3);
+    assert.equal(executeCultureStrike(gun, second.tile), false);
+    assert.ok(first.maxHp - first.hp > second.maxHp - second.hp);
+    assert.equal(back.hp, back.maxHp);
+    const step = getCurrentMatchLog().timeline.at(-1);
+    assert.deepEqual(step.payload.results.map(hit => hit.delayMs), [411, 546]);
+    gun.canAct = true;
+    gun.remainingMP = 6;
+    const before = droneProjectiles.length;
+    engine.attackUnit(gun, first);
+    assert.equal(droneProjectiles.length, before + 1);
+    assert.equal(droneProjectiles.at(-1).isGuerrillaBullet, true);
+    gun.canAct = true;
+    gun.remainingMP = 6;
+    gun._guerrillaReadyRound = 0;
+    first.rollDodge = () => true;
+    assert.equal(executeCultureStrike(gun, second.tile), true);
+    const dodgedShot = getCurrentMatchLog().timeline.at(-1);
+    assert.equal(dodgedShot.payload.results[0].dodged, true);
+    assert.equal(dodgedShot.payload.results[1].multiplier, 3.2);
+});
+
+test('录像保留武士的落水状态、命中前血条和统一爆发时间', () => {
+    const { me, foe, home } = setupMatch();
+    const samurai = place('jp_samurai', me, home);
+    samurai._calcFloat = () => 1;
     const target = place('infantry', foe, state.tileMap.get('1,0'));
-    guerrilla._calcFloat = () => 1;
-    assert.equal(executeGuerrillaConcealment(guerrilla), true);
-    assert.equal(guerrilla.remainingMP, 5);
-    assert.equal(guerrilla.canAct, true);
-    assert.equal(isUnitVisibleToCamp(guerrilla, foe, state), true);
-    engine.attackUnit(guerrilla, target);
-    const dmgBefore = 180 - target.hp;
-    assert.ok(dmgBefore >= 79 && dmgBefore <= 81, `奇袭伤害应约为 80，实测 ${dmgBefore}`);
-    assert.equal(guerrilla.hp, 170, '奇袭首击应压制目标反击');
-    assert.equal(guerrilla._guerrillaHiddenThroughRound, null);
-    assert.equal(guerrilla._guerrillaReadyRound, 2);
-    assert.equal(executeGuerrillaConcealment(guerrilla), false);
-
-    // 奇袭斩杀脆皮后返还2点撤离行动力（不可二次攻击）
-    guerrilla.canAct = true;
-    guerrilla.remainingMP = 6;
-    state.turnCounter = 2 * state.turnOrder.length;
-    const squishy = place('archer', foe, state.tileMap.get('0,1'));
-    squishy.hp = 60;
-    squishy._calcFloat = () => 1;
-    assert.equal(executeGuerrillaConcealment(guerrilla), true);
-    assert.equal(guerrilla.remainingMP, 5);
-    engine.attackUnit(guerrilla, squishy);
-    assert.equal(squishy.hp, 0);
-    assert.equal(guerrilla.canAct, true);
-    assert.equal(guerrilla._specializationAttackSpent, true);
-    assert.equal(guerrilla.remainingMP, 7);
-
-    // 闪避同样消耗隐匿
-    guerrilla._specializationAttackSpent = false;
-    guerrilla.canAct = true;
-    guerrilla.remainingMP = 6;
-    state.turnCounter = 4 * state.turnOrder.length;
-    target.rollDodge = () => true;
-    assert.equal(executeGuerrillaConcealment(guerrilla), true);
-    const hpPreDodge = target.hp;
-    engine.attackUnit(guerrilla, target);
-    assert.equal(target.hp, hpPreDodge);
-    assert.equal(guerrilla._guerrillaHiddenThroughRound, null);
-
-    // 上限统一门控：cpc_guerrilla 最多在场2支，第3支不可招募
-    const g2 = place('cpc_guerrilla', me, state.tileMap.get('2,0'));
-    assert.ok(g2.hp > 0);
-    state.factionRuleMode = 'culture';
-    me.flagPreset = CULTURE_CONFIG.cpc.flagPreset;
-    const recruitCity = state.tileMap.get('0,-1');
-    recruitCity.isCity = true;
-    recruitCity.camp = me;
-    recruitCity.unit = null;
-    state.selectedCityTile = recruitCity;
-    state.playerGold.player1 = 50;
-    engine.recruitUnit('cpc_guerrilla');
-    assert.equal(recruitCity.unit, null, '达到2支上限后不得再招募第3支游击纵队');
-    void enemyCity;
-});
-
-test('游击纵队自然隐匿在下一次己方回合结束时失效，并冷却一回合', async () => {
-    const { me, foe, home, enemyCity } = setupMatch();
-    place('infantry', foe, enemyCity);
-    const guerrilla = place('cpc_guerrilla', me, home);
-    assert.equal(executeGuerrillaConcealment(guerrilla), true);
-    for (let step = 0; step < state.turnOrder.length; step++) await engine.advanceAutomatedTurn();
-    assert.equal(state.currentCamp, me);
-    assert.equal(guerrilla._guerrillaHiddenThroughRound, 1);
-    await engine.advanceAutomatedTurn();
-    assert.equal(guerrilla._guerrillaHiddenThroughRound, null);
-    assert.equal(guerrilla._guerrillaReadyRound, 3);
+    for (const key of ['2,0', '2,-1', '1,-1', '0,1', '1,1']) {
+        state.tileMap.get(key).surface = SURFACE_KIND.SHALLOW_WATER;
+    }
+    const expected = planCultureStrike(samurai, target.tile, state);
+    assert.ok(expected.landing);
+    const { q, r } = expected.landing;
+    startMatchRecording(state);
+    assert.equal(executeCultureStrike(samurai, target.tile), true);
+    assert.equal(samurai.isEmbarked, true);
+    const log = JSON.parse(JSON.stringify(getCurrentMatchLog()));
+    const deps = { HexTileClass: engine.HexTile, UnitClass: engine.Unit, computeCampBorders, computeDistrictBorders };
+    buildReplayInitialState(log, state, deps);
+    const step = extractReplaySteps(log).find(action => action.actionType === 'cultureStrike');
+    const replay = applyReplayStep(step, state, deps);
+    presentCultureStrike(state, replay.effects, 1000);
+    const replayedCaster = state.tileMap.get(`${q},${r}`).unit;
+    const replayedTarget = state.tileMap.get('1,0').unit;
+    assert.equal(replayedCaster.isEmbarked, true);
+    assert.equal(replayedTarget.displayHp, target.maxHp);
+    assert.ok(replayedTarget.hp < replayedTarget.displayHp);
+    const scene = replayedCaster._cultureStrikeMotion;
+    assert.equal(scene.impactDelay, 858);
+    assert.deepEqual(getCultureStrikePosition(scene, 1000 + 358, 50), {
+        x: replayedCaster.tile.x, y: replayedCaster.tile.y
+    });
+    assert.equal(replay.effects.floatTexts.find(entry => entry.q === 1 && entry.r === 0).delayMs, 858);
 });
 
 test('普通攻击触发铁卫转移，法国实际承受暴击后触发自由不屈', () => {
@@ -1079,46 +1047,19 @@ test('新对局清空 AI 的跨回合记忆和战略遥测', () => {
     assert.deepEqual(state._imperatorStrategicTelemetry, {});
 });
 
-test('困难日本 AI 操纵帝国武士垫步冲锋斩首中低血量敌军并触发二段连斩', async () => {
-    const { me, foe, home, enemyCity } = setupMatch();
-    me.flagPreset = CULTURE_CONFIG.jp.flagPreset;
-    state.factionRuleMode = 'culture';
-    state.playerGold.player1 = 0;
-    place('infantry', foe, enemyCity);
-    const samurai = place('jp_samurai', me, home);
-    samurai.hp = 150;
-    // 第一目标在 3 格处（需先移动 1 格再发动 2 格万岁冲锋），第二目标在 5 格处（首杀返还行动+2MP后可二段冲锋收割）
-    const target1 = place('infantry', foe, state.tileMap.get('3,0'));
-    target1.hp = 60;
-    const target2 = place('infantry', foe, state.tileMap.get('5,0'));
-    target2.hp = 60;
-
-    await processOpponentTurn(me);
-
-    const banzaiActions = events.filter(e => e.action.type === 'banzaiCharge' && e.status === 'executed');
-    assert.equal(banzaiActions.length, 2, '应连续发动两次万岁冲锋收割两名残血敌军');
-    assert.equal(state.tileMap.get('3,0').unit, null);
-    assert.equal(samurai.tile, state.tileMap.get('5,0'));
-});
-
-test('困难中共 AI 操纵游击纵队开启敌后隐匿向盲区渗透，对敌军保持隐形', async () => {
-    const { me, foe, home, enemyCity } = setupMatch();
-    me.flagPreset = CULTURE_CONFIG.cpc.flagPreset;
-    state.factionRuleMode = 'culture';
-    state.playerGold.player1 = 0;
-    place('infantry', me, home).canAct = false;
-    place('infantry', foe, enemyCity);
-    place('infantry', foe, state.tileMap.get('9,-1'));
-    // 侧翼 (4,2) 有孤立敌方残血炮兵（防守盲区）
-    const isolatedArcher = place('archer', foe, state.tileMap.get('4,2'));
-    isolatedArcher.hp = 60;
-    const guerrilla = place('cpc_guerrilla', me, state.tileMap.get('1,1'));
-
-    await processOpponentTurn(me);
-
-    assert.ok(events.some(e => e.action.type === 'guerrillaConcealment' && e.status === 'executed'), '游击纵队应实际执行敌后隐匿');
-    assert.ok(guerrilla._guerrillaHiddenThroughRound != null, '游击纵队回合结束保持隐匿状态');
-    assert.equal(isUnitVisibleToCamp(guerrilla, foe, state), false, '处于盲区的隐匿游击纵队对敌方不可见');
+test('困难 AI 在成线阵形中实际施放两种文化主动技能', async () => {
+    for (const [type, keys] of [['jp_samurai', ['1,0', '2,0', '3,0']], ['cpc_guerrilla', ['4,0', '7,0', '9,0']]]) {
+        const { me, foe, home, enemyCity } = setupMatch();
+        state.playerGold.player1 = 0;
+        place('infantry', foe, enemyCity);
+        place('infantry', me, home).canAct = false;
+        const caster = place(type, me, state.tileMap.get(type === 'jp_samurai' ? '0,1' : '1,0'));
+        const enemies = keys.map(key => place('infantry', foe, state.tileMap.get(key)));
+        await processOpponentTurn(me);
+        assert.ok(events.some(e => e.action.type === 'cultureStrike' && e.action.unitId === caster.id && e.status === 'executed'),
+            `${type}: ${JSON.stringify(events.map(e => [e.action.type, e.status]))}`);
+        assert.ok(enemies.every(enemy => enemy.hp < enemy.maxHp), type);
+    }
 });
 
 test('困难天眼 AI 在开局空军与募兵竞争下仍保住 5 金部署无人机且避开城市山地格', async () => {

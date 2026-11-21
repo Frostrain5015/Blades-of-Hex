@@ -12,7 +12,7 @@ import { COUNTER_RELATION, getAttackRangeCap, getMinimumAttackRange, getMachineG
 import { getCrossDomainDamageBonus, getMarineAssaultDamageBonus } from '../rules/naval.js';
 import { CITY_SIEGE_CONFIG, getCannonSiegeDamageBonus, getCityDefenseBonus, isCannonSiegeTargetTile } from '../rules/citySiege.js';
 import { getKmtLinkDamageBonus, getKmtLinkDefenseBonus } from '../rules/kmtStronghold.js';
-import { GUERRILLA_CONCEALMENT_CONFIG, getFireSeaDefenseReduction, getGuerrillaConcealmentReason, getNeverSurrenderAttackBonus, getNeverSurrenderStatBonus, hasNegativeWeatherImmunity, isCampCulture } from '../rules/cultures.js';
+import { GUERRILLA_CONCEALMENT_CONFIG, getFireSeaDefenseReduction, getNeverSurrenderAttackBonus, getNeverSurrenderStatBonus, hasNegativeWeatherImmunity, isCampCulture } from '../rules/cultures.js';
 import {
     AIR_COMMAND_CONFIG,
     AIRFIELD_BASE_POWER,
@@ -483,9 +483,7 @@ export function createCombatModel({ state = null, weather = 'clear', hexDistance
         const magicianDef = (transportDefense == null && defender.commander === 'magician' && coeff > 1) ? 0.15 : 0;
         const baseAttack = transportedAttacker ? TRANSPORT_RULES.baseAttack : (attacker.config?.attack || 0);
         const attack = attacker.getEffectiveAttack?.() ?? baseAttack * (1 + getNeverSurrenderAttackBonus(state, attacker.camp));
-        const canAmbush = !isCounter && (isStealthGuerrilla(attacker) || (attacker.type === 'cpc_guerrilla'
-            && isCampCulture(state, attacker.camp, 'cpc') && attacker.camp === state?.currentCamp
-            && !getGuerrillaConcealmentReason(attacker, state)));
+        const canAmbush = !isCounter && isStealthGuerrilla(attacker);
         const ambushMultiplier = canAmbush ? 1 + GUERRILLA_CONCEALMENT_CONFIG.ambushDamagePct : 1;
         const paladinBalance = COMMANDER_CONFIG.paladin.balance;
         const smiteBonus = (!isCounter && !transportedAttacker && attacker._smiteReady)
@@ -509,8 +507,7 @@ export function createCombatModel({ state = null, weather = 'clear', hexDistance
         if (attackerBase === 'submarine' && defenderBase !== 'submarine') return 0;
         if (attacker._isDrone && !defender._isDrone) return 0;
         if (GUERRILLA_CONCEALMENT_CONFIG.ambushNoCounter && attacker.type === 'cpc_guerrilla'
-            && (isStealthGuerrilla(attacker) || (isCampCulture(state, attacker.camp, 'cpc')
-                && attacker.camp === state?.currentCamp && !getGuerrillaConcealmentReason(attacker, state)))) return 0;
+            && isStealthGuerrilla(attacker)) return 0;
         const distance = hexDistance ? hexDistance(attacker.tile, defender.tile) : 1;
         const range = Math.min(getAttackRangeCap(defender.type), defender.getEffectiveRange?.() ?? getUnitCombatRange(defender));
         if (distance < getMinimumAttackRange(defender.type) || distance > range) return 0;

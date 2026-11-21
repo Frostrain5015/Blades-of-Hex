@@ -1,7 +1,8 @@
 // rules/visibility.js — 潜行单位（1阶以上潜艇、中共游击纵队）统一可见性与反潜侦测规则。
 
 import { campToKey } from './camps.js';
-import { isFriendly } from './diplomacy.js';
+import { getFactionKeys, getRelation, isFriendly } from './diplomacy.js';
+import { isMechanicEnabled } from './mechanics.js';
 import { hexDistance } from './hex.js';
 import { getRoundIndex } from './turns.js';
 import { isCampCulture } from './cultures.js';
@@ -104,6 +105,16 @@ export function isUnitVisibleToCamp(unit, viewerCamp, state) {
     }
 
     return true;
+}
+
+export function isTileVisible(tile, camp, state) {
+    if (!state?.skirmishFog || !isMechanicEnabled(state, 'fogOfWar')) return true;
+    const key = campToKey(camp);
+    if (key === 'neutral') return true;
+    const coord = `${tile.q},${tile.r}`;
+    if (state.visibleTiles?.[key]?.has(coord) || state.scoutReveals?.[key]?.has(coord)) return true;
+    return isMechanicEnabled(state, 'alliedVision') && getFactionKeys(state).some(ally =>
+        ally !== key && getRelation(state, key, ally) === 'ally' && state.visibleTiles?.[ally]?.has(coord));
 }
 
 export function isSubmarineTargetableBy(submarine, detectingCamp, state) {

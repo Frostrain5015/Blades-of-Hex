@@ -935,53 +935,7 @@ test('陆图占领者撤退远离后及时换人，且内陆城攻城不编入�
     assert.equal(siege.escortIds.includes(sub.id), false);
 });
 
-test('中共游击纵队推断敌军防守盲区并先开启敌后隐匿再渗透侧翼', async () => {
-    const { buildWorld, decideStrategy, assignMissions, planTactics } = await loadCore();
-    const me = { id: 'player1', flagPreset: 'img/flags/chinese-communist-party-old.svg' };
-    const foe = { id: 'player2' };
-    const neutral = { id: 'neutral' };
-    const home = makeTile(0, 0, { isCity: true, camp: me, districtId: 1 });
-    const startTile = makeTile(0, 1);
-    // 主战场 (5,0) 敌军重兵抱团
-    const mainFront1 = makeTile(5, 0, { isCity: true, camp: foe, districtId: 2, hp: 250 });
-    const mainFront2 = makeTile(5, -1, { camp: foe });
-    const mainFront3 = makeTile(4, 0, { camp: foe });
-    // 侧翼盲区 (1,3) 有敌方疏于防守的村庄与孤立后排炮兵 (2,3)（距 (0,2) 恰为 3 格，处于下回合 2 步移动 + 1 格奇袭半径内）
-    const flankStep = makeTile(0, 2, { terrain: 'forest' });
-    const frontStep = makeTile(1, 1, { terrain: 'plains' });
-    const neglectedVillage = makeTile(1, 3, { isVillage: true, camp: foe, districtId: 2 });
-    const isolatedArcher = makeTile(2, 3, { camp: foe });
-
-    const guerrilla = makeUnit(1, 'cpc_guerrilla', me, startTile, { remainingMP: 5 });
-    makeUnit(2, 'infantry', me, home);
-    makeUnit(10, 'infantry', foe, mainFront1);
-    makeUnit(11, 'infantry', foe, mainFront2);
-    makeUnit(12, 'cavalry', foe, mainFront3);
-    makeUnit(13, 'archer', foe, isolatedArcher, { hp: 70 });
-
-    const tiles = [home, startTile, mainFront1, mainFront2, mainFront3, flankStep, frontStep, neglectedVillage, isolatedArcher];
-    const helpers = {
-        ...makeHelpers(tiles),
-        getMovableTiles: unit => unit === guerrilla ? [flankStep, frontStep] : []
-    };
-    const state = makeState(tiles, { player1: me, player2: foe, neutral }, {
-        factionRuleMode: 'culture',
-        currentCamp: me
-    });
-    const world = buildWorld(state, helpers, me, TIER_CAPABILITIES.hard);
-    const strategy = decideStrategy(world);
-    const missions = assignMissions(world, strategy);
-    const actions = planTactics(world, strategy, missions);
-
-    const concealIdx = actions.findIndex(a => a.type === 'guerrillaConcealment' && a.unitId === guerrilla.id);
-    const moveAct = actions.find(a => a.type === 'move' && a.unitId === guerrilla.id);
-    assert.ok(concealIdx >= 0, '游击纵队应主动开启敌后隐匿');
-    assert.ok(moveAct, '游击纵队应向盲区机动');
-    assert.deepEqual([moveAct.tileQ, moveAct.tileR], [flankStep.q, flankStep.r], '应绕开重兵正面，走向敌方忽视的侧翼盲区');
-    assert.equal(moveAct.autoAttack, false, '隐匿渗透盲区时不主动普攻暴露');
-});
-
-test('游击纵队按 1 点全地形步耗计算剩余行动力，不被己方后方村庄吸走或堵住无威胁主城', async () => {
+test('游击纵队仍利用低地形步耗向前机动，不停在后方村庄或空城', async () => {
     const { buildWorld, decideStrategy, assignMissions, planTactics } = await loadCore();
     const me = { id: 'player1', flagPreset: 'img/flags/chinese-communist-party-old.svg' };
     const foe = { id: 'player2' };
@@ -1013,51 +967,30 @@ test('游击纵队按 1 点全地形步耗计算剩余行动力，不被己方�
 
     const concealAct = actions.find(a => a.type === 'guerrillaConcealment' && a.unitId === guerrilla.id);
     const moveAct = actions.find(a => a.type === 'move' && a.unitId === guerrilla.id);
-    assert.ok(concealAct, '1 MP/格步耗下，山地机动 1~3 格后仍足够支付 2 MP 开启敌后隐匿');
-    assert.deepEqual([moveAct.tileQ, moveAct.tileR], [stepForward.q, stepForward.r], '应前出切入 2 格内准备下回合奇袭，而不是退回自家村庄或主城');
+    assert.equal(concealAct, undefined);
+    assert.deepEqual([moveAct.tileQ, moveAct.tileR], [stepForward.q, stepForward.r], '应前出切入前方射程，而不是退回自家村庄或主城');
     assert.notEqual(foeArcher.hp, 0);
 });
 
-test('日本帝国武士检测可达范围内中低血量敌人，配合友军软化执行移动+万岁冲锋斩首', async () => {
+test('战术规划把武士连斩当作一次动作，并选择能覆盖多个目标的首击', async () => {
     const { buildWorld, decideStrategy, assignMissions, planTactics } = await loadCore();
-    const me = { id: 'player1', flagPreset: 'img/flags/svg/jp.svg' };
-    const foe = { id: 'player2' };
-    const neutral = { id: 'neutral' };
-    const home = makeTile(0, 0, { isCity: true, camp: me, districtId: 1 });
-    const stageTile = makeTile(1, 0);
-    const midTile = makeTile(2, 0);
-    const targetTile = makeTile(3, 0);
-    const archerTile = makeTile(1, -1);
-    const enemyCity = makeTile(8, 0, { isCity: true, camp: foe, districtId: 2, hp: 250 });
-
-    const samurai = makeUnit(1, 'jp_samurai', me, home, { remainingMP: 5, hp: 160 });
-    const archer = makeUnit(2, 'archer', me, archerTile);
-    // 敌军在 3 格处（超出原地 2 格冲锋，但在移动 1 格 + 冲锋 2 格的可达范围内），经炮兵软化后进入万岁冲锋斩杀线
-    const enemy = makeUnit(10, 'infantry', foe, targetTile, { hp: 100, maxHp: 180 });
-    makeUnit(11, 'infantry', foe, enemyCity);
-    const tiles = [home, stageTile, midTile, targetTile, archerTile, enemyCity];
-    const helpers = {
-        ...makeHelpers(tiles),
-        getMovableTiles: unit => unit === samurai ? [stageTile, midTile] : [],
-        getAttackableTiles: unit => unit === archer ? [targetTile] : []
-    };
-    const state = makeState(tiles, { player1: me, player2: foe, neutral }, {
-        factionRuleMode: 'culture',
-        currentCamp: me
-    });
-    const world = buildWorld(state, helpers, me, TIER_CAPABILITIES.hard);
+    const me = { id: 'player1' }, foe = { id: 'player2' };
+    const own = makeTile(-1, 0, { isCity: true, camp: me, districtId: 1 });
+    const origin = makeTile(0, 0, { camp: me });
+    const samurai = makeUnit(1, 'jp_samurai', me, origin, { remainingMP: 5 });
+    const first = makeTile(1, 0, { camp: foe });
+    const second = makeTile(2, 0, { camp: foe });
+    const landing = makeTile(3, 0, { camp: foe });
+    makeUnit(20, 'archer', foe, first, { hp: 40 });
+    makeUnit(21, 'archer', foe, second, { hp: 40 });
+    const tiles = [own, origin, first, second, landing];
+    const state = makeState(tiles, { player1: me, player2: foe }, { currentCamp: me });
+    const world = buildWorld(state, makeHelpers(tiles), me, TIER_CAPABILITIES.hard);
     const strategy = decideStrategy(world);
-    const missions = assignMissions(world, strategy);
-    const actions = planTactics(world, strategy, missions);
-
-    const archerAtkIdx = actions.findIndex(a => a.type === 'attack' && a.unitId === archer.id && a.targetId === enemy.id);
-    const samMoveIdx = actions.findIndex(a => a.type === 'move' && a.unitId === samurai.id);
-    const banzaiIdx = actions.findIndex(a => a.type === 'banzaiCharge' && a.unitId === samurai.id);
-    assert.ok(archerAtkIdx >= 0, '友军远程先软化目标');
-    assert.ok(samMoveIdx > archerAtkIdx, '武士先机动切入冲锋射程');
-    assert.ok(banzaiIdx > samMoveIdx, '武士随后发动万岁冲锋斩首');
-    assert.equal(actions[samMoveIdx].autoAttack, false, '垫步移动不触发普攻以保留冲锋窗口');
-    assert.deepEqual([actions[banzaiIdx].targetQ, actions[banzaiIdx].targetR], [targetTile.q, targetTile.r]);
+    const actions = planTactics(world, strategy, assignMissions(world, strategy));
+    const strikes = actions.filter(action => action.unitId === samurai.id && action.type === 'cultureStrike');
+    assert.equal(strikes.length, 1);
+    assert.deepEqual([strikes[0].targetQ, strikes[0].targetR], [1, 0]);
 });
 
 test('天眼保留 5 金部署预算，且过滤非法城市与山地邻格', async () => {

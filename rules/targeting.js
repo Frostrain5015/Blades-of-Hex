@@ -27,6 +27,7 @@ import { canAirCommandAirdropAt, canTargetWithSingleAirCommand, getAirCommandRan
 import { isCitySiegeBlocked } from './citySiege.js';
 import { isHealingBlocked } from './healing.js';
 import { canNeutralAttackTile } from './neutralDefense.js';
+import { planCultureStrike } from './cultureStrike.js';
 
 export const TARGET_INTENTS = Object.freeze({
     HOSTILE: 'hostile',
@@ -162,6 +163,10 @@ function isBaseTargetingCandidate(gameState, cardTargeting, tile, myCamp, source
     if (cardId === 'banzai_charge') {
         const source = sources.sourceUnit;
         return sameCamp(source?.camp, myCamp) && !!getBanzaiChargePath(source, tile, gameState);
+    }
+    if (cardId === 'culture_strike') {
+        const source = sources.sourceUnit;
+        return sameCamp(source?.camp, myCamp) && Boolean(planCultureStrike(source, tile, gameState));
     }
 
     if (cardId === 'drone_deploy') {
@@ -305,7 +310,7 @@ function resolveSources(gameState, cardTargeting, myCamp) {
         sourceUnit = findUnitById(gameState, cardTargeting.engineerUnitId);
     } else if (cardId === 'build_bunker') {
         sourceUnit = findUnitById(gameState, cardTargeting.builderUnitId);
-    } else if (cardId === 'banzai_charge') {
+    } else if (cardId === 'banzai_charge' || cardId === 'culture_strike') {
         sourceUnit = findUnitById(gameState, cardTargeting.unitId);
     }
 

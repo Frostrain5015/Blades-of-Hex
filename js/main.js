@@ -26,7 +26,7 @@ import {
     spawnExplosionParticles, spawnDirectionalParticles, spawnGoldParticles,
     spawnRecruitEffect,
     triggerScreenShake, spawnMoraleEffect, spawnCommanderSkillEffect,
-    spawnProjectile, spawnTorpedo, getTorpedoFlightMs, spawnDroneProjectile, DRONE_PROJECTILE_IMPACT_MS, spawnStrafeTracer, spawnDroneSuicideFlak, spawnDroneDive, triggerRecoil, triggerCharge,
+    spawnGuerrillaBullet, spawnProjectile, spawnTorpedo, getTorpedoFlightMs, spawnDroneProjectile, DRONE_PROJECTILE_IMPACT_MS, spawnStrafeTracer, spawnDroneSuicideFlak, spawnDroneDive, triggerRecoil, triggerCharge,
     spawnBloodDrain, spawnGongxinRipple, spawnLightningStrike, spawnOrbitalBeam,
     spawnMinisterDominionRing,
     spawnCardUseEffect,
@@ -3281,6 +3281,7 @@ function _maybeResumeNetworkAiTurn() {
 async function handleRemoteAction(msg) {
     const wasGameOver = gameState.gameOver;
     let katyushaStartedAt;
+    let cultureStrikeStartedAt;
 
     // 服务器下发的暂存状态：仅在尚未开始对局时恢复（防止对战中途地形重绘）
     if (msg.actionType === 'stateSync') {
@@ -3425,8 +3426,18 @@ async function handleRemoteAction(msg) {
             : msg.actionType === 'attack' && attackEffects?.attackerType === 'fr_heavy_cannon' ? HEAVY_CANNON_IMPACT_MS
             : msg.actionType === 'attack' && attackEffects?.attackerType === 'ru_katyusha' ? KATYUSHA_IMPACT_MS
             : msg.actionType === 'attack' && attackEffects?.attackerType === 'us_marine' ? DRONE_PROJECTILE_IMPACT_MS
+            : msg.actionType === 'attack' && attackEffects?.attackerType === 'cpc_guerrilla' ? CULTURE_STRIKE_TIMING.normalBullet
             : 0;
         const delayedTargets = [];
+        if (msg.actionType === 'cultureStrike') {
+            for (const hit of attackEffects?.results || []) {
+                const unit = gameState.tileMap.get(`${hit.q},${hit.r}`)?.unit;
+                if (unit?.id === hit.unitId && !hit.dodged) delayedTargets.push({ unit, hit, delayMs: hit.delayMs });
+            }
+            const hit = attackEffects?.landingMine;
+            const caster = hit && gameState.tiles.find(tile => tile.unit?.id === hit.unitId)?.unit;
+            if (caster) delayedTargets.push({ unit: caster, hit, delayMs: hit.delayMs, moved: true });
+        }
         const healingTarget = msg.actionType === 'tacticalCard' && attackEffects?.cardId === 'heal' && attackEffects.healAmt > 0
             ? gameState.tileMap.get(`${attackEffects.q},${attackEffects.r}`)?.unit : null;
         if (attackImpactDelay && !attackEffects.dodged) {
@@ -3490,6 +3501,10 @@ async function handleRemoteAction(msg) {
             }
         }
         const volleyStartedAt = performance.now();
+        if (msg.actionType === 'cultureStrike') {
+            cultureStrikeStartedAt = volleyStartedAt;
+            replayFloatTexts(attackEffects?.floatTexts, { startedAt: cultureStrikeStartedAt });
+        }
         if (msg.actionType === 'airCommand' && msg.effects?.kind === 'airdrop') {
             const { targetQ, targetR, results } = msg.effects;
             const tile = gameState.tileMap.get(`${targetQ},${targetR}`);
@@ -3534,7 +3549,7 @@ async function handleRemoteAction(msg) {
                 unit._hpBarDelayUntil = volleyStartedAt + BURN_MS;
             }
         }
-        for (const { unit, hit, delayMs, katyusha } of delayedTargets) {
+        for (const { unit, hit, delayMs, katyusha, moved } of delayedTargets) {
             const lastDamagingShot = hit.killed ? hit.hpShares?.findLastIndex(damage => damage > 0) : undefined;
             const impactAt = volleyStartedAt + (KATYUSHA_IMPACT_TIMES[lastDamagingShot] ?? delayMs);
             const current = gameState.tileMap.get(`${hit.q},${hit.r}`)?.unit;
@@ -3545,9 +3560,11 @@ async function handleRemoteAction(msg) {
                 if (isKatyusha || katyusha) stageKatyushaHealth(current, unit.hp, current.hp, volleyStartedAt, hit.hpShares);
             } else if (hit.killed) {
                 if (isKatyusha || katyusha) stageKatyushaHealth(unit, unit.hp, 0, volleyStartedAt, hit.hpShares);
+                if (moved) unit.tile = gameState.tileMap.get(`${hit.q},${hit.r}`) ?? unit.tile;
                 (gameState.unitDeathGhosts ||= []).push({ unit, until: impactAt });
             }
         }
+        if (cultureStrikeStartedAt !== undefined) presentCultureStrike(gameState, attackEffects, cultureStrikeStartedAt);
         if (Number.isFinite(airImpactDelay)) {
             const impactAt = volleyStartedAt + airImpactDelay;
             for (const { unit, hit } of airTargets) {
@@ -3634,7 +3651,9 @@ async function handleRemoteAction(msg) {
     }
 
     const e = msg.effects;
-    _playActionPresentation(msg.actionType, e, { katyushaStartedAt, heavyVolleys, applyCardSideEffects: true });
+    if (cultureStrikeStartedAt === undefined) {
+        _playActionPresentation(msg.actionType, e, { katyushaStartedAt, heavyVolleys, applyCardSideEffects: true });
+    }
 
     // 对手 endTurn 把回合推进到中立（或投降直切中立）：驱动方客户端在此接手执行中立 AI
     _maybeResumeNeutralTurn();
@@ -3643,6 +3662,12 @@ async function handleRemoteAction(msg) {
 }
 
 function _playActionPresentation(actionType, e, { katyushaStartedAt = undefined, heavyVolleys = [], applyCardSideEffects = true, actorCampKey = null } = {}) {
+    if (actionType === 'cultureStrike') {
+        const startedAt = performance.now();
+        presentCultureStrike(gameState, e, startedAt);
+        replayFloatTexts(e?.floatTexts, { startedAt });
+        return;
+    }
     // 法式重炮回合初齐射的浮字已随快照后的弹道同时入队。
     if (e?.floatTexts && heavyVolleys.length === 0) {
         replayFloatTexts(e.floatTexts, { startedAt: katyushaStartedAt });
@@ -4061,7 +4086,7 @@ function _playActionPresentation(actionType, e, { katyushaStartedAt = undefined,
                     }
                     else spawnProjectile(_sFromX, _sFromY, e.x, e.y, _sCrit, impact);
                 } else if (_sPres === ATTACK_PRESENTATION.FIRE_TRACER) {
-                    spawnDroneProjectile(_sFromX, _sFromY, e.x, e.y, _sCrit, () => {
+                    (e.attackerType === 'cpc_guerrilla' ? spawnGuerrillaBullet : spawnDroneProjectile)(_sFromX, _sFromY, e.x, e.y, _sCrit, () => {
                         triggerAttackFlash(e.x, e.y, _sCrit);
                         spawnDirectionalParticles(_sFromX, _sFromY, e.x, e.y, '#ff8844', _sCrit ? 4 : 2);
                     });
@@ -4126,7 +4151,7 @@ function _playActionPresentation(actionType, e, { katyushaStartedAt = undefined,
                             triggerScreenShake(e.isCrit ? 6 : 3, e.isCrit ? 200 : 120);
                         }, 780);
                     } else if (_rmPresentation === ATTACK_PRESENTATION.FIRE_TRACER) {
-                        spawnDroneProjectile(_rmFromX, _rmFromY, e.x, e.y, e.isCrit, e.dodged ? null : () => {
+                        (e.attackerType === 'cpc_guerrilla' ? spawnGuerrillaBullet : spawnDroneProjectile)(_rmFromX, _rmFromY, e.x, e.y, e.isCrit, e.dodged ? null : () => {
                             triggerAttackFlash(e.x, e.y, e.isCrit);
                             spawnDirectionalParticles(_rmFromX, _rmFromY, e.x, e.y, '#ff8844', e.isCrit ? 4 : 2);
                         });
@@ -4257,7 +4282,7 @@ function _playActionPresentation(actionType, e, { katyushaStartedAt = undefined,
                             spawnTorpedo(e.x, e.y, e.counterX, e.counterY, e.counterIsCrit);
                         } else if (counterPresentation === ATTACK_PRESENTATION.FIRE_TRACER || e.counterUsesDroneProjectile || e.counterIsDrone) {
                             playSound('machinegun');
-                            spawnDroneProjectile(e.x, e.y, e.counterX, e.counterY, e.counterIsCrit, () => {
+                            (e.counterType === 'cpc_guerrilla' ? spawnGuerrillaBullet : spawnDroneProjectile)(e.x, e.y, e.counterX, e.counterY, e.counterIsCrit, () => {
                                 triggerAttackFlash(e.counterX, e.counterY, e.counterIsCrit);
                                 spawnDirectionalParticles(e.x, e.y, e.counterX, e.counterY, '#ff8844', e.counterIsCrit ? 8 : 4);
                                 triggerScreenShake(e.counterIsCrit ? 6 : 3, e.counterIsCrit ? 200 : 120);
@@ -4623,3 +4648,5 @@ for (const [cardId, campKey] of [['campCard1', 'player1'], ['campCard2', 'player
         }
     });
 }
+import { CULTURE_STRIKE_TIMING } from '../rules/cultureStrike.js';
+import { presentCultureStrike } from './cultureStrikeFx.js';
