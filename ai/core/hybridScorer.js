@@ -4,6 +4,8 @@
 // 不导入任何 node:* 或 tools/* 模块。
 
 import policyModel from '../models/policy-prototype.json' with { type: 'json' };
+import policyModel3p from '../models/policy-3p.json' with { type: 'json' };
+import policyModelCr from '../models/policy-cr.json' with { type: 'json' };
 import { buildWorld } from './perceive.js';
 import { decideStrategy } from './strategize.js';
 import { planTurn, planFollowupAttack } from './planner.js';
@@ -521,11 +523,11 @@ function gelu(x) {
     return 0.5 * x * (1.0 + Math.tanh(0.7978845608 * (x + 0.044715 * x * x * x)));
 }
 
-function forwardPolicyAndValueRow(rawFeatures) {
-    const mean = policyModel.normMean;
-    const std = policyModel.normStd;
-    const { W1, b1, W2, b2, W3, b3, Wv, bv } = policyModel.weights;
-    const dim = policyModel.featureDim;
+function forwardPolicyAndValueRow(rawFeatures, model = policyModel) {
+    const mean = model.normMean;
+    const std = model.normStd;
+    const { W1, b1, W2, b2, W3, b3, Wv, bv } = model.weights;
+    const dim = model.featureDim;
     const h1 = b1.length;
     const h2 = b2.length;
 
@@ -709,9 +711,12 @@ export function scorePolicyAndValueCandidates(state, camp, candidates, helpers, 
     const clockUrgency = Math.min(1.2, Math.max(0.0, roundNum - 11.0) / 8.0);
     const spendHeadroom = Math.min(1.5, Math.max(0.0, gold - 8.0) / 20.0);
 
+    const p3Faction = state.factions?.player3;
+    const is3pActive = Boolean(p3Faction && p3Faction.active !== false && p3Faction.participatesInTurns !== false);
+    const activeModel = is3pActive ? policyModel3p : (!isOcean ? policyModelCr : policyModel);
     const logits = new Float64Array(candidates.length);
     const values = new Float64Array(candidates.length);
-    const row = new Float64Array(Math.max(112, policyModel.featureDim));
+    const row = new Float64Array(Math.max(112, activeModel.featureDim));
 
     for (let idx = 0; idx < candidates.length; idx++) {
         row.fill(0);
@@ -935,7 +940,7 @@ export function scorePolicyAndValueCandidates(state, camp, candidates, helpers, 
         row[extBase + 19] = clockUrgency;
         row[extBase + 20] = spendHeadroom;
 
-        const out = forwardPolicyAndValueRow(row);
+        const out = forwardPolicyAndValueRow(row, activeModel);
         logits[idx] = out.logit;
         values[idx] = out.value;
     }
@@ -1026,7 +1031,10 @@ function computeDrawCardUtility(world, strategy, planDrawPlanned, plannedSpend =
     const earlyRecruitReserve = (world.round <= 3 || ((hasEmptyRecruitCity || hasVacatableCity) && world.myUnits.length < 11))
         && world.myUnits.length < 16 && world.myCities.some(c => !c.disabled)
         ? 8 : 0;
-    const reserveFloor = Math.max(strategy.reserve || 0, earlyRecruitReserve);
+    const hasReadyAirStrike = world.round >= 6 && hand.length >= 1
+        && world.myCities.some(c => c.installation?.type === 'airfield' && c.installation?.status === 'ready'
+            && Number(c.installation?.airCommandReadyRound?.bombing || 0) <= world.round);
+    const reserveFloor = Math.max(strategy.reserve || 0, earlyRecruitReserve, hasReadyAirStrike ? 5 : 0);
     const injuredCmd = world.myUnits.some(u => u.commander && u.hp < u.maxHp * 0.65);
     const hasSupportCard = hand.includes('heal') || hand.includes('shield');
     const urgentCmdRescue = injuredCmd && !hasSupportCard;
@@ -1128,8 +1136,15 @@ function scoreCandidatesImperator(state, helpers, camp, world, strategy, imperat
         }
         if (c.actionType === 'drawCard') {
             const { utility, boosted } = computeDrawCardUtility(world, strategy, planDrawPlanned, plannedSpend);
-            utilities[i] = boosted ? utility + cardBias * 0.5 : utility;
-            if (utility < 0 || (prodMemoryReserve > 0 && world.gold - c.drawCost < prodMemoryReserve)) vetoFlags[i] = 1;
+            const landCount = world.myUnits.filter(u => !world.isNaval(u)).length;
+            const openingRecruitLock = emptyOwnCities.length > 0 && world.round <= 6 && landCount < 7 && (world.gold - c.drawCost) < 8;
+            if (openingRecruitLock) {
+                utilities[i] = -80;
+                vetoFlags[i] = 1;
+            } else {
+                utilities[i] = boosted ? utility + cardBias * 0.5 : utility;
+                if (utility < 0 || (prodMemoryReserve > 0 && world.gold - c.drawCost < prodMemoryReserve)) vetoFlags[i] = 1;
+            }
             continue;
         }
 
@@ -1185,7 +1200,9 @@ function scoreCandidatesImperator(state, helpers, camp, world, strategy, imperat
             } else if (matchesPlannedCard) {
                 utility = Math.max(utility, 92 + cardBias);
             } else if (c.cardId === 'commanderDeploy') {
-                utility = Math.max(utility, 60);
+                const deployTile = state.tileMap.get(`${c.q},${c.r}`);
+                const blocksSoleCity = deployTile?.isCity && deployTile.camp === camp && world.myCities.length <= 2;
+                utility = Math.max(utility, blocksSoleCity ? 28 : 64);
             } else {
                 utility += cardBias * 0.4;
             }
@@ -1272,9 +1289,11 @@ function scoreCandidatesImperator(state, helpers, camp, world, strategy, imperat
                 utility = -85;
                 vetoFlags[i] = 1;
             } else if (rank !== undefined) {
-                utility = Math.max(utility, 110);
+                const landCount = world.myUnits.filter(u => !world.isNaval(u)).length;
+                utility = Math.max(utility, (world.round <= 6 && landCount < 7 && siteTile?.isCity) ? 116 : 110);
             } else {
-                utility = 18;
+                const landCount = world.myUnits.filter(u => !world.isNaval(u)).length;
+                utility = (world.round <= 6 && landCount < 7 && siteTile?.isCity && !plannedTypeHere) ? 84 : 18;
             }
         } else if (c.actionType === 'reinforce') {
             if (rank === undefined) {
@@ -1287,7 +1306,13 @@ function scoreCandidatesImperator(state, helpers, camp, world, strategy, imperat
                 }
             }
         } else if (c.actionType === 'buildFortification') {
-            if (rank === undefined) {
+            const ft = state.tileMap.get(`${c.q},${c.r}`);
+            const needsEmergencyFlak = c.fortKind === 'flak' && ft?.isCity && ft.camp === camp && !ft.fortification
+                && ((world.rivalModel?.dominantStyle === 'airHeavy')
+                    || (world.hostileAirfields || []).some(af => hexDistCoords(af.q, af.r, c.q, c.r) <= 8));
+            if (needsEmergencyFlak) {
+                utility = Math.max(utility, 58);
+            } else if (rank === undefined) {
                 utility = -65;
                 vetoFlags[i] = 1;
             }
@@ -1304,8 +1329,8 @@ function scoreCandidatesImperator(state, helpers, camp, world, strategy, imperat
                 utility = Math.max(utility, 92);
             } else if (c.commandKind === 'airdrop') {
                 const tile = state.tileMap.get(`${c.q},${c.r}`);
-                const isHostileEmptyCity = tile?.isCity && !tile.unit && canAttack(state, camp, tile.camp) && Number(tile.hp || 0) <= 60;
-                utility = isHostileEmptyCity ? 105 : -55;
+                const isHostileEmptyCity = tile?.isCity && !tile.unit && canAttack(state, camp, tile.camp) && Number(tile.hp || 0) <= 160;
+                utility = isHostileEmptyCity ? 108 : -55;
                 if (!isHostileEmptyCity) vetoFlags[i] = 1;
             } else {
                 // 常规轰炸/扫射统一交由 js/ai.js runAiAirCommands 按完整防空与预算纪律结算，避免回合中乱烧招募与抽牌金币
@@ -1476,8 +1501,9 @@ export function selectHybridAction(gameState, helpers, myCamp, options = {}) {
     const valStd = Math.max(0.08, valStats.std);
     const impStd = Math.max(10.0, impStats.std);
 
-    const polWeight = fusion.mlpWeight * 0.78;
-    const valWeight = fusion.mlpWeight * 0.22 + 0.04;
+    const mlpScale = Number.isFinite(options?.mlpScale) ? Math.max(0, options.mlpScale) : 1.0;
+    const polWeight = fusion.mlpWeight * 0.78 * mlpScale;
+    const valWeight = (fusion.mlpWeight * 0.22 + 0.04) * mlpScale;
     const impWeight = Math.max(0.10, 1.0 - polWeight - valWeight);
 
     let bestIdx = candidates.length - 1;

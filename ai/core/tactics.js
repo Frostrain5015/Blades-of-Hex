@@ -35,7 +35,7 @@ import { isEmbarkableLandUnit } from '../../rules/movement.js';
 import { isStealthGuerrilla, STEALTH_VISIBILITY_RULES } from '../../rules/visibility.js';
 import { COMMANDER_CONFIG } from '../../rules/commanders.js';
 
-const FRAGILE_COMMANDERS = new Set(['advisor', 'diplomat', 'engineer', 'priest', 'staller', 'astrologer', 'necromancer', 'tianyan', 'colonel']);
+const FRAGILE_COMMANDERS = new Set(['advisor', 'diplomat', 'engineer', 'priest', 'staller', 'astrologer', 'necromancer', 'tianyan', 'colonel', 'magician']);
 const REAR_COMMANDERS = new Set(['minister', 'astrologer']);
 
 // 陆战主体单位（排除真正两栖的美国海军陆战队与海军舰船）下海即沦为无输出运输船且无法占城守城。
@@ -412,8 +412,20 @@ export function evaluateAttack(world, missionsCtx, attacker, target) {
             && ((m.cityHp ?? 250) <= 160 || (m.garrisonHp ?? 180) <= 95 || m.decisive || m.clockCritical));
     const freeSafePoke = world.caps.opponentModeling && counter === 0 && damage > 0
         && !FRAGILE_COMMANDERS.has(attacker.commander) && !isStealthGuerrilla(attacker);
+    const fragileEarlyCrossfire = world.caps.opponentModeling
+        && FRAGILE_COMMANDERS.has(attacker.commander)
+        && world.round <= 4
+        && !target.commander
+        && !capturesCityNow
+        && !holdingOwnCity
+        && totalIncoming > 0
+        && world.rivalUnits.filter(e => e.tile && e.hp > 0 && world.helpers.hexDistance(e.tile, attacker.tile) <= 3).length >= 2
+        && postCombatPool <= totalIncoming * 1.35;
+    const hardFragileVeto = fragileEarlyCrossfire && postCombatPool <= totalIncoming * 1.10 && world.rivalCamps?.length <= 1;
+    const fragileSoftPenalty = fragileEarlyCrossfire ? 42 : 0;
     const veto = (fatalCounter && !isDoomed)
         || (!isDoomed && !freeSafePoke && !siegeCommitTarget && (losingCriticalUnit || suicidalCriticalExposure
+            || hardFragileVeto
             || (!kills && isRiskyNeutralAssault(world, attacker, target, counter, totalIncoming))
             || (!kills && canDisengage && net < -residualGold(attacker) * w.tradeVetoRatio)))
         || (!isDoomed && rearCommanderExposed)
@@ -422,7 +434,7 @@ export function evaluateAttack(world, missionsCtx, attacker, target) {
     const counterEdge = world.caps.opponentModeling ? counterDamageBonus(attacker.type, target.type) : 0;
     const counterHuntBonus = (counterEdge >= 0.12 ? 14 : 0) + (siegeCommitTarget ? 22 : 0) + (freeSafePoke ? 10 : 0);
     const jitter = noiseJitter(world.caps, `atk:${world.round}:${attacker.id}:${target.id}`);
-    return { target, damage, kills, counter, net, strategic: strategic + counterHuntBonus, veto, value: (net + strategic + counterHuntBonus - exposure - fatalCounterPenalty) * jitter };
+    return { target, damage, kills, counter, net, strategic: strategic + counterHuntBonus, veto, value: (net + strategic + counterHuntBonus - exposure - fatalCounterPenalty - fragileSoftPenalty) * jitter };
 }
 
 export function bestAttackFor(world, missionsCtx, unit) {
@@ -1163,8 +1175,12 @@ function planMove(world, missionsCtx, unit, posture, actions, { captureObjective
                 const homePull = ports.length ? Math.min(...ports.map(port => world.helpers.hexDistance(tile, port)))
                     : nearestOwnCityDistance(world, tile);
                 const canRecover = ports.includes(tile) || ownsRecoverySite;
-                const safeDockBonus = canRecover && threat * W.lethalThreatMargin < pool ? 80 : 0;
-                score = safety - homePull * 4 + safeDockBonus;
+                const blocksSoleRecruitSlot = world.caps.opponentModeling
+                    && tile.isCity && tile.camp === world.myCamp
+                    && world.myCities.length <= 2 && world.gold >= 8
+                    && !isOwnCityThreatened(world, tile);
+                const safeDockBonus = canRecover && !blocksSoleRecruitSlot && threat * W.lethalThreatMargin < pool ? 80 : 0;
+                score = safety - homePull * 4 + safeDockBonus - (blocksSoleRecruitSlot ? 65 : 0);
             }
         }
         if (score > 0) score *= noiseJitter(world.caps, `mv:${world.round}:${unit.id}:${tile.q},${tile.r}`);

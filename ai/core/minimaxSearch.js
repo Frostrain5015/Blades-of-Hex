@@ -581,7 +581,7 @@ function applyMinAction(baseSim, act, world) {
     return null;
 }
 
-function searchMinReplyWithAlphaBeta(simAfterMax, world, strategy, alpha, stats) {
+export function searchMinReplyWithAlphaBeta(simAfterMax, world, strategy, alpha, stats) {
     let minVal = evaluateMinimaxBoard(simAfterMax, world, strategy);
     if (minVal <= alpha) {
         stats.cutoffs++;

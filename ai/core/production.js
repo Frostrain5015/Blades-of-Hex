@@ -104,16 +104,19 @@ function navalRecruitOrder(world) {
 
 function shouldTemporarilyVacateMinister(world, strategy, memory) {
     const spendableGold = world.gold - strategy.reserve;
+    const landUnitCount = world.myUnits.filter(u => !world.isNaval(u)).length;
     const forceRatio = world.myUnits.length / Math.max(1, world.rivalUnits.length);
+    const soleCityEarly = world.myCities.length === 1 && landUnitCount < 8;
     const recruitmentIsUrgent = strategy.assaultCapacity.deficit > 0
+        || soleCityEarly
         || ['recover', 'allin'].includes(strategy.posture)
         || forceRatio < W.ministerVacateForceRatio
         || (spendableGold >= 22 && world.myUnits.length < Math.max(10, world.myCities.length * 4 + 3));
     const lastVacatedRound = Number(memory.ministerLastVacatedRound);
     const cooldownReady = !Number.isFinite(lastVacatedRound)
-        || world.round - lastVacatedRound >= W.ministerVacateCooldownRounds;
-    const soleCityNeedsTroops = world.myCities.length === 1 && strategy.assaultCapacity.deficit > 0
-        && world.myCities[0].unit?.type === 'fr_heavy_cannon';
+        || world.round - lastVacatedRound >= (soleCityEarly ? 1 : W.ministerVacateCooldownRounds);
+    const soleCityNeedsTroops = world.myCities.length === 1
+        && (strategy.assaultCapacity.deficit > 0 || landUnitCount < 8);
     const recruitBank = soleCityNeedsTroops ? unitCost(world, 'infantry') : W.ministerVacateRecruitBank;
     return spendableGold >= recruitBank
         && recruitmentIsUrgent

@@ -1,7 +1,9 @@
 // AI 调度器 — 加载人格文件，管理执行与延迟
 // 玩家侧人格按难度分档：Optio(Basic) / Legatus(Pro) / Hybrid(Max)；中立方为 Corporal。
 
-import { gameState, clearselection, notify, logMessage } from './state.js';
+import { HexTile } from './HexTile.js';
+import { Unit } from './Unit.js';
+import { gameState, clearselection, notify, logMessage, serializeState, restoreStateHeadless } from './state.js';
 import {
     getMovableTiles, getAttackableTiles, moveUnit, attackUnit, attackCityTile, recruitUnit, reinforceUnit, repairShipAtPort,
     executeTacticalCard, executeEngineerTrench, executeEngineerFlak, executeEngineerBunkerConstruction,
@@ -103,6 +105,7 @@ export function configureAiRuntime(options = {}) {
 }
 
 async function delay(ms) {
+    if (gameState._simulating) return;
     const scaled = Math.max(0, Math.round(ms * _runtimeOptions.delayScale * _turnPresentationScale));
     if (scaled > 0) await new Promise(resolve => setTimeout(resolve, scaled));
     // Hero 可能由攻击内部的延迟结算触发；每个动作真正落子前再次检查全局演出栅栏。
@@ -112,7 +115,7 @@ async function delay(ms) {
 // 位移动画启动后必须先向浏览器交还主线程直到 movePathDuration 结束，
 // 否则 Hybrid 下一步同步 selectNextAction（约 30~250ms）会直接卡掉整段短距移动动画导致单位闪现。
 async function waitForUnitMovePresentation(unit) {
-    if (_runtimeOptions.delayScale <= 0) return;
+    if (_runtimeOptions.delayScale <= 0 || gameState._simulating) return;
     const duration = Number(unit?.movePathDuration || 0);
     if (!unit?.movePath || duration <= 0) return;
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
@@ -152,6 +155,7 @@ function notifyActionObserver(event) {
 }
 
 async function runObservedAction(action, aiCamp, operation) {
+    if (gameState._simulating) return await operation();
     const sequence = ++_observedActionSequence;
     const campKey = campToKey(aiCamp);
     notifyActionObserver({ phase: 'before', sequence, campKey, action });
@@ -423,8 +427,13 @@ async function runAiAirCommands(aiCamp, difficultyProfile, stukaSorties, afterGr
     const culturalReserve = reserveForMissingCulturalUnit(aiCamp);
     const tianyanReserve = resolveAiTianyanReserve(aiCamp, emergencyReserve);
     const ownedCitiesAll = gameState.tiles.filter(tile => tile.isCity && tile.camp === aiCamp);
-    // 地面未展开前（!afterGround）避免开局把兵力招募资金提前烧光在非致命零星骚扰上
-    const hasRecruitableCity = !afterGround && difficultyProfile.emergencyBudget
+    // 地面未展开前（!afterGround）避免开局把兵力招募资金提前烧光在非致命零星骚扰上；
+    // 若 Hybrid 已进入中局（R4+ 且地面>=6单位、无空城待补），允许首段空袭直接动用机动资金以免后续被花光。
+    const groundReadyForAir = !afterGround && Boolean(difficultyProfile.useHybridScorer)
+        && (gameState.round || 1) >= 4
+        && gameState.tiles.filter(tile => tile.unit?.camp === aiCamp && tile.unit.hp > 0).length >= 6
+        && !ownedCitiesAll.some(city => !city.unit && !isCityDisabled(city));
+    const hasRecruitableCity = !afterGround && !groundReadyForAir && difficultyProfile.emergencyBudget
         && ownedCitiesAll.some(city => !isCityDisabled(city));
     const openingRecruitReserve = hasRecruitableCity ? UNIT_CONFIG.infantry.cost : 0;
     const baseReserve = Math.max(emergencyReserve + tianyanReserve, culturalReserve);
@@ -553,7 +562,7 @@ async function runAiAirCommands(aiCamp, difficultyProfile, stukaSorties, afterGr
                 };
             }).filter(target => (target.kill && available('strafe', target.urgent))
                 || (target.urgent && available('strafe', true))
-                || (afterGround && target.highValue && available('strafe', false)))
+                || ((afterGround || groundReadyForAir) && target.highValue && available('strafe', false)))
                 .sort((a, b) => Number(b.kill) - Number(a.kill)
                     || Number(!!b.tile.unit.commander) - Number(!!a.tile.unit.commander)
                     || Number(b.urgent) - Number(a.urgent)
@@ -1233,11 +1242,11 @@ export async function processOpponentTurn(aiCamp) {
         const helpers = makeHelpers(aiCamp, difficultyProfile);
         const personality = resolveAiPersonality(difficultyProfile);
         if (typeof personality.selectNextAction === 'function') {
+            await delay(AI_DELAY);
             gameState._aiSkillPlanned = new Set();
             const blockedKeys = new Set();
             const movedUnitIds = new Set();
             const forceMarchedUnitIds = new Set();
-            await delay(AI_DELAY);
             for (let step = 0; step < 48; step++) {
                 if (gameState.gameOver || gameState.currentCamp !== aiCamp || !gameState.aiActing) break;
                 const pick = personality.selectNextAction(gameState, helpers, aiCamp, {

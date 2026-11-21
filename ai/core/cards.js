@@ -364,7 +364,12 @@ export function planCards(world, strategy, missionsCtx) {
         || world.myCities.some(city => world.rivalUnits.some(unit =>
             unit.tile && world.helpers.hexDistance(unit.tile, city) <= 3));
     const wCards = world.weights || W;
-    if (has('landmine') && (circulate || frontThreatened || wCards.cardFocus || strategy.posture === 'hold' || strategy.posture === 'defend')) {
+    const preserveRecruitFloor = world.caps.opponentModeling
+        && world.myCities.length <= 2
+        && world.myUnits.filter(u => !world.isNaval(u)).length < 8
+        && world.myCities.some(city => !city.unit)
+        && world.gold >= 8 && world.gold < 16;
+    if (has('landmine') && !preserveRecruitFloor && (circulate || frontThreatened || wCards.cardFocus || strategy.posture === 'hold' || strategy.posture === 'defend')) {
         let best = null;
         for (const tile of legalTiles('landmine')) {
             const protectsFront = world.myUnits.some(unit => world.helpers.hexDistance(unit.tile, tile) <= 2)
