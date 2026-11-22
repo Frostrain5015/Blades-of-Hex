@@ -175,7 +175,7 @@ export function createBloodMoonRiseFollowup({ root, event, presentation, stageRe
             root.classList.add('has-blood-moon-rise');
             animate(startedAt);
             soundTimer = window.setTimeout(() => {
-                emit('audio:play', { soundName: 'commanderSkill' });
+                emit('audio:play', { soundName: 'heroBloodMoon' });
             }, startMs);
         },
         stop() {

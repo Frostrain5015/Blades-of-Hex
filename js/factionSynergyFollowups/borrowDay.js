@@ -165,7 +165,7 @@ export function createBorrowDayFollowup({ root, event, presentation, stageRect }
             root.classList.add('has-borrow-day');
             animate(startedAt);
             soundTimer = window.setTimeout(() => {
-                emit('audio:play', { soundName: 'commanderSkill' });
+                emit('audio:play', { soundName: 'heroBorrowDay' });
             }, startMs);
         },
         stop() {

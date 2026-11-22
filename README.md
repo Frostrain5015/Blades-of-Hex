@@ -218,4 +218,5 @@ Runs `admin/admin-server.js` as a separate process (see `admin-config.example.js
 
 ## License
 
-[MIT](LICENSE) (c) 2026 Frostrain5015
+Game code: [MIT](LICENSE) (c) 2026 Frostrain5015.
+Third-party audio is distributed under its source licenses. See the [audio credits](sounds/credits.html).

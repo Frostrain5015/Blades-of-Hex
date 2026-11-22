@@ -1,5 +1,5 @@
 // 【神谕】独有后半段：亮屏后一道圣光自天幕垂落到神谕徽记，
-// 光柱触底时爆发双重光环，光羽自光柱两侧飘散。音效统一放在后半段起点。
+// 光柱下降时响起吟唱，触底时叠加冲击音与双重光环。
 import { emit } from '../eventBus.js';
 
 const FRAME_INTERVAL_MS = 1000 / 40;
@@ -58,7 +58,6 @@ export function createOracleDescentFollowup({ root, event, presentation, stageRe
     const featherCount = Math.max(8, Number(followup.particleCount) || 24);
 
     let frame = 0;
-    let soundTimer = 0;
 
     function animate(startedAt) {
         canvas.width = Math.max(1, Math.round(viewport.width));
@@ -69,6 +68,8 @@ export function createOracleDescentFollowup({ root, event, presentation, stageRe
             createFeather(center, startMs + DESCENT_MS * 0.7, Math.random() < 0.4 ? coreColor : mainColor, viewport.height));
 
         let lastDrawAt = 0;
+        let voicePlayed = false;
+        let impactPlayed = false;
         const draw = now => {
             const elapsed = now - startedAt;
             if (elapsed < startMs - FRAME_INTERVAL_MS) {
@@ -82,6 +83,14 @@ export function createOracleDescentFollowup({ root, event, presentation, stageRe
             lastDrawAt = now;
             context.clearRect(0, 0, viewport.width, viewport.height);
             const local = elapsed - startMs;
+            if (!voicePlayed && local >= 0 && local < DESCENT_MS) {
+                voicePlayed = true;
+                emit('audio:play', { soundName: 'heroOracle' });
+            }
+            if (!impactPlayed && local >= DESCENT_MS && elapsed < durationMs) {
+                impactPlayed = true;
+                emit('audio:play', { soundName: 'heroOracleImpact' });
+            }
 
             // 阶段1：圣光自天幕垂落到徽记（光柱底端逐帧下探）
             const descentT = Math.max(0, Math.min(1, local / DESCENT_MS));
@@ -143,14 +152,9 @@ export function createOracleDescentFollowup({ root, event, presentation, stageRe
         start(startedAt) {
             root.classList.add('has-oracle-descent');
             animate(startedAt);
-            // 统一两段式：音效放在后半段起点（圣光开始垂落时）
-            soundTimer = window.setTimeout(() => {
-                emit('audio:play', { soundName: 'commanderSkill' });
-            }, startMs);
         },
         stop() {
             cancelAnimationFrame(frame);
-            window.clearTimeout(soundTimer);
             root.classList.remove('has-oracle-descent');
             container.replaceChildren();
         }

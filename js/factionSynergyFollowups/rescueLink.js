@@ -157,7 +157,10 @@ export function createRescueLinkFollowup({ root, event, presentation, stageRect 
         start(startedAt) {
             root.classList.add('has-rescue-link');
             animateParticles(startedAt);
-            hpTextTimer = window.setTimeout(() => emitHpDeltaTexts(event), startMs);
+            hpTextTimer = window.setTimeout(() => {
+                emit('audio:play', { soundName: 'heroOath' });
+                emitHpDeltaTexts(event);
+            }, startMs);
         },
         stop() {
             cancelAnimationFrame(particleFrame);

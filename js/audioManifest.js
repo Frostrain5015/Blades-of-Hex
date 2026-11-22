@@ -28,6 +28,12 @@ export const SOUND_MANIFEST = {
     airstrike:     { file: 'sounds/airstrike.mp3',     volume: 0.8,  pool: 1,  preload: false, category: 'magic' },
     explosion:     { file: 'sounds/explosion.mp3',     volume: 0.75, pool: 3,  preload: false, category: 'combat' },
     commanderSkill:{ file: 'sounds/commanderSkill.mp3',volume: 0.8,  pool: 2,  preload: false, category: 'magic' },
+    // Third-party voice credits and edit details: sounds/credits.html.
+    heroOracle:       { file: 'sounds/hero-oracle.wav',        volume: 0.76, pool: 1, preload: false, category: 'magic' },
+    heroOracleImpact: { file: 'sounds/hero-oracle-impact.wav', volume: 0.52, pool: 1, preload: false, category: 'magic' },
+    heroOath:         { file: 'sounds/hero-oath.wav',          volume: 0.76, pool: 1, preload: false, category: 'magic' },
+    heroBorrowDay:    { file: 'sounds/hero-borrow-day.wav',    volume: 0.74, pool: 1, preload: false, category: 'magic' },
+    heroBloodMoon:    { file: 'sounds/hero-blood-moon.wav',    volume: 0.52, pool: 1, preload: false, category: 'magic' },
 
     // ---- 战术卡 ----
     spawn:         { file: 'sounds/spawn.mp3',         volume: 0.85, pool: 2,  preload: false, category: 'tactical' },
