@@ -4122,7 +4122,8 @@ function _playActionPresentation(actionType, e, { katyushaStartedAt = undefined,
                     break;
                 }
                 if (_sPres !== ATTACK_PRESENTATION.FIRE_TORPEDO
-                    && e.attackerType !== 'fr_heavy_cannon' && e.attackerType !== 'ru_katyusha') {
+                    && e.attackerType !== 'fr_heavy_cannon' && e.attackerType !== 'ru_katyusha'
+                    && e.attackerType !== 'cpc_guerrilla') {
                     playSound(_sPres === ATTACK_PRESENTATION.FIRE_TRACER ? 'machinegun'
                         : _sPres === ATTACK_PRESENTATION.FIRE_CANNON ? 'cannon'
                         : (_sCrit ? 'crit' : 'attack'));
@@ -4180,7 +4181,8 @@ function _playActionPresentation(actionType, e, { katyushaStartedAt = undefined,
                 if (_rmSmite) {
                     setTimeout(() => playSound('lightning'), 500);
                 } else if (_rmPresentation !== ATTACK_PRESENTATION.FIRE_TORPEDO
-                    && e?.attackerType !== 'fr_heavy_cannon' && e?.attackerType !== 'ru_katyusha') {
+                    && e?.attackerType !== 'fr_heavy_cannon' && e?.attackerType !== 'ru_katyusha'
+                    && e?.attackerType !== 'cpc_guerrilla') {
                     playSound(_rmPresentation === ATTACK_PRESENTATION.FIRE_AIR_STRAFE
                         ? 'airstrike'
                         : _rmPresentation === ATTACK_PRESENTATION.FIRE_TRACER
@@ -4337,7 +4339,7 @@ function _playActionPresentation(actionType, e, { katyushaStartedAt = undefined,
                         if (counterPresentation === ATTACK_PRESENTATION.FIRE_TORPEDO) {
                             spawnTorpedo(e.x, e.y, e.counterX, e.counterY, e.counterIsCrit);
                         } else if (counterPresentation === ATTACK_PRESENTATION.FIRE_TRACER || e.counterUsesDroneProjectile || e.counterIsDrone) {
-                            playSound('machinegun');
+                            if (e.counterType !== 'cpc_guerrilla') playSound('machinegun');
                             (e.counterType === 'cpc_guerrilla' ? spawnGuerrillaBullet : spawnDroneProjectile)(e.x, e.y, e.counterX, e.counterY, e.counterIsCrit, () => {
                                 triggerAttackFlash(e.counterX, e.counterY, e.counterIsCrit);
                                 spawnDirectionalParticles(e.x, e.y, e.counterX, e.counterY, '#ff8844', e.counterIsCrit ? 8 : 4);

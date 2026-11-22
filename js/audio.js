@@ -22,6 +22,10 @@ export function initAudio() {
 
     // 预创建 BGM 的 Howl 实例，让 Howler 内部尽早开始加载和注册 autoplay 解锁
     _getHowl('lobby_bgm');
+    // 开火和锁定提示都随动画帧播放，提前解码以避免首次播放排队。
+    _getHowl('guerrillaShot');
+    _getHowl('guerrillaSnipeShot');
+    _getHowl('sniperAlert');
     _preloadAllHowls();
 }
 
@@ -183,6 +187,8 @@ function _playSynthFallback(sound) {
     if (!ctx) return;
 
     switch (sound) {
+        case 'guerrillaShot':
+        case 'guerrillaSnipeShot':
         case 'attack':
         case 'mineExplode': {
             const osc = ctx.createOscillator();
@@ -190,7 +196,7 @@ function _playSynthFallback(sound) {
             osc.type = 'sawtooth';
             osc.frequency.setValueAtTime(600, ctx.currentTime);
             osc.frequency.exponentialRampToValueAtTime(200, ctx.currentTime + 0.15);
-            gain.gain.setValueAtTime(0.12, ctx.currentTime);
+            gain.gain.setValueAtTime(sound === 'guerrillaShot' ? 0.058 : 0.12, ctx.currentTime);
             gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2);
             osc.connect(gain); gain.connect(ctx.destination);
             osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.2);

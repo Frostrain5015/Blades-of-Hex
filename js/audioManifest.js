@@ -8,6 +8,10 @@
 export const SOUND_MANIFEST = {
     // ---- 战斗 ----
     attack:        { file: 'sounds/attack.mp3',        volume: 0.8,  pool: 4,  preload: false, category: 'combat' },
+    // "Perdition 1911 Pistol" by nioczkus (CC0), trimmed: https://freesound.org/people/nioczkus/sounds/346537/
+    guerrillaShot: { file: 'sounds/guerrilla-shot.wav', volume: 0.36, pool: 4, preload: true, category: 'combat' },
+    guerrillaSnipeShot: { file: 'sounds/guerrilla-shot.wav', volume: 0.75, pool: 3, preload: true, category: 'combat' },
+    sniperAlert:   { file: 'sounds/sniper-alert.wav',   volume: 0.55, pool: 3, preload: true, category: 'combat' },
     cannon:        { file: 'sounds/cannon.mp3',        volume: 0.85, pool: 2,  preload: false, category: 'combat' },
     crit:          { file: 'sounds/crit.mp3',          volume: 1.3,  pool: 2,  preload: false, category: 'combat' },
     unitDeath:     { file: 'sounds/unitDeath.mp3',     volume: 0.7,  pool: 3,  preload: false, category: 'combat', available: false },

@@ -5,6 +5,7 @@ import { isWaterTile } from '../rules/surfaces.js';
 
 const mix = (a, b, t) => a + (b - a) * t;
 const clamp = value => Math.max(0, Math.min(1, value));
+const SNIPER_ALERT_BEAT_MS = TIMING.lock / 3;
 
 export function presentCultureStrike(state, effect, startedAt = performance.now()) {
     const locate = point => state.tileMap.get(`${point?.q},${point?.r}`);
@@ -143,13 +144,13 @@ function drawChain(ctx, scene, now, size) {
     }
 }
 
-function drawReticle(ctx, point, size, progress) {
+function drawReticle(ctx, point, size, progress, flash) {
     ctx.save();
     ctx.translate(point.x, point.y);
     ctx.rotate(-0.34 * (1 - progress));
-    ctx.globalAlpha = progress;
+    ctx.globalAlpha = 0.30 + 0.70 * flash;
     const radius = size * (0.63 + 0.48 * (1 - progress));
-    ctx.shadowBlur = size * 0.19;
+    ctx.shadowBlur = size * (0.19 + 0.17 * flash);
     ctx.shadowColor = '#ff4f49';
     ctx.strokeStyle = '#ff6558';
     ctx.lineWidth = Math.max(1, size * 0.046);
@@ -221,11 +222,10 @@ export function drawCultureStrikeEffects(state, ctx, now) {
         }
         if (scene.kind === 'samuraiChain') {
             drawChain(ctx, scene, now, size);
-        }
-        const fireAt = scene.kind === 'samuraiChain' ? scene.impactDelay : TIMING.lock;
-        if (elapsed >= fireAt && elapsed < fireAt + 120 && !scene.sounded) {
-            scene.sounded = true;
-            playSound(scene.kind === 'samuraiChain' ? 'crit' : 'attack');
+            if (elapsed >= scene.impactDelay && elapsed < scene.impactDelay + 120 && !scene.sounded) {
+                scene.sounded = true;
+                playSound('crit');
+            }
         }
         for (const [index, hit] of scene.results.entries()) {
             const tile = state.tileMap.get(`${hit.q},${hit.r}`);
@@ -241,13 +241,29 @@ export function drawCultureStrikeEffects(state, ctx, now) {
             continue;
         }
         const lockAt = scene.kind === 'guerrillaSnipe' ? TIMING.lock : 0;
+        if (elapsed < 0) continue;
         if (elapsed < lockAt) {
             const hit = scene.results.at(-1);
             const target = state.tileMap.get(`${hit?.q},${hit?.r}`);
-            if (target) drawReticle(ctx, target, size, clamp(elapsed / (lockAt * 0.60)));
+            if (target) {
+                const beat = Math.floor(elapsed / SNIPER_ALERT_BEAT_MS);
+                const beatAge = elapsed - beat * SNIPER_ALERT_BEAT_MS;
+                if (scene.alertBeat !== beat && beatAge < SNIPER_ALERT_BEAT_MS / 2) {
+                    scene.alertBeat = beat;
+                    playSound('sniperAlert');
+                }
+                const flash = (1 - clamp(beatAge / SNIPER_ALERT_BEAT_MS)) ** 3;
+                drawReticle(ctx, target, size, clamp(elapsed / (lockAt * 0.60)), flash);
+            }
             continue;
         }
         const travel = (elapsed - lockAt) / (scene.impactDelay - lockAt);
-        if (travel <= 1) drawSniperBullet(ctx, scene.path[0], scene.path.at(-1), size, clamp(travel));
+        if (travel <= 1) {
+            if (!scene.sounded) {
+                scene.sounded = true;
+                playSound('guerrillaSnipeShot');
+            }
+            drawSniperBullet(ctx, scene.path[0], scene.path.at(-1), size, clamp(travel));
+        }
     }
 }

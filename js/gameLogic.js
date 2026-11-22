@@ -2948,7 +2948,8 @@ function _attackUnit(attackerUnit, targetUnit, options) {
     } else {
         const soundPresentation = classifyAttackPresentation(attackerUnit);
         // 鱼雷发射阶段保持安静，explosion 只在弹体抵达目标时播放。
-        if (soundPresentation !== ATTACK_PRESENTATION.FIRE_TORPEDO && attackerUnit.type !== 'fr_heavy_cannon' && !isKatyusha) {
+        if (soundPresentation !== ATTACK_PRESENTATION.FIRE_TORPEDO && attackerUnit.type !== 'fr_heavy_cannon'
+            && !isKatyusha && attackerUnit.type !== 'cpc_guerrilla') {
             playSound(soundPresentation === ATTACK_PRESENTATION.FIRE_AIR_STRAFE
                 ? 'airstrike'
                 : soundPresentation === ATTACK_PRESENTATION.FIRE_TRACER
@@ -3173,6 +3174,7 @@ function _attackUnit(attackerUnit, targetUnit, options) {
                 spawnProjectile(fromX, fromY, toX, toY, isCrit, impact);
             }
         } else if (attackPresentation === ATTACK_PRESENTATION.FIRE_TRACER) {
+            if (attackerUnit.type === 'cpc_guerrilla' && attackerUnit.isEmbarked) playSound('guerrillaShot');
             (attackerUnit.type === 'cpc_guerrilla' && !attackerUnit.isEmbarked ? spawnGuerrillaBullet : spawnDroneProjectile)(fromX, fromY, toX, toY, isCrit, attackDodged ? null : () => {
                 triggerAttackFlash(toX, toY, isCrit);
                 spawnDirectionalParticles(fromX, fromY, toX, toY, '#ff8844', isCrit ? 4 : 2);
@@ -3329,7 +3331,8 @@ function _attackUnit(attackerUnit, targetUnit, options) {
                     if (counterPresentation === ATTACK_PRESENTATION.FIRE_TORPEDO) {
                         spawnTorpedo(_cfx, _cfy, _counterX, _counterY, counterResult.isCrit);
                     } else if (counterPresentation === ATTACK_PRESENTATION.FIRE_TRACER) {
-                        playSound('machinegun');
+                        if (targetUnit.type !== 'cpc_guerrilla') playSound('machinegun');
+                        else if (targetUnit.isEmbarked) playSound('guerrillaShot');
                         (targetUnit.type === 'cpc_guerrilla' && !targetUnit.isEmbarked ? spawnGuerrillaBullet : spawnDroneProjectile)(_cfx, _cfy, _counterX, _counterY, counterResult.isCrit, () => {
                             triggerAttackFlash(_counterX, _counterY, counterResult.isCrit);
                             spawnDirectionalParticles(_cfx, _cfy, _counterX, _counterY, '#ff8844', counterResult.isCrit ? 8 : 4);
@@ -4593,7 +4596,8 @@ function _attackCityTile(attackerUnit, targetTile, options) {
         setTimeout(() => triggerScreenShake(isCrit ? 6 : 3, isCrit ? 200 : 120), CARRIER_STRAFE_IMPACT_MS);
     } else {
     if (attackPresentation !== ATTACK_PRESENTATION.FIRE_TORPEDO
-        && attackerUnit.type !== 'fr_heavy_cannon' && attackerUnit.type !== 'ru_katyusha') {
+        && attackerUnit.type !== 'fr_heavy_cannon' && attackerUnit.type !== 'ru_katyusha'
+        && attackerUnit.type !== 'cpc_guerrilla') {
         playSound(attackPresentation === ATTACK_PRESENTATION.FIRE_TRACER
             ? 'machinegun'
             : attackPresentation === ATTACK_PRESENTATION.FIRE_CANNON
@@ -4613,6 +4617,7 @@ function _attackCityTile(attackerUnit, targetTile, options) {
         else if (isKatyusha) spawnKatyushaBarrage(fromX, fromY, toX, toY, isCrit, impact, { startedAt: barrageStartedAt, splash: katyushaSplash });
         else spawnProjectile(fromX, fromY, toX, toY, isCrit, impact);
     } else if (attackPresentation === ATTACK_PRESENTATION.FIRE_TRACER) {
+        if (attackerUnit.type === 'cpc_guerrilla' && attackerUnit.isEmbarked) playSound('guerrillaShot');
         (attackerUnit.type === 'cpc_guerrilla' && !attackerUnit.isEmbarked ? spawnGuerrillaBullet : spawnDroneProjectile)(fromX, fromY, toX, toY, isCrit, () => {
             triggerAttackFlash(toX, toY, isCrit);
             spawnDirectionalParticles(fromX, fromY, toX, toY, '#ff8844', isCrit ? 4 : 2);

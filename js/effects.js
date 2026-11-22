@@ -788,6 +788,7 @@ export function spawnGuerrillaBullet(fromX, fromY, toX, toY, isCrit, onImpact) {
         isCrit, onImpact, isGuerrillaBullet: true
     });
     spawnDroneMuzzleFlash(fromX, fromY, toX, toY, isCrit);
+    playSound('guerrillaShot');
 }
 
 export function spawnDroneProjectile(fromX, fromY, toX, toY, isCrit, onImpact) {
