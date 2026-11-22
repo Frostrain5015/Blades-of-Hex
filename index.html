@@ -33,7 +33,7 @@
 <div id="lobbyOverlay" style="display:none">
     <button id="lobbyImportMatchBtn" class="lobby-import-match-btn" type="button" title="导入轻量复盘索引或完整对局日志">导入对局日志</button>
     <input id="lobbyImportMatchInput" type="file" accept=".json,application/json" hidden>
-    <button id="lobbyMuteBtn" class="lobby-mute-btn" title="切换静音">🔊</button>
+    <button id="lobbyMuteBtn" class="lobby-mute-btn" type="button" title="开启全局静音" aria-label="全局静音" aria-pressed="false">🔊</button>
     <button id="languageToggleBtn" class="language-toggle-btn" type="button" title="Switch to English" aria-label="Switch to English">
         <img id="languageFlag" src="img/ui/flag-cn.svg" alt="中文">
     </button>
@@ -650,12 +650,16 @@
             <input type="checkbox" id="showGrid" checked>
         </div>
         <div class="setting-row">
-            <label>音效</label>
-            <input type="checkbox" id="soundEnabled" checked>
+            <label for="musicVolume">音乐音量</label>
+            <input type="range" id="musicVolume" min="0" max="100" value="49">
         </div>
         <div class="setting-row">
-            <label>音量</label>
-            <input type="range" id="soundVolume" min="0" max="100" value="70" class="volume-slider" style="width:120px">
+            <label for="effectsVolume">音效音量</label>
+            <input type="range" id="effectsVolume" min="0" max="100" value="49">
+        </div>
+        <div class="setting-row">
+            <label for="settingsMute">全局静音</label>
+            <input type="checkbox" id="settingsMute">
         </div>
         <button id="settingsClose">完成</button>
         <button id="settingsExit" class="settings-exit-btn" style="display:none">退出</button>

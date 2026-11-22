@@ -24,7 +24,7 @@ import {
 } from './gameLogic.js';
 import { spawnCommanderSkillEffect, spawnPaladinOrbitBeams, spawnAstrologerEffect, getKatyushaPresentedHealth } from './effects.js';
 import { setCardHoveredIndex, triggerFlyingCard } from './renderer.js';
-import { setMasterVolume, setMuted } from './audio.js';
+import { updateAudioVolumes, setMuted } from './audio.js';
 import { canDeployDrone, DRONE_DEPLOY_COST } from '../commander/tianyan.js';
 import { COMMANDER_CONFIG as COMMANDER_BALANCE_CONFIG } from '../rules/commanders.js';
 import { COMBAT_BALANCE } from '../rules/constants.js';
@@ -3140,6 +3140,8 @@ export function initSettingsPanel() {
     const speedBtns = document.querySelectorAll('.speed-btn');
     const exitBtn = document.getElementById('settingsExit');
     const showGrid = document.getElementById('showGrid');
+    const settingsMute = document.getElementById('settingsMute');
+    const volumeSliders = ['musicVolume', 'effectsVolume'].map(key => [key, document.getElementById(key)]);
 
     function notifyRendererSettingsChanged(changed) {
         window.dispatchEvent(new CustomEvent('battlefield-renderer-settings-changed', {
@@ -3157,8 +3159,10 @@ export function initSettingsPanel() {
         settingsOverlay.classList.add('show');
         updateSpeedBtns();
         document.getElementById('screenShake').checked = settings.screenShake;
-        document.getElementById('soundEnabled').checked = settings.soundEnabled;
-        document.getElementById('soundVolume').value = Math.round((settings.soundVolume ?? 0.7) * 100);
+        settingsMute.checked = !settings.soundEnabled;
+        for (const [key, slider] of volumeSliders) {
+            slider.value = Math.round(settings[key] * 100);
+        }
         if (showGrid) showGrid.checked = settings.showGrid !== false;
         // 单人模式显示退出按钮
         exitBtn.style.display = isNetworkGame() ? 'none' : '';
@@ -3193,24 +3197,19 @@ export function initSettingsPanel() {
         notifyRendererSettingsChanged('showGrid');
     });
 
-    document.getElementById('soundEnabled').addEventListener('change', (e) => {
-        settings.soundEnabled = e.target.checked;
-        setMuted(!e.target.checked);
+    on('audio:muteChanged', muted => { settingsMute.checked = muted; });
+    settingsMute.addEventListener('change', () => {
+        setMuted(settingsMute.checked);
         saveSettings();
-        // 同步大厅静音按钮
-        const muteBtn = document.getElementById('lobbyMuteBtn');
-        if (muteBtn) {
-            muteBtn.textContent = e.target.checked ? '🔊' : '🔇';
-            muteBtn.classList.toggle('muted', !e.target.checked);
-        }
     });
 
-    document.getElementById('soundVolume').addEventListener('input', (e) => {
-        const vol = parseInt(e.target.value) / 100;
-        settings.soundVolume = vol;
-        setMasterVolume(vol);
-        saveSettings();
-    });
+    for (const [key, slider] of volumeSliders) {
+        slider.addEventListener('input', () => {
+            settings[key] = slider.valueAsNumber / 100;
+            updateAudioVolumes();
+            saveSettings();
+        });
+    }
 
     exitBtn.addEventListener('click', () => {
         settingsOverlay.classList.remove('show');

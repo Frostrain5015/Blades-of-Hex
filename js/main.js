@@ -45,7 +45,7 @@ import { Unit } from './Unit.js';
 import './unitPresentationAdapter.js';
 import { playSound, initAudio, setMuted, startBattleBGM, stopBattleBGM, stopLobbyBGM } from './audio.js';
 import { loadCommanderFx } from './commanderFx.js';
-import { emit } from './eventBus.js';
+import { emit, on } from './eventBus.js';
 import { replayFloatTexts, setFloatTextsSuppressed, setFloatTextCaptureSuppressed } from './floatTexts.js';
 import { createHeroCarousel } from './heroCarousel.js';
 import { createPreparationController } from './preparationController.js';
@@ -675,7 +675,6 @@ function showHome(msg) {
     _switchLobbyView('lobbyHomeContent');
     connectionBar.classList.add('visible');
     if (msg) setStatus(msg, true);
-    _syncMuteBtn();
     stopBattleBGM();
 
     if (_bgmPlayHandler) {
@@ -1176,22 +1175,17 @@ document.getElementById('multiplayerBtn').addEventListener('click', () => {
 // ==== 大厅静音按钮 ====
 const lobbyMuteBtn = document.getElementById('lobbyMuteBtn');
 
-function _syncMuteBtn() {
-    if (settings.soundEnabled) {
-        lobbyMuteBtn.textContent = '🔊'; // 🔊
-        lobbyMuteBtn.classList.remove('muted');
-    } else {
-        lobbyMuteBtn.textContent = '🔇'; // 🔇
-        lobbyMuteBtn.classList.add('muted');
-    }
+function _syncMuteBtn(muted) {
+    lobbyMuteBtn.textContent = muted ? '🔇' : '🔊';
+    lobbyMuteBtn.classList.toggle('muted', muted);
+    lobbyMuteBtn.title = muted ? '解除全局静音' : '开启全局静音';
+    lobbyMuteBtn.setAttribute('aria-pressed', String(muted));
 }
 
+on('audio:muteChanged', _syncMuteBtn);
+_syncMuteBtn(!settings.soundEnabled);
 lobbyMuteBtn.addEventListener('click', () => {
-    settings.soundEnabled = !settings.soundEnabled;
-    setMuted(!settings.soundEnabled);
-    _syncMuteBtn();
-    const cb = document.getElementById('soundEnabled');
-    if (cb) cb.checked = settings.soundEnabled;
+    setMuted(settings.soundEnabled);
     saveSettings();
 });
 
@@ -3761,6 +3755,14 @@ function _playActionPresentation(actionType, e, { katyushaStartedAt = undefined,
             }
             break;
         case 'endTurn':
+            // The live network path already stages these with the incoming snapshot.
+            if (!applyCardSideEffects) {
+                for (const volley of e?.heavyCannonVolleys || []) {
+                    if (!volley || !Number.isFinite(volley.fromX) || !Number.isFinite(volley.toX)) continue;
+                    const onImpact = volley.dodged ? () => spawnDodgeShimmer(volley.toX, volley.toY) : null;
+                    spawnHeavyCannonShell(volley.fromX, volley.fromY, volley.toX, volley.toY, volley.isCrit, onImpact, volley);
+                }
+            }
             playSound('turnEnd');
             triggerTurnFlash(gameState.currentCamp.color);
             // 重放回合将领特效（铁卫治疗、尚书屯田等）

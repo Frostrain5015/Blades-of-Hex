@@ -13,6 +13,9 @@ export const SOUND_MANIFEST = {
     guerrillaSnipeShot: { file: 'sounds/guerrilla-shot.wav', volume: 0.75, pool: 3, preload: true, category: 'combat' },
     sniperAlert:   { file: 'sounds/sniper-alert.wav',   volume: 0.55, pool: 3, preload: true, category: 'combat' },
     cannon:        { file: 'sounds/cannon.mp3',        volume: 0.85, pool: 2,  preload: false, category: 'combat' },
+    // "SciFi Gun - Mega Charge Cannon" by dpren (CC0), trimmed and retimed: https://freesound.org/people/dpren/sounds/440147/
+    heavyCannonCharge: { file: 'sounds/heavy-cannon-charge.wav', volume: 0.58, pool: 2, preload: true, category: 'combat' },
+    heavyCannonFire:   { file: 'sounds/heavy-cannon-fire.wav',   volume: 0.95, pool: 2, preload: true, category: 'combat' },
     crit:          { file: 'sounds/crit.mp3',          volume: 1.3,  pool: 2,  preload: false, category: 'combat' },
     unitDeath:     { file: 'sounds/unitDeath.mp3',     volume: 0.7,  pool: 3,  preload: false, category: 'combat', available: false },
     mineExplode:   { file: 'sounds/mineExplode.mp3',   volume: 0.75, pool: 2,  preload: false, category: 'combat', available: false },

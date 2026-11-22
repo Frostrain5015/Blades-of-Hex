@@ -1,5 +1,6 @@
-import { settings } from './config.js';
+import { settings } from './settingsRuntime.js';
 import { SOUND_MANIFEST, ALIAS_MAP } from './audioManifest.js';
+import { emit } from './eventBus.js';
 
 // ============================================================
 //  Howler.js 引擎层 — 播放 freesound.org 真实音频素材
@@ -17,7 +18,6 @@ let _initDone = false;
 export function initAudio() {
     if (_initDone || typeof Howler === 'undefined' || typeof Howl !== 'function') return;
     _initDone = true;
-    Howler.volume(settings.soundVolume ?? 0.7);
     Howler.mute(!settings.soundEnabled);
 
     // 预创建 BGM 的 Howl 实例，让 Howler 内部尽早开始加载和注册 autoplay 解锁
@@ -26,6 +26,8 @@ export function initAudio() {
     _getHowl('guerrillaShot');
     _getHowl('guerrillaSnipeShot');
     _getHowl('sniperAlert');
+    _getHowl('heavyCannonCharge');
+    _getHowl('heavyCannonFire');
     _preloadAllHowls();
 }
 
@@ -46,11 +48,10 @@ function _preloadAllHowls() {
 }
 
 export function playSound(soundName) {
-    // 入口统一网关：静音开关
-    if (!settings.soundEnabled) return;
-
     const resolved = ALIAS_MAP[soundName] || soundName;
     const cfg = SOUND_MANIFEST[resolved];
+    // Keep music playback active while muted so unmuting restores it.
+    if (!settings.soundEnabled && cfg?.category !== 'music') return;
 
     // 清单中未注册、或素材尚未生成（available:false）→ 合成回退，不发网络请求
     if (!cfg || cfg.available === false) {
@@ -58,18 +59,20 @@ export function playSound(soundName) {
         return;
     }
 
-    const result = _getHowl(resolved);
+    const howl = _getHowl(resolved);
 
     // 文件加载失败或运行环境无 Howl → 合成回退
-    if (!result?.howl || _loadErrors[resolved]) {
+    if (!howl || _loadErrors[resolved]) {
         _playSynthFallback(soundName);
         return;
     }
 
-    const { howl } = result;
-    const masterVol = settings.soundVolume ?? 0.7;
-    howl.volume(cfg.volume * masterVol);
     howl.play();
+}
+
+function _soundVolume(cfg) {
+    const channelVolume = cfg.category === 'music' ? settings.musicVolume : settings.effectsVolume;
+    return Math.min(1, cfg.volume * channelVolume);
 }
 
 function _getHowl(name) {
@@ -83,14 +86,14 @@ function _getHowl(name) {
         if (cfg.html5 !== undefined) extra.html5 = cfg.html5;
         _howls[resolved] = new Howl({
             src: [cfg.file],
-            volume: cfg.volume,
+            volume: _soundVolume(cfg),
             pool: cfg.pool,
             preload: true,
             ...extra,
             onloaderror: () => { _loadErrors[resolved] = true; }
         });
     }
-    return { howl: _howls[resolved], cfg, resolved };
+    return _howls[resolved];
 }
 
 // ============================================================
@@ -101,14 +104,11 @@ let _battleBgmId = null;
 
 export function startBattleBGM() {
     if (_battleBgmId !== null) return; // 已在播放
-    const result = _getHowl('battle_bgm');
-    if (!result || !result.howl) return;
-    if (_loadErrors['battle_bgm']) return;
+    const howl = _getHowl('battle_bgm');
+    if (!howl || _loadErrors['battle_bgm']) return;
 
     const play = () => {
-        const masterVol = settings.soundVolume ?? 0.7;
-        result.howl.volume(result.cfg.volume * masterVol);
-        _battleBgmId = result.howl.play();
+        _battleBgmId = howl.play();
     };
 
     if (typeof Howler !== 'undefined' && Howler.ctx && Howler.ctx.state === 'suspended') {
@@ -120,30 +120,30 @@ export function startBattleBGM() {
 
 export function stopBattleBGM() {
     if (_battleBgmId === null) return;
-    const result = _getHowl('battle_bgm');
-    if (result && result.howl) {
-        result.howl.stop();
-    }
+    _getHowl('battle_bgm')?.stop();
     _battleBgmId = null;
 }
 
 export function stopLobbyBGM() {
-    const result = _getHowl('lobby_bgm');
-    if (result && result.howl) {
-        result.howl.stop();
-    }
+    _getHowl('lobby_bgm')?.stop();
 }
 
 // ============================================================
 //  音量 / 静音控制
 // ============================================================
 
-export function setMasterVolume(vol) {
-    if (typeof Howler !== 'undefined') Howler.volume(vol);
+export function updateAudioVolumes() {
+    for (const [name, howl] of Object.entries(_howls)) {
+        howl.volume(_soundVolume(SOUND_MANIFEST[name]));
+    }
+    _updateSynthVolume();
 }
 
 export function setMuted(muted) {
+    settings.soundEnabled = !muted;
     if (typeof Howler !== 'undefined') Howler.mute(muted);
+    _updateSynthVolume();
+    emit('audio:muteChanged', muted);
 }
 
 // ============================================================
@@ -152,11 +152,19 @@ export function setMuted(muted) {
 // ============================================================
 
 let _synthCtx = null;
+let _synthOutput = null;
+
+function _updateSynthVolume() {
+    if (_synthOutput) _synthOutput.gain.value = settings.soundEnabled ? settings.effectsVolume : 0;
+}
 
 function _getCtx() {
     if (!_synthCtx) {
         try {
             _synthCtx = new (window.AudioContext || window.webkitAudioContext)();
+            _synthOutput = _synthCtx.createGain();
+            _synthOutput.connect(_synthCtx.destination);
+            _updateSynthVolume();
         } catch (e) {
             return null;
         }
@@ -177,7 +185,7 @@ function _playTone(freq, duration, type = 'sine', volume = 0.15) {
     gain.gain.setValueAtTime(volume, ctx.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
     osc.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(_synthOutput);
     osc.start(ctx.currentTime);
     osc.stop(ctx.currentTime + duration);
 }
@@ -198,7 +206,7 @@ function _playSynthFallback(sound) {
             osc.frequency.exponentialRampToValueAtTime(200, ctx.currentTime + 0.15);
             gain.gain.setValueAtTime(sound === 'guerrillaShot' ? 0.058 : 0.12, ctx.currentTime);
             gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2);
-            osc.connect(gain); gain.connect(ctx.destination);
+            osc.connect(gain); gain.connect(_synthOutput);
             osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.2);
             break;
         }
@@ -210,7 +218,7 @@ function _playSynthFallback(sound) {
             osc.frequency.exponentialRampToValueAtTime(100, ctx.currentTime + 0.1);
             gain.gain.setValueAtTime(0.4, ctx.currentTime);
             gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
-            osc.connect(gain); gain.connect(ctx.destination);
+            osc.connect(gain); gain.connect(_synthOutput);
             osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.15);
             break;
         }
@@ -223,7 +231,7 @@ function _playSynthFallback(sound) {
             osc.frequency.exponentialRampToValueAtTime(600, ctx.currentTime + 0.3);
             gain.gain.setValueAtTime(0.1, ctx.currentTime);
             gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
-            osc.connect(gain); gain.connect(ctx.destination);
+            osc.connect(gain); gain.connect(_synthOutput);
             osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.4);
             break;
         }
@@ -241,7 +249,7 @@ function _playSynthFallback(sound) {
             strike.frequency.exponentialRampToValueAtTime(60, t + 0.03);
             strikeGain.gain.setValueAtTime(0.10, t);
             strikeGain.gain.exponentialRampToValueAtTime(0.001, t + 0.04);
-            strike.connect(strikeGain); strikeGain.connect(ctx.destination);
+            strike.connect(strikeGain); strikeGain.connect(_synthOutput);
             strike.start(t); strike.stop(t + 0.04);
             const partials = [
                 [165, 'triangle', 0.13, 2.2],
@@ -264,7 +272,7 @@ function _playSynthFallback(sound) {
                 gain.gain.setValueAtTime(0, t);
                 gain.gain.linearRampToValueAtTime(vol, t + 0.04);
                 gain.gain.exponentialRampToValueAtTime(0.001, t + decay);
-                osc.connect(gain); gain.connect(ctx.destination);
+                osc.connect(gain); gain.connect(_synthOutput);
                 osc.start(t); osc.stop(t + decay + 0.1);
             }
             break;
@@ -302,7 +310,7 @@ function _playSynthFallback(sound) {
             osc1.frequency.exponentialRampToValueAtTime(440, t + 0.12);
             gain1.gain.setValueAtTime(0.10, t);
             gain1.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
-            osc1.connect(gain1); gain1.connect(ctx.destination);
+            osc1.connect(gain1); gain1.connect(_synthOutput);
             osc1.start(t); osc1.stop(t + 0.18);
             const osc2 = ctx.createOscillator();
             const gain2 = ctx.createGain();
@@ -311,7 +319,7 @@ function _playSynthFallback(sound) {
             osc2.frequency.exponentialRampToValueAtTime(660, t + 0.1);
             gain2.gain.setValueAtTime(0.06, t);
             gain2.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
-            osc2.connect(gain2); gain2.connect(ctx.destination);
+            osc2.connect(gain2); gain2.connect(_synthOutput);
             osc2.start(t); osc2.stop(t + 0.15);
             break;
         }

@@ -20,6 +20,8 @@ export const DIVE_STRAFE_FLIGHT = Object.freeze({
 // 航母扫射的子弹流飞行时长：伤害数字/血条/震屏统一延迟到弹流抵达时刻。
 // 本地攻击（gameLogic）与联机重放（main）共用，避免两处各自维护字面量。
 export const CARRIER_STRAFE_IMPACT_MS = 780;
+export const HEAVY_CANNON_CHARGE_MS = 1100;
+export const HEAVY_CANNON_IMPACT_MS = HEAVY_CANNON_CHARGE_MS + 155;
 
 export const STUKA_BOMB_RELEASE_PROGRESS = 0.51;
 

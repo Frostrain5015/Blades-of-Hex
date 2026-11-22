@@ -18,6 +18,7 @@ const { isTileVisible, updateFogOfWar } = await import('../js/fogOfWar.js');
 const { getUndergroundIntelligenceStatus } = await import('../rules/undergroundIntelligence.js');
 const { BURN_MS, attackCityTile, endTurn, executeAirCommand, executeCultureStrike, executeHeavyCannonStance, resolvePoisonAtTurnStart } = await import('../js/gameLogic.js');
 const { getAirCommandAvailability } = await import('../rules/airCommands.js');
+const { HEAVY_CANNON_CHARGE_MS } = await import('../rules/attackPresentation.js');
 const { droneProjectiles, HEAVY_CANNON_IMPACT_MS, heavyCannonShells, ringWaves, spawnHeavyCannonShell, updateHeavyCannonShells } = await import('../js/effects.js');
 const { KATYUSHA_IMPACT_TIMES, getKatyushaDamageShares, getKatyushaPresentedHealth, katyushaRockets } = await import('../js/effects.js');
 const { startMatchRecording, getCurrentMatchLog } = await import('../js/matchRecorder.js');
@@ -728,9 +729,9 @@ test('巨炮先蓄力再开火，只有命中时触发范围冲击波', () => {
     let impacts = 0;
     let waves = ringWaves.length;
     spawnHeavyCannonShell(0, 0, 60, 0, false, () => impacts++, { startedAt });
-    updateHeavyCannonShells(startedAt + 799);
+    updateHeavyCannonShells(startedAt + HEAVY_CANNON_CHARGE_MS - 1);
     assert.equal(heavyCannonShells.at(-1).fired, false);
-    updateHeavyCannonShells(startedAt + 801);
+    updateHeavyCannonShells(startedAt + HEAVY_CANNON_CHARGE_MS + 1);
     assert.equal(heavyCannonShells.at(-1).fired, true);
     updateHeavyCannonShells(startedAt + HEAVY_CANNON_IMPACT_MS - 1);
     assert.equal(heavyCannonShells.at(-1).fired, true);
@@ -743,6 +744,30 @@ test('巨炮先蓄力再开火，只有命中时触发范围冲击波', () => {
     spawnHeavyCannonShell(0, 0, 60, 0, false, null, { startedAt, dodged: true });
     updateHeavyCannonShells(startedAt + HEAVY_CANNON_IMPACT_MS + 1);
     assert.equal(ringWaves.length, waves);
+});
+
+test('巨炮自动炮击录像以新版弹着点呈现旧伤害数字，其他回合伤害仍立即显示', () => {
+    const { foe } = setupMatch();
+    const target = place('infantry', foe, state.tileMap.get('2,0'));
+    const other = place('infantry', foe, state.tileMap.get('3,0'));
+    const targetHp = target.hp;
+    const step = {
+        actionType: 'endTurn',
+        payload: { heavyCannonVolleys: [{ fromQ: 0, fromR: 0, toQ: 2, toR: 0 }] },
+        outcome: {
+            changes: { unitHp: [target, other].map(unit => ({ unitId: unit.id, after: unit.hp - 10, delta: -10 })) },
+            floatTexts: [
+                { q: 2, r: 0, value: 10, delayMs: 955 },
+                { q: 3, r: 0, value: 10, delayMs: 0 }
+            ]
+        }
+    };
+
+    const replay = applyReplayStep(step, state, {});
+    assert.equal(target.hp, targetHp - 10);
+    assert.equal(target.displayHp, targetHp);
+    assert.equal(other.displayHp, other.hp);
+    assert.deepEqual(replay.effects.floatTexts.map(text => text.delayMs), [HEAVY_CANNON_IMPACT_MS, 0]);
 });
 
 test('喀秋莎的主目标和溅射目标分三轮扣血，整数尾差守恒', () => {

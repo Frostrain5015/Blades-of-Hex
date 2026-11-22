@@ -1,6 +1,6 @@
 import { HEX_SIZE, LOGICAL_W, settings, TACTICAL_CARD_CONFIG, COLONEL_CARDS, MORALE_CONFIG } from './config.js';
 import { playSound } from './audio.js';
-import { AIRSTRIKE_FLIGHT, getStukaFlightPosition } from '../rules/attackPresentation.js';
+import { AIRSTRIKE_FLIGHT, getStukaFlightPosition, HEAVY_CANNON_CHARGE_MS, HEAVY_CANNON_IMPACT_MS } from '../rules/attackPresentation.js';
 
 // ===== 粒子系统 =====================
 export const particles = [];
@@ -1908,8 +1908,8 @@ export function spawnAirliftEffect(fromX, fromY, toX, toY, opts = {}) {
 }
 
 // ===== 国家文化与特色兵种特效（法式重炮 / 喀秋莎齐射 / 万岁冲锋 / 闪避 / 自由抵抗） =====
-const HEAVY_CANNON_CHARGE_MS = 800;
-export const HEAVY_CANNON_IMPACT_MS = HEAVY_CANNON_CHARGE_MS + 155;
+export { HEAVY_CANNON_IMPACT_MS };
+const HEAVY_CANNON_CHARGE_AUDIO_MS = 1050;
 export const KATYUSHA_IMPACT_TIMES = Object.freeze([235, 475, 715]);
 export const KATYUSHA_IMPACT_MS = KATYUSHA_IMPACT_TIMES.at(-1);
 
@@ -1938,6 +1938,7 @@ export function getKatyushaPresentedHealth(target, now) {
         elapsed >= time ? hp - barrage.shares[i] : hp, barrage.before);
 }
 export const heavyCannonShells = [];
+const heavyCannonBursts = [];
 export const katyushaRockets = [];
 export const banzaiDashes = [];
 export const ringWaves = [];
@@ -2006,15 +2007,17 @@ export function spawnHeavyCannonShell(fromX, fromY, toX, toY, isCrit = false, on
         dodged: opts.dodged === true,
         areaImpact: opts.areaImpact !== false,
         splash: opts.splash || [],
+        chargeStarted: false,
         fired: false,
         onImpact: onImpact || null
     });
 }
 
-function spawnHeavyCannonMuzzleBlast(s, angle) {
-    const bx = s.muzzleX - Math.cos(angle) * 9;
-    const by = s.muzzleY - Math.sin(angle) * 9;
-    spawnMuzzleFlash(bx, by, s.toX, s.toY, true);
+function spawnHeavyCannonMuzzleBlast(s, now) {
+    const angle = Math.atan2(s.toY - s.fromY, s.toX - s.fromX);
+    const bx = s.muzzleX;
+    const by = s.muzzleY;
+    heavyCannonBursts.push({ x: bx, y: by, angle, startedAt: now, duration: 240, isCrit: s.isCrit });
     triggerRecoil(s.fromX, s.fromY, s.toX, s.toY);
     triggerScreenShake(s.isCrit ? 4.5 : 3, 95);
     if (settings.reducedMotion) return;
@@ -2037,9 +2040,8 @@ function spawnHeavyCannonMuzzleBlast(s, angle) {
     }
 }
 
-function spawnHeavyCannonImpactDebris(s) {
-    spawnCannonImpact(s.toX, s.toY, true);
-    spawnCannonImpact(s.toX, s.toY, s.isCrit);
+function spawnHeavyCannonImpactDebris(s, now) {
+    heavyCannonBursts.push({ x: s.toX, y: s.toY, startedAt: now, duration: 680, areaImpact: s.areaImpact });
     triggerAttackFlash(s.toX, s.toY, true);
     spawnRingWave(s.toX, s.toY, {
         color: '#ff9d3b',
@@ -2081,6 +2083,16 @@ function spawnHeavyCannonImpactDebris(s) {
                 320
             ));
         }
+        const smokeCount = particleCount(s.areaImpact ? 16 : 8);
+        for (let j = 0; j < smokeCount; j++) {
+            const offset = (Math.random() - 0.5) * HEX_SIZE * 0.6;
+            particles.push(new VisualParticle(
+                s.toX + offset, s.toY,
+                offset * 3, -35 - Math.random() * 65,
+                j % 2 === 0 ? '#615045' : '#8c715a',
+                6 + Math.random() * 11, 0.45 + Math.random() * 0.45, -25
+            ));
+        }
     }
     for (const hit of s.splash) {
         spawnDirectionalParticles(s.toX, s.toY, hit.x, hit.y, '#ffd07a', 13);
@@ -2089,27 +2101,37 @@ function spawnHeavyCannonImpactDebris(s) {
 }
 
 export function updateHeavyCannonShells(now) {
+    let chargeSound = false;
     let fireSound = false;
     let impactSound = false;
     for (let i = heavyCannonShells.length - 1; i >= 0; i--) {
         const s = heavyCannonShells[i];
         const elapsed = now - s.startTime;
+        if (elapsed < 0) continue;
+        if (!s.chargeStarted) {
+            s.chargeStarted = true;
+            chargeSound ||= elapsed <= HEAVY_CANNON_CHARGE_MS - HEAVY_CANNON_CHARGE_AUDIO_MS;
+        }
         if (!s.fired && elapsed >= HEAVY_CANNON_CHARGE_MS) {
             s.fired = true;
             fireSound = true;
-            const angle = Math.atan2(s.toY - s.fromY, s.toX - s.fromX);
-            spawnHeavyCannonMuzzleBlast(s, angle);
+            spawnHeavyCannonMuzzleBlast(s, now);
         }
         if (elapsed >= HEAVY_CANNON_IMPACT_MS) {
             heavyCannonShells.splice(i, 1);
             if (!s.dodged) {
                 impactSound = true;
-                spawnHeavyCannonImpactDebris(s);
+                spawnHeavyCannonImpactDebris(s, now);
             }
             if (s.onImpact) s.onImpact();
         }
     }
-    if (fireSound) playSound('cannon');
+    for (let i = heavyCannonBursts.length - 1; i >= 0; i--) {
+        const burst = heavyCannonBursts[i];
+        if (now - burst.startedAt >= burst.duration) heavyCannonBursts.splice(i, 1);
+    }
+    if (chargeSound) playSound('heavyCannonCharge');
+    if (fireSound) playSound('heavyCannonFire');
     if (impactSound) playSound('explosion');
 }
 
@@ -2127,7 +2149,7 @@ function drawHeavyCannonCharge(ctx, s, t) {
     ctx.fillStyle = glow;
     ctx.fillRect(s.muzzleX - radius, s.muzzleY - radius, radius * 2, radius * 2);
 
-    // 外圈向内收缩的蓄能环，配合 0.8s 节奏压缩到炮口核心
+    // 外圈向内收缩的蓄能环，随蓄力进度压缩到炮口核心
     const ringRadius = Math.max(4.5, 29 * (1 - t ** 1.25) + 4.5);
     ctx.save();
     ctx.strokeStyle = `rgba(255,222,138,${0.18 + strength * 0.72})`;
@@ -2169,6 +2191,75 @@ function drawHeavyCannonCharge(ctx, s, t) {
         ctx.arc(s.muzzleX, s.muzzleY, coreR, 0, Math.PI * 2);
         ctx.fill();
     }
+}
+
+function drawHeavyCannonMuzzle(ctx, burst, t) {
+    ctx.rotate(burst.angle);
+    const flash = Math.max(0, 1 - t * 2.5);
+    const reach = (burst.isCrit ? 1.75 : 1.45) * (0.72 + 0.28 * flash);
+    const flame = ctx.createLinearGradient(-0.25, 0, reach, 0);
+    flame.addColorStop(0, '#ff9b40');
+    flame.addColorStop(0.25, '#fff9d8');
+    flame.addColorStop(0.6, '#ffb945');
+    flame.addColorStop(1, 'rgba(255,100,25,0)');
+    ctx.globalAlpha = flash;
+    ctx.fillStyle = flame;
+    ctx.beginPath();
+    ctx.moveTo(-0.25, 0);
+    ctx.quadraticCurveTo(0.05, -0.46, 0.4, -0.26);
+    ctx.lineTo(reach, 0);
+    ctx.lineTo(0.4, 0.26);
+    ctx.quadraticCurveTo(0.05, 0.46, -0.25, 0);
+    ctx.fill();
+
+    if (settings.reducedMotion) return;
+    ctx.strokeStyle = '#ffe0a1';
+    for (let i = 0; i < 2; i++) {
+        const age = Math.max(0, (t - i * 0.15) / (1 - i * 0.15));
+        if (age === 0) continue;
+        ctx.globalAlpha = (1 - age) ** 2 * 0.8;
+        ctx.lineWidth = 0.065 * (1 - age * 0.6);
+        ctx.beginPath();
+        ctx.ellipse(0.28 + age * (1.35 - i * 0.22), 0, 0.11 + age * 0.12, 0.22 + age * 0.54, 0, 0, Math.PI * 2);
+        ctx.stroke();
+    }
+}
+
+function drawHeavyCannonImpact(ctx, burst, t) {
+    const flash = Math.max(0, 1 - t * 3.7);
+    const radius = 0.7 + Math.min(1, t * 6) * 0.95;
+    const glow = ctx.createRadialGradient(0, -0.25, 0, 0, -0.25, radius);
+    glow.addColorStop(0, '#fff9db');
+    glow.addColorStop(0.24, '#ffdd79');
+    glow.addColorStop(0.57, 'rgba(255,107,30,0.72)');
+    glow.addColorStop(1, 'rgba(196,58,18,0)');
+    ctx.globalAlpha = flash;
+    ctx.fillStyle = glow;
+    ctx.fillRect(-radius, -0.25 - radius, radius * 2, radius * 2);
+
+    if (settings.reducedMotion) return;
+    const plumeHeight = 0.85 + Math.min(1, t * 5) * 1.35;
+    const plume = ctx.createLinearGradient(0, -plumeHeight, 0, 0.18);
+    plume.addColorStop(0, 'rgba(255,85,22,0)');
+    plume.addColorStop(0.48, '#ff9c37');
+    plume.addColorStop(0.86, '#fff3b2');
+    plume.addColorStop(1, 'rgba(255,171,56,0)');
+    ctx.globalAlpha = flash ** 1.4;
+    ctx.fillStyle = plume;
+    ctx.beginPath();
+    ctx.moveTo(-0.42, 0.18);
+    ctx.quadraticCurveTo(-0.72, -0.32, -0.27, -plumeHeight * 0.74);
+    ctx.lineTo(0.11, -plumeHeight);
+    ctx.quadraticCurveTo(0.42, -plumeHeight * 0.62, 0.52, 0.18);
+    ctx.fill();
+
+    const spread = (burst.areaImpact ? 2.6 : 1.45) * (0.22 + 0.78 * (1 - (1 - t) ** 3));
+    ctx.globalAlpha = (1 - t) ** 2 * 0.75;
+    ctx.strokeStyle = '#ffe3b3';
+    ctx.lineWidth = 0.12 * (1 - t * 0.6);
+    ctx.beginPath();
+    ctx.ellipse(0, 0.1, spread, spread * 0.48, 0, 0, Math.PI * 2);
+    ctx.stroke();
 }
 
 export function drawHeavyCannonShells(ctx2d, now) {
@@ -2226,6 +2317,16 @@ export function drawHeavyCannonShells(ctx2d, now) {
         ctx2d.beginPath();
         ctx2d.arc(hx, hy, s.isCrit ? 5.6 : 4.6, 0, Math.PI * 2);
         ctx2d.fill();
+        ctx2d.restore();
+    }
+    for (const burst of heavyCannonBursts) {
+        const t = (now - burst.startedAt) / burst.duration;
+        if (t < 0 || t >= 1) continue;
+        ctx2d.save();
+        ctx2d.translate(burst.x, burst.y);
+        ctx2d.scale(HEX_SIZE, HEX_SIZE);
+        if (burst.angle === undefined) drawHeavyCannonImpact(ctx2d, burst, t);
+        else drawHeavyCannonMuzzle(ctx2d, burst, t);
         ctx2d.restore();
     }
 }
@@ -2652,6 +2753,7 @@ export function clearTransientEffects() {
     projectiles.length = 0;
     droneProjectiles.length = 0;
     heavyCannonShells.length = 0;
+    heavyCannonBursts.length = 0;
     katyushaRockets.length = 0;
     banzaiDashes.length = 0;
     guerrillaAmbushes.length = 0;

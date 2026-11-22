@@ -20,7 +20,7 @@ import { normalizeFactionRuleMode } from '../rules/cultures.js';
 import { getStandardMap } from '../rules/standardMaps.js';
 import { applyHistoricalNeutralAppearance } from '../rules/historicalNeutral.js';
 import { syncCityHpMirrors } from '../rules/citySiege.js';
-import { ATTACK_PRESENTATION, classifyAttackPresentation, CARRIER_STRAFE_IMPACT_MS } from '../rules/attackPresentation.js';
+import { ATTACK_PRESENTATION, classifyAttackPresentation, CARRIER_STRAFE_IMPACT_MS, HEAVY_CANNON_IMPACT_MS } from '../rules/attackPresentation.js';
 import { TACTICAL_CARD_CONFIG } from '../rules/cards.js';
 import { buildBoardFromConfig } from '../campaign/runtime/mapBuilder.js';
 import { resetMatchState, restoreMatchState } from '../engine/matchState.js';
@@ -456,14 +456,20 @@ function syncUnitRankAndSpec(unit, changes) {
     }
 }
 
-function getImpactDelayForStep(step, state) {
+const LEGACY_HEAVY_CANNON_IMPACT_MS = 955;
+const CARD_PRESENTATION_MS = 1600;
+
+function getImpactDelayForStep(step) {
     const p = step?.payload || {};
+    if (step.actionType === 'endTurn' && Array.isArray(p.heavyCannonVolleys) && p.heavyCannonVolleys.length) {
+        return HEAVY_CANNON_IMPACT_MS;
+    }
     if (step.actionType === 'tacticalCard' && p.cardId && p.cardId !== 'airdrop') {
         if (p.cardId === 'diveStrafe' || p.cardId === 'carpetBomb') return 2800;
         if (p.cardId === 'forceMarch' && Array.isArray(p.heavyCannonVolleys) && p.heavyCannonVolleys.length > 0) {
-            return 1600 + 700;
+            return CARD_PRESENTATION_MS + HEAVY_CANNON_IMPACT_MS;
         }
-        return 1600;
+        return CARD_PRESENTATION_MS;
     }
     if (step.actionType === 'airCommand') {
         if (p.kind === 'stukaDiveBomb') return 1000;
@@ -473,7 +479,7 @@ function getImpactDelayForStep(step, state) {
     if (step.actionType === 'attack') {
         const pres = classifyAttackPresentation(p);
         if (pres === ATTACK_PRESENTATION.FIRE_AIR_STRAFE) return CARRIER_STRAFE_IMPACT_MS;
-        if (p.attackerType === 'fr_heavy_cannon') return 700;
+        if (p.attackerType === 'fr_heavy_cannon') return HEAVY_CANNON_IMPACT_MS;
         if (p.attackerType === 'ru_katyusha') return 750;
         if (pres === ATTACK_PRESENTATION.FIRE_TORPEDO) return 420;
         if (p.attackerType === 'us_marine') return 260;
@@ -496,10 +502,21 @@ function applyChangesBucket(changes, step, state, deps, preUnits, impactDelay, f
     const { UnitClass, computeCampBorders, invalidateBoard, forceDistrictFade } = deps;
     const now = performance.now();
     const p = step.payload || {};
-    const impactFor = id => step.actionType === 'cultureStrike'
-        ? (String(p.landingMine?.unitId) === String(id) ? p.landingMine.delayMs
-            : p.results?.find(hit => String(hit.unitId) === String(id))?.delayMs ?? impactDelay)
-        : impactDelay;
+    const impactFor = id => {
+        if (step.actionType === 'cultureStrike') {
+            return String(p.landingMine?.unitId) === String(id) ? p.landingMine.delayMs
+                : p.results?.find(hit => String(hit.unitId) === String(id))?.delayMs ?? impactDelay;
+        }
+        if (step.actionType === 'endTurn' && impactDelay === HEAVY_CANNON_IMPACT_MS) {
+            const unit = preUnits.get(String(id));
+            const targeted = unit && p.heavyCannonVolleys.some(volley => volley && (
+                (volley.toQ === unit.q && volley.toR === unit.r)
+                || volley.splash?.some(hit => hit.q === unit.q && hit.r === unit.r)
+            ));
+            return targeted ? impactDelay : 0;
+        }
+        return impactDelay;
+    };
     let borderDirty = false;
 
     for (const move of changes.unitsMoved || []) {
@@ -607,12 +624,14 @@ function applyChangesBucket(changes, step, state, deps, preUnits, impactDelay, f
         const unit = findUnitInState(state, removed.id);
         const pre = preUnits.get(String(removed.id));
         if (unit && unit.tile?.unit === unit) unit.tile.unit = null;
-        if (deathGhostMs > 0 && (unit || pre?.unit)) {
+        const ghostMs = step.actionType === 'cultureStrike' || step.actionType === 'endTurn'
+            ? impactFor(removed.id) : deathGhostMs;
+        if (ghostMs > 0 && (unit || pre?.unit)) {
             const ghostUnit = unit || pre.unit;
             ghostUnit.hp = Math.max(1, Number(pre?.hp || ghostUnit.hp || 1));
             ghostUnit.displayHp = Number(pre?.displayHp || ghostUnit.hp || 1);
             (state.unitDeathGhosts ||= []).push({ unit: ghostUnit,
-                until: now + (step.actionType === 'cultureStrike' ? impactFor(removed.id) : deathGhostMs) });
+                until: now + ghostMs });
         }
         fxMeta.removedUnits.push({ removed, pre });
     }
@@ -864,8 +883,12 @@ function buildEnrichedPayload(step, state, preUnits, fxMeta, impactDelay) {
 
     const recordedFloats = step.outcome?.floatTexts;
     if (Array.isArray(recordedFloats) && recordedFloats.length > 0) {
+        const hasHeavyCannon = p.attackerType === 'fr_heavy_cannon' || p.counterType === 'fr_heavy_cannon' || p.heavyCannonVolleys?.length;
+        const oldImpactMs = LEGACY_HEAVY_CANNON_IMPACT_MS + (p.cardId === 'forceMarch' ? CARD_PRESENTATION_MS : 0);
         p.floatTexts = recordedFloats.map(ft => ({
             ...ft,
+            ...(hasHeavyCannon && Math.round(ft.delayMs) === oldImpactMs
+                ? { delayMs: ft.delayMs + HEAVY_CANNON_IMPACT_MS - LEGACY_HEAVY_CANNON_IMPACT_MS } : {}),
             timeLeft: Number.isFinite(ft.timeLeft) ? ft.timeLeft : (ft.kind === 'damage' || !ft.kind ? 900 : 1000)
         }));
     } else {
@@ -888,7 +911,7 @@ function buildEnrichedPayload(step, state, preUnits, fxMeta, impactDelay) {
                 && p.attackerUnitId != null
                 && String(hd.unit?.id) === String(p.attackerUnitId);
             const counterDelay = isCounterTarget
-                ? (p.counterType === 'ru_katyusha' ? 750 : p.counterType === 'fr_heavy_cannon' ? 700 : p.counterType === 'us_marine' ? 260 : impactDelay)
+                ? (p.counterType === 'ru_katyusha' ? 750 : p.counterType === 'fr_heavy_cannon' ? HEAVY_CANNON_IMPACT_MS : p.counterType === 'us_marine' ? 260 : impactDelay)
                 : impactDelay;
             pushFloat({
                 kind: hd.delta > 0 ? 'heal' : 'damage',
@@ -919,7 +942,7 @@ function buildEnrichedPayload(step, state, preUnits, fxMeta, impactDelay) {
                 } else if (p.attackerUnitId != null && String(p.attackerUnitId) === rid && Number(p.counterDmg) > 0) {
                     dmgVal = p.counterDmg;
                     crit = Boolean(p.counterIsCrit);
-                    dMs = p.counterType === 'ru_katyusha' ? 750 : p.counterType === 'fr_heavy_cannon' ? 700 : p.counterType === 'us_marine' ? 260 : impactDelay;
+                    dMs = p.counterType === 'ru_katyusha' ? 750 : p.counterType === 'fr_heavy_cannon' ? HEAVY_CANNON_IMPACT_MS : p.counterType === 'us_marine' ? 260 : impactDelay;
                 } else {
                     const hitMatch = [
                         ...(p.specializationSplashResults || []),
@@ -1051,7 +1074,7 @@ export function applyReplayStep(step, state, deps) {
         });
     }
 
-    const impactDelay = getImpactDelayForStep(step, state);
+    const impactDelay = getImpactDelayForStep(step);
     const fxMeta = {
         movedUnits: [],
         addedUnits: [],
@@ -1081,7 +1104,7 @@ export function applyReplayStep(step, state, deps) {
 
     const counterDelay = step.actionType === 'attack' && enrichedPayload.counterDmg > 0
         ? (enrichedPayload.counterType === 'ru_katyusha' ? 750
-            : enrichedPayload.counterType === 'fr_heavy_cannon' ? 700
+            : enrichedPayload.counterType === 'fr_heavy_cannon' ? HEAVY_CANNON_IMPACT_MS
             : enrichedPayload.counterType === 'us_marine' ? 260
             : 220)
         : 0;
