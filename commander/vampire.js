@@ -1,5 +1,6 @@
 // 吸血鬼 —— 嗜血
 import { COMMANDER_CONFIG } from '../rules/commanders.js';
+import { enqueueFloatText } from '../js/floatTexts.js';
 
 const { definition: DEFINITION, balance: BALANCE } = COMMANDER_CONFIG.vampire;
 
@@ -23,6 +24,11 @@ export default {
         unit._shield = newShield;
         unit._shieldMax = Math.max(unit._shieldMax || 0, BALANCE.shieldCap);
         if (shieldGain > 0) {
+          if (unit.tile) {
+            const { x, y, q, r } = unit.tile;
+            enqueueFloatText({ kind: 'shield', sign: '+', x, y, q, r, value: shieldGain },
+              { gs: helpers.gameState, stagger: false });
+          }
           helpers.logMessage(`吸血鬼【嗜血】：溢出治疗转化为护盾+${shieldGain} 当前护盾${unit._shield}/${BALANCE.shieldCap}`);
         }
       }

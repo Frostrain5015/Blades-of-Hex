@@ -224,7 +224,6 @@ on('fx:celestineOraclePulse', event => {
                 }, { broadcast: false });
                 spawnHealParticles(point.x, point.y);
             }
-            playSound('heal');
         };
         if (statueOk && point) {
             spawnCelestineOracleBeam(event.statueX, event.statueY, point.x, point.y, 'shield', heroDelayMs + timing.shieldFollowMs, timing);

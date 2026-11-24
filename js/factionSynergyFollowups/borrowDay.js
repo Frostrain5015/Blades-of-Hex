@@ -74,6 +74,7 @@ export function createBorrowDayFollowup({ root, event, presentation, stageRect }
             createPetal(center, startMs, Math.random() < 0.3 ? coreColor : rayColor, viewport.width, viewport.height));
 
         let lastDrawAt = 0;
+        let shieldSoundPlayed = false;
         const draw = now => {
             const elapsed = now - startedAt;
             if (elapsed < startMs - FRAME_INTERVAL_MS) {
@@ -87,6 +88,10 @@ export function createBorrowDayFollowup({ root, event, presentation, stageRect }
             lastDrawAt = now;
             context.clearRect(0, 0, viewport.width, viewport.height);
             const local = elapsed - startMs;
+            if (!shieldSoundPlayed && event?.affectedIds?.length && local >= ERUPTION_MS && elapsed < durationMs) {
+                shieldSoundPlayed = true;
+                emit('audio:play', { soundName: 'shield' });
+            }
 
             // 阶段1：日珥爆发（中心亮核 → 金色日珥向外喷射）
             const eruptionT = Math.max(0, Math.min(1, local / ERUPTION_MS));

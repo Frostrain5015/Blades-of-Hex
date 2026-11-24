@@ -18,6 +18,8 @@
 // commander 模块作为入口时触发 TDZ。改为由 state.js 在创建 gameState 后反向注册。
 // 所有调用方也可经 options.gs 显式传入目标状态（headless 测试的自定义状态对象）。
 
+import { emit } from './eventBus.js';
+
 let _stateRef = null;
 export function setFloatTextsStateRef(ref) { _stateRef = ref; }
 function _defaultState() { return _stateRef; }
@@ -165,9 +167,8 @@ export function flushFloatTexts(now, gs = null) {
     const state = gs || _defaultState();
     if (!state) return;
     const pending = state.floatTextPending;
-    if (!pending || pending.length === 0) return;
-    _ensureArrays(state);
-    for (let i = pending.length - 1; i >= 0; i--) {
+    if (pending?.length) _ensureArrays(state);
+    for (let i = (pending?.length || 0) - 1; i >= 0; i--) {
         const entry = pending[i];
         if (entry.showAt > now) continue;
         pending.splice(i, 1);
@@ -175,6 +176,15 @@ export function flushFloatTexts(now, gs = null) {
         delete record.showAt;
         _activeArray(state, entry.kind || 'damage').push(record);
     }
+
+    // Play once when positive shield text enters the presentation, including replayed text.
+    let shieldGained = false;
+    for (const text of state.shieldTexts || []) {
+        if (text.sign !== '+' || !(text.value > 0) || text._shieldCuePlayed) continue;
+        text._shieldCuePlayed = true;
+        if (now - text.lastUpdate < text.timeLeft) shieldGained = true;
+    }
+    if (shieldGained) emit('audio:play', { soundName: 'shield' });
 }
 
 /**

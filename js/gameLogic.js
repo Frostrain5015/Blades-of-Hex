@@ -5877,6 +5877,12 @@ function _executeTacticalCard(cardId, targetTile, _fromX = 0, _fromY = 0) {
         case 'commanderDeploy': {
             const cmdCfg = getCommander(result.commander);
             logMessage(`${myCamp.name}【${cmdCfg?.name || result.commander}】部署到${targetTile.unit.config.name}`);
+            if (result.deployed && result.commander === 'ironGuard' && targetTile.unit._shield > 0) {
+                enqueueFloatText({
+                    kind: 'shield', sign: '+', x, y, q: targetTile.q, r: targetTile.r,
+                    value: targetTile.unit._shield, delayMs: BURN_MS
+                }, { stagger: false });
+            }
             if (isNetworkGame()) {
                 syncCommanderState(
                     gameState.commanderPoolP1, gameState.commanderPoolP2,
